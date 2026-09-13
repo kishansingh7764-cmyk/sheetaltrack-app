@@ -1,6 +1,4 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
+<!DOCTYPE html>\n<html lang="en"><head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>SheetalTrack</title>
@@ -11,8 +9,8 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="SheetalTrack">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&amp;family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
@@ -121,11 +119,42 @@ label{display:block;font-size:12.5px;color:var(--ink-soft);margin-bottom:5px;fon
 </style>
 </head>
 <body>
-<div id="app"></div>
+<div id="app">
+  <div class="topbar"><div class="brand"><div class="brand-mark" style="width:30px;height:30px;font-size:15px;">❄️</div><div class="brand-text"><div class="name">SheetalTrack</div><div class="who">Admin · Admin</div></div></div><button class="logout-btn" id="logoutBtn">Logout</button></div>
+  <div class="content">
+    <div class="section-title">Settings</div>
+    <div class="card"><div class="item-name" style="margin-bottom:10px;">Admin</div><div class="field"><label>Naya PIN set karein</label><input id="f_newOwnPin" type="password" inputmode="numeric" maxlength="6" placeholder="Naya PIN"></div><button class="primary-btn" id="changePinBtn">PIN Update Karein</button></div>
+    
+      <div class="section-title" style="margin-top:20px;">Business Details (Invoice/AMC PDF ke liye)</div>
+      <div class="card"><div class="field"><label>Business Naam</label><input id="f_bizname" value="Super Air Cool"></div><div class="field"><label>Phone</label><input id="f_bizphone" value=""></div><div class="field"><label>Address</label><input id="f_bizaddress" value=""></div><div class="field"><label>Terms &amp; Conditions (Invoice/AMC PDF mein dikhega)</label><textarea id="f_bizterms" rows="4" placeholder="e.g. Payment due within 7 days."></textarea></div><button class="primary-btn" id="saveBizBtn" style="margin-top:0;">Save Karein</button></div>
+      <div class="section-title" style="margin-top:20px;">Team ke PIN Reset Karein</div>
+      <div class="card"><div class="row-between"><div><div class="item-name">Kishan singh</div><div class="item-sub">Technician</div></div><button class="mini-btn" style="flex:none;padding:8px 12px;" data-act="resetpin" data-id="mtzj5c8s2477a">Reset PIN</button></div></div>
+      <div class="section-title" style="margin-top:20px;">Email Reminders (AMC)</div>
+      <div class="card"><div class="item-sub" style="margin-bottom:10px;">Jin AMC customers ka email hai aur agle 3 mahine mein AMC expire ho raha hai, unhe reminder email bhejein. Yeh free hai (Gmail ki roz ~100 email ki limit ke andar), aur sirf tab jayega jab aap yeh button dabayenge.</div>
+        <div class="card-actions"><button class="mini-btn primary" id="sendRemindersBtn">📧 3-Month Reminders Bhejein</button></div></div>
+      <div class="section-title" style="margin-top:20px;">Customers Import (Excel/CSV)</div>
+      <div class="card"><div class="item-sub" style="margin-bottom:10px;">Apni Excel (.xlsx) ya CSV file seedhi import karein — jaisi file hai waisi hi upload karein.</div>
+        <div class="card-actions"><button class="mini-btn primary" id="importCsvBtn">📄 Excel/CSV Se Import Karein</button></div>
+        <input type="file" id="importCsvFile" accept=".csv,.xlsx,.xls" class="hidden"></div>
+      <div class="card"><div class="item-sub" style="margin-bottom:10px;color:var(--red);">Agar galat file import ho gayi ho — safety ke liye neeche "DELETE" type karna zaroori hai:</div>
+        <input id="clearConfirmInput" placeholder="Type &quot;DELETE&quot; to confirm" style="margin-bottom:10px;">
+        <div class="card-actions"><button class="mini-btn danger" id="clearCustBtn">🗑 Sab Customers Clear Karein</button></div></div>
+      <div class="section-title" style="margin-top:20px;">Data Backup</div>
+      <div class="card"><div class="item-sub" style="margin-bottom:10px;">Extra safety ke liye poora data ek file mein bhi save kar sakte hain.</div><div class="card-actions"><button class="mini-btn primary" id="exportBtn">⬇ Backup Download</button><button class="mini-btn" id="importBtn">⬆ Backup Restore</button></div><input type="file" id="importFile" accept=".json" class="hidden"></div>
+      <div class="section-title" style="margin-top:20px;">Team Ko App Bhejein</div>
+      <div class="card"><div class="item-sub" style="margin-bottom:10px;">Yeh ek naya file banayegi jisme Google Sheet URL pehle se fit hoga — team member ko sirf file kholni hai.</div>
+        <div class="card-actions"><button class="mini-btn primary" id="teamVersionBtn">📲 Team Version Download Karein</button></div></div>
+      <div class="section-title" style="margin-top:20px;">Connected Google Sheet</div>
+      <div class="card"><div class="item-sub">Data yahan save ho raha hai:</div><div class="urlbox">https://script.google.com/macros/s/AKfycbxylRUmian1V_9bGSJ7NGLNAht4bpQzEIvOSzpuaVx28nkkvGhAVD3gGjM9d8RbogyXeA/exec</div><div class="card-actions" style="margin-top:10px;"><button class="mini-btn danger" id="disconnectBtn">Disconnect / Change Sheet</button></div></div>
+    
+  </div>
+  
+  
+  <div class="bottomnav"><button class="navbtn " data-view="dashboard"><span class="ic">🏠</span>Home</button><button class="navbtn " data-view="customers"><span class="ic">🛡️</span>AMC</button><button class="navbtn " data-view="jobs"><span class="ic">🧾</span>Jobs</button><button class="navbtn " data-view="staff"><span class="ic">🧑‍🔧</span>Team</button><button class="navbtn " data-view="attendance"><span class="ic">📅</span>Attend.</button><button class="navbtn " data-view="map"><span class="ic">📍</span>Map</button><button class="navbtn active" data-view="settings"><span class="ic">⚙️</span>Settings</button></div></div>
 
 <script>
 /* ============ Backend config (Google Apps Script Web App URL) ============ */
-const DEFAULT_BACKEND_URL='';
+const DEFAULT_BACKEND_URL='https://script.google.com/macros/s/AKfycbxylRUmian1V_9bGSJ7NGLNAht4bpQzEIvOSzpuaVx28nkkvGhAVD3gGjM9d8RbogyXeA/exec';
 function getBackendUrl(){ try{ return localStorage.getItem('sheetaltrack_backend_url')||DEFAULT_BACKEND_URL||''; }catch(e){ return DEFAULT_BACKEND_URL||''; } }
 function setBackendUrl(u){ try{ localStorage.setItem('sheetaltrack_backend_url', u); }catch(e){} }
 function clearBackendUrl(){ try{ localStorage.removeItem('sheetaltrack_backend_url'); }catch(e){} }
@@ -1448,5 +1477,6 @@ function val(id){ const el=document.getElementById(id); return el?el.value.trim(
 if('serviceWorker' in navigator){ navigator.serviceWorker.register('sw.js').catch(()=>{}); }
 boot();
 </script>
-</body>
-</html>
+
+
+</body></html>
