@@ -1,4 +1,6 @@
-<!DOCTYPE html>\n<html lang="en"><head>
+<!DOCTYPE html>
+<html lang="en">
+<head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>SheetalTrack</title>
@@ -9,8 +11,8 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="SheetalTrack">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&amp;family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
@@ -119,42 +121,11 @@ label{display:block;font-size:12.5px;color:var(--ink-soft);margin-bottom:5px;fon
 </style>
 </head>
 <body>
-<div id="app">
-  <div class="topbar"><div class="brand"><div class="brand-mark" style="width:30px;height:30px;font-size:15px;">❄️</div><div class="brand-text"><div class="name">SheetalTrack</div><div class="who">Admin · Admin</div></div></div><button class="logout-btn" id="logoutBtn">Logout</button></div>
-  <div class="content">
-    <div class="section-title">Settings</div>
-    <div class="card"><div class="item-name" style="margin-bottom:10px;">Admin</div><div class="field"><label>Naya PIN set karein</label><input id="f_newOwnPin" type="password" inputmode="numeric" maxlength="6" placeholder="Naya PIN"></div><button class="primary-btn" id="changePinBtn">PIN Update Karein</button></div>
-    
-      <div class="section-title" style="margin-top:20px;">Business Details (Invoice/AMC PDF ke liye)</div>
-      <div class="card"><div class="field"><label>Business Naam</label><input id="f_bizname" value="Super Air Cool"></div><div class="field"><label>Phone</label><input id="f_bizphone" value=""></div><div class="field"><label>Address</label><input id="f_bizaddress" value=""></div><div class="field"><label>Terms &amp; Conditions (Invoice/AMC PDF mein dikhega)</label><textarea id="f_bizterms" rows="4" placeholder="e.g. Payment due within 7 days."></textarea></div><button class="primary-btn" id="saveBizBtn" style="margin-top:0;">Save Karein</button></div>
-      <div class="section-title" style="margin-top:20px;">Team ke PIN Reset Karein</div>
-      <div class="empty-state"><span class="ic">🧑‍🔧</span><p>Koi staff add nahi hai.</p></div>
-      <div class="section-title" style="margin-top:20px;">Email Reminders (AMC)</div>
-      <div class="card"><div class="item-sub" style="margin-bottom:10px;">Jin AMC customers ka email hai aur agle 3 mahine mein AMC expire ho raha hai, unhe reminder email bhejein. Yeh free hai (Gmail ki roz ~100 email ki limit ke andar), aur sirf tab jayega jab aap yeh button dabayenge.</div>
-        <div class="card-actions"><button class="mini-btn primary" id="sendRemindersBtn">📧 3-Month Reminders Bhejein</button></div></div>
-      <div class="section-title" style="margin-top:20px;">Customers Import (Excel/CSV)</div>
-      <div class="card"><div class="item-sub" style="margin-bottom:10px;">Apni Excel (.xlsx) ya CSV file seedhi import karein — jaisi file hai waisi hi upload karein.</div>
-        <div class="card-actions"><button class="mini-btn primary" id="importCsvBtn">📄 Excel/CSV Se Import Karein</button></div>
-        <input type="file" id="importCsvFile" accept=".csv,.xlsx,.xls" class="hidden"></div>
-      <div class="card"><div class="item-sub" style="margin-bottom:10px;color:var(--red);">Agar galat file import ho gayi ho — safety ke liye neeche "DELETE" type karna zaroori hai:</div>
-        <input id="clearConfirmInput" placeholder="Type &quot;DELETE&quot; to confirm" style="margin-bottom:10px;">
-        <div class="card-actions"><button class="mini-btn danger" id="clearCustBtn">🗑 Sab Customers Clear Karein</button></div></div>
-      <div class="section-title" style="margin-top:20px;">Data Backup</div>
-      <div class="card"><div class="item-sub" style="margin-bottom:10px;">Extra safety ke liye poora data ek file mein bhi save kar sakte hain.</div><div class="card-actions"><button class="mini-btn primary" id="exportBtn">⬇ Backup Download</button><button class="mini-btn" id="importBtn">⬆ Backup Restore</button></div><input type="file" id="importFile" accept=".json" class="hidden"></div>
-      <div class="section-title" style="margin-top:20px;">Team Ko App Bhejein</div>
-      <div class="card"><div class="item-sub" style="margin-bottom:10px;">Yeh ek naya file banayegi jisme Google Sheet URL pehle se fit hoga — team member ko sirf file kholni hai.</div>
-        <div class="card-actions"><button class="mini-btn primary" id="teamVersionBtn">📲 Team Version Download Karein</button></div></div>
-      <div class="section-title" style="margin-top:20px;">Connected Google Sheet</div>
-      <div class="card"><div class="item-sub">Data yahan save ho raha hai:</div><div class="urlbox">https://script.google.com/macros/s/AKfycbxylRUmian1V_9bGSJ7NGLNAht4bpQzEIvOSzpuaVx28nkkvGhAVD3gGjM9d8RbogyXeA/exec</div><div class="card-actions" style="margin-top:10px;"><button class="mini-btn danger" id="disconnectBtn">Disconnect / Change Sheet</button></div></div>
-    
-  </div>
-  
-  
-  <div class="bottomnav"><button class="navbtn " data-view="dashboard"><span class="ic">🏠</span>Home</button><button class="navbtn " data-view="customers"><span class="ic">🛡️</span>AMC</button><button class="navbtn " data-view="jobs"><span class="ic">🧾</span>Jobs</button><button class="navbtn " data-view="staff"><span class="ic">🧑‍🔧</span>Team</button><button class="navbtn " data-view="attendance"><span class="ic">📅</span>Attend.</button><button class="navbtn " data-view="map"><span class="ic">📍</span>Map</button><button class="navbtn active" data-view="settings"><span class="ic">⚙️</span>Settings</button></div></div>
+<div id="app"></div>
 
 <script>
 /* ============ Backend config (Google Apps Script Web App URL) ============ */
-const DEFAULT_BACKEND_URL='https://script.google.com/macros/s/AKfycbxylRUmian1V_9bGSJ7NGLNAht4bpQzEIvOSzpuaVx28nkkvGhAVD3gGjM9d8RbogyXeA/exec';
+const DEFAULT_BACKEND_URL='';
 function getBackendUrl(){ try{ return localStorage.getItem('sheetaltrack_backend_url')||DEFAULT_BACKEND_URL||''; }catch(e){ return DEFAULT_BACKEND_URL||''; } }
 function setBackendUrl(u){ try{ localStorage.setItem('sheetaltrack_backend_url', u); }catch(e){} }
 function clearBackendUrl(){ try{ localStorage.removeItem('sheetaltrack_backend_url'); }catch(e){} }
@@ -233,15 +204,7 @@ async function init(){
   const photos={};
   loaded.forEach(({jobId,v})=>{ if(v){ if(!photos[jobId]) photos[jobId]=[]; photos[jobId].push(v); } });
   STATE.photos=photos;
-  const doneJobIds=jobs.filter(j=>j.status==='done').map(j=>j.id);
-  const amcCustIds=customers.filter(c=>c.type==='amc').map(c=>c.id);
-  const [sigResults, amcSigResults] = await Promise.all([
-    Promise.all(doneJobIds.map(id=>loadKey(jobSigKey(id), null).then(v=>({id,v})))),
-    Promise.all(amcCustIds.map(id=>loadKey(amcSigKey(id), null).then(v=>({id,v})))),
-  ]);
-  const signatures={}; sigResults.forEach(({id,v})=>{ if(v) signatures[id]=v; });
-  const amcSignatures={}; amcSigResults.forEach(({id,v})=>{ if(v) amcSignatures[id]=v; });
-  STATE.signatures=signatures; STATE.amcSignatures=amcSignatures;
+  STATE.signatures={}; STATE.amcSignatures={};
   STATE.loading=false;
   render();
 }
@@ -672,11 +635,12 @@ async function addJobPhoto(jobId, file){
 }
 
 /* ============ Invoice / AMC PDF ============ */
-function generateInvoice(jobId){
+async function generateInvoice(jobId){
   const j=STATE.jobs.find(x=>x.id===jobId); if(!j) return;
   const c=STATE.customers.find(x=>x.id===j.customerId);
   const b=STATE.businessInfo;
-  const sig=STATE.signatures[jobId];
+  let sig=STATE.signatures[jobId];
+  if(sig===undefined){ sig=await loadKey(jobSigKey(jobId), null); STATE.signatures[jobId]=sig; }
   const starsHtml = j.rating ? '★'.repeat(j.rating)+'☆'.repeat(5-j.rating) : '';
   const html=`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Invoice</title>
   <style>body{font-family:Arial,sans-serif;padding:30px;color:#122327;max-width:600px;margin:0 auto;}
@@ -703,10 +667,20 @@ function generateInvoice(jobId){
   document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
   showToast('Invoice download ho gayi — usse khol ke Print/PDF kar sakte hain');
 }
-function generateAmcPdf(customerId){
+async function openCustomerProfile(id){
+  STATE.customerDetailId=id; STATE.view='customerProfile'; render();
+  const c=STATE.customers.find(x=>x.id===id);
+  if(c && c.type==='amc' && STATE.amcSignatures[id]===undefined){
+    const sig=await loadKey(amcSigKey(id), null);
+    STATE.amcSignatures[id]=sig;
+    if(STATE.view==='customerProfile' && STATE.customerDetailId===id) render();
+  }
+}
+async function generateAmcPdf(customerId){
   const c=STATE.customers.find(x=>x.id===customerId); if(!c) return;
   const b=STATE.businessInfo;
-  const sig=STATE.amcSignatures[customerId];
+  let sig=STATE.amcSignatures[customerId];
+  if(sig===undefined){ sig=await loadKey(amcSigKey(customerId), null); STATE.amcSignatures[customerId]=sig; }
   const html=`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>AMC Contract</title>
   <style>body{font-family:Arial,sans-serif;padding:30px;color:#122327;max-width:600px;margin:0 auto;}
   h1{font-size:20px;color:#0A343F;margin-bottom:2px;} .muted{color:#54696E;font-size:13px;}
@@ -759,13 +733,15 @@ function renderSetup(){
 function bindSetupEvents(){
   const input=document.getElementById('setupUrl'); if(input) input.oninput=(e)=>{ setupUrlInput=e.target.value; };
   const btn=document.getElementById('connectBtn');
-  if(btn) btn.onclick=async ()=>{
+  const doConnect=async ()=>{
     const url=(document.getElementById('setupUrl')||{}).value.trim();
     if(!url || !url.includes('script.google')){ STATE.backendError='Sahi Apps Script URL paste karein (script.google.com se shuru hona chahiye)'; render(); return; }
     STATE.backendError=''; STATE.booting=true; render();
     setBackendUrl(url);
     await boot();
   };
+  if(btn) btn.onclick=doConnect;
+  if(input) input.onkeydown=(e)=>{ if(e.key==='Enter'){ e.preventDefault(); doConnect(); } };
 }
 
 /* ============ Login screen ============ */
@@ -815,15 +791,20 @@ function bindLoginEvents(){
   const pinInput=document.getElementById('pinInput'); if(pinInput) pinInput.oninput=(e)=>{ loginPin=e.target.value; };
   const staffSelect=document.getElementById('staffSelect'); if(staffSelect) staffSelect.onchange=(e)=>{ loginSelectedStaff=e.target.value; };
   const submitBtn=document.getElementById('loginSubmit');
-  if(submitBtn) submitBtn.onclick=()=>{
+  const doLoginSubmit=()=>{
     const pin=(document.getElementById('pinInput')||{}).value||'';
     if(loginRole==='admin'){ const recoveryA=(document.getElementById('recoveryAnswer')||{}).value||''; doAdminLogin(pin, recoveryA); }
     else{ const sel=(document.getElementById('staffSelect')||{}).value; if(!sel){ loginError='Pehle naam select karein'; render(); return; } doStaffLogin(sel, pin); }
   };
+  if(submitBtn) submitBtn.onclick=doLoginSubmit;
+  document.querySelectorAll('.login-wrap input').forEach(inp=>{
+    inp.onkeydown=(e)=>{ if(e.key==='Enter'){ e.preventDefault(); doLoginSubmit(); } };
+  });
   const forgotBtn=document.getElementById('forgotBtn'); if(forgotBtn) forgotBtn.onclick=()=>{ forgotFlow='adminRecover'; loginError=''; render(); };
   const cancelRecover=document.getElementById('cancelRecover'); if(cancelRecover) cancelRecover.onclick=()=>{ forgotFlow=null; loginError=''; render(); };
   const recoverySubmit=document.getElementById('recoverySubmit');
-  if(recoverySubmit) recoverySubmit.onclick=()=>{ const answer=(document.getElementById('recoveryAnswer')||{}).value||''; const newPin=(document.getElementById('newPinInput')||{}).value||''; doAdminRecovery(answer, newPin); };
+  const doRecoverySubmit=()=>{ const answer=(document.getElementById('recoveryAnswer')||{}).value||''; const newPin=(document.getElementById('newPinInput')||{}).value||''; doAdminRecovery(answer, newPin); };
+  if(recoverySubmit) recoverySubmit.onclick=doRecoverySubmit;
 }
 
 /* ============ App shell ============ */
@@ -1333,7 +1314,7 @@ function bindShellEvents(){
   document.querySelectorAll('[data-navto]').forEach(el=>el.onclick=()=>{ STATE.view=el.dataset.navto; render(); });
   document.querySelectorAll('[data-typefilter]').forEach(el=>el.onclick=()=>{ STATE.custTypeFilter=el.dataset.typefilter; render(); });
   if(document.getElementById('liveMapBox')){ setTimeout(initLiveMap, 0); }
-  document.querySelectorAll('[data-viewcust]').forEach(el=>el.onclick=()=>{ STATE.customerDetailId=el.dataset.viewcust; STATE.view='customerProfile'; render(); });
+  document.querySelectorAll('[data-viewcust]').forEach(el=>el.onclick=()=>{ openCustomerProfile(el.dataset.viewcust); });
   const calPrevBtn=document.getElementById('calPrevBtn');
   if(calPrevBtn) calPrevBtn.onclick=()=>{ STATE.calendarMonth--; if(STATE.calendarMonth<0){ STATE.calendarMonth=11; STATE.calendarYear--; } render(); };
   const calNextBtn=document.getElementById('calNextBtn');
@@ -1358,14 +1339,14 @@ function bindShellEvents(){
     const act=el.dataset.act, id=el.dataset.id;
     if(act==='service'){ await markServiced(id); render(); }
     else if(act==='editcust'){ const c=STATE.customers.find(x=>x.id===id); activeModal={type:'editCustomer', data:{...c, id}}; render(); }
-    else if(act==='viewcust'){ STATE.customerDetailId=id; STATE.view='customerProfile'; render(); }
+    else if(act==='viewcust'){ openCustomerProfile(id); }
     else if(act==='delcust'){ if(confirm('Customer delete karein?')){ await deleteCustomer(id); render(); } }
     else if(act==='amcservice'){ await markAmcServiceDone(id); render(); }
-    else if(act==='amcpdf'){ generateAmcPdf(id); }
+    else if(act==='amcpdf'){ await generateAmcPdf(id); }
     else if(act==='amcsign'){ activeModal={type:'amcSign', data:{id}}; render(); }
     else if(act==='jobstatus'){ await updateJobStatus(id, el.dataset.status); render(); }
     else if(act==='completejob'){ const j=STATE.jobs.find(x=>x.id===id); activeModal={type:'completeJob', data:{id, existingAmount:j?j.amount||0:0}}; render(); }
-    else if(act==='invoice'){ generateInvoice(id); }
+    else if(act==='invoice'){ await generateInvoice(id); }
     else if(act==='deljob'){ if(confirm('Job delete karein?')){ await deleteJob(id); render(); } }
     else if(act==='delstaff'){ if(confirm('Remove karein?')){ await deleteStaff(id); render(); } }
     else if(act==='resetpin'){ const s=STATE.staff.find(x=>x.id===id); activeModal={type:'resetPin', data:{id, name:s.name}}; render(); }
@@ -1467,6 +1448,5 @@ function val(id){ const el=document.getElementById(id); return el?el.value.trim(
 if('serviceWorker' in navigator){ navigator.serviceWorker.register('sw.js').catch(()=>{}); }
 boot();
 </script>
-
-
-</body></html>
+</body>
+</html>
