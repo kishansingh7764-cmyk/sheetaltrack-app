@@ -764,20 +764,34 @@ async function importLeadsFile(file, staffId){
   }catch(e){ console.error('leads import',e); showToast('File read nahi ho payi'); }
 }
 async function importLeadsFromSheet(staffId){
-  const staff=STATE.staff.find(x=>x.id===staffId); if(!staff||!staff.sheetUrl){ showToast('Pehle is telecaller ka Google Sheet link set karein'); return; }
-  showToast('Sheet se data laaya ja raha hai…');
-  try{
-    const res=await fetch(staff.sheetUrl); if(!res.ok) throw new Error('HTTP '+res.status);
-    const text=await res.text(), rows=text.split(/\r?\n/).filter(l=>l.trim()).map(l=>parseCsvLine(l));
-    if(rows.length<2){ showToast('Sheet mein data nahi mila'); return; }
-    const all=rowsToLeads(rows,staffId,staff.name,(STATE.session&&STATE.session.name)||''), fresh=dedupeLeads(all);
-    STATE.leads=(STATE.leads||[]).concat(fresh); await saveKey(SKEY.LEADS, STATE.leads); render();
-    showToast(fresh.length+' nayi leads mil gayin'+(all.length-fresh.length?' ('+(all.length-fresh.length)+' pehle se thi)':''));
-  }catch(e){ console.error('sheet fetch',e); showToast('Sheet se data nahi mil paya — link "Publish to web → CSV" wala hai check karein'); }
+  const staff=STATE.staff.find(x=>x.id===staffId); const links=(staff&&staff.sheetUrls)||[];
+  if(!staff||!links.length){ showToast('Pehle is telecaller ka Google Sheet link set karein'); return; }
+  showToast('Sheet(s) se data laaya ja raha hai…');
+  let totalFresh=0, totalAll=0, failed=[];
+  for(const lk of links){
+    try{
+      const res=await fetch(lk.url); if(!res.ok) throw new Error('HTTP '+res.status);
+      const text=await res.text(), rows=text.split(/\r?\n/).filter(l=>l.trim()).map(l=>parseCsvLine(l));
+      if(rows.length<2) continue;
+      const all=rowsToLeads(rows,staffId,staff.name,(STATE.session&&STATE.session.name)||''), fresh=dedupeLeads(all);
+      STATE.leads=(STATE.leads||[]).concat(fresh); totalFresh+=fresh.length; totalAll+=all.length;
+    }catch(e){ console.error('sheet fetch',lk,e); failed.push(lk.label||lk.url.slice(0,30)); }
+  }
+  if(totalFresh) await saveKey(SKEY.LEADS, STATE.leads);
+  render();
+  let msg=totalFresh+' nayi leads mil gayin'+(totalAll-totalFresh?' ('+(totalAll-totalFresh)+' pehle se thi)':'');
+  if(failed.length) msg+=' — '+failed.join(', ')+' se data nahi mila';
+  showToast(msg);
 }
-async function saveSheetUrl(staffId,url){
+async function addSheetUrl(staffId,url,label){
+  const s=STATE.staff.find(x=>x.id===staffId); if(!s||!url.trim()) return;
+  s.sheetUrls=(s.sheetUrls||[]).concat({url:url.trim(),label:(label||'').trim()});
+  await saveKey(SKEY.STAFF, STATE.staff); showToast('Sheet link jud gaya');
+}
+async function removeSheetUrl(staffId,idx){
   const s=STATE.staff.find(x=>x.id===staffId); if(!s) return;
-  s.sheetUrl=url.trim(); await saveKey(SKEY.STAFF, STATE.staff); showToast('Sheet link save ho gaya');
+  s.sheetUrls=(s.sheetUrls||[]).filter((x,i)=>i!==idx);
+  await saveKey(SKEY.STAFF, STATE.staff); showToast('Sheet link hata diya'); render();
 }
 async function markLeadCalled(id){
   const l=(STATE.leads||[]).find(x=>x.id===id); if(!l) return;
@@ -997,7 +1011,7 @@ function render(){
   if(!STATE.backendConnected){ app.innerHTML=renderSetup(); bindSetupEvents(); return; }
   if(STATE.loading){ app.innerHTML=`<div class="loading-screen"><div class="brand-mark" style="width:56px;height:56px;border-radius:16px;font-size:28px;margin-bottom:4px;">❄️</div><div class="spinner"></div><div>Data load ho raha hai…</div></div>`; return; }
   if(STATE.loadFailed){
-    app.innerHTML=`<div class="loading-screen"><div style="font-size:34px;">⚠️</div><div style="max-width:300px;">Connection slow/fail ho gaya — data load nahi ho paya. Kuch bhi save nahi hua, dobara try karein.<div style="font-size:11px;margin-top:8px;color:var(--ink-faint);">v3.4 · Error: ${esc(STATE.loadErr||"")}</div></div><button class="primary-btn" id="retryLoadBtn" style="width:auto;padding:12px 24px;">Dobara Try Karein</button></div>`;
+    app.innerHTML=`<div class="loading-screen"><div style="font-size:34px;">⚠️</div><div style="max-width:300px;">Connection slow/fail ho gaya — data load nahi ho paya. Kuch bhi save nahi hua, dobara try karein.<div style="font-size:11px;margin-top:8px;color:var(--ink-faint);">v3.5 · Error: ${esc(STATE.loadErr||"")}</div></div><button class="primary-btn" id="retryLoadBtn" style="width:auto;padding:12px 24px;">Dobara Try Karein</button></div>`;
     const btn=document.getElementById('retryLoadBtn'); if(btn) btn.onclick=()=>init();
     return;
   }
@@ -1009,7 +1023,7 @@ function render(){
 function renderSetup(){
   return `
   <div class="login-wrap">
-    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v3.4</p></div>
+    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v3.5</p></div>
     <div class="setup-note">Yeh app ab Firebase (Google ka free real-time database) use karti hai — pehle se tez aur reliable. Firebase Console se apna config copy karke neeche paste karein.</div>
     <div class="field"><label>Firebase Config (poora object paste karein)</label><textarea id="setupConfig" rows="8" placeholder='{"apiKey": "...", "authDomain": "...", "projectId": "...", ...}'>${setupUrlInput}</textarea></div>
     <button class="primary-btn" id="connectBtn">Connect Karein</button>
@@ -1069,7 +1083,7 @@ function renderLogin(){
   }
   return `
   <div class="login-wrap">
-    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v3.4</p></div>
+    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v3.5</p></div>
     <div class="role-grid">
       <button class="role-opt ${loginRole==='admin'?'active':''}" data-role="admin"><span class="ic">🗝️</span>Admin</button>
       <button class="role-opt ${loginRole==='subadmin'?'active':''}" data-role="subadmin"><span class="ic">🧑‍💼</span>Office</button>
@@ -1402,7 +1416,7 @@ function renderLeads(){
     const mine=leads.filter(l=>l.assignedTo===STATE.session.staffId&&!l.dismissed);
     const pending=mine.filter(l=>!l.called).sort((a,b)=>{ const da=dueInfo(a),db=dueInfo(b); if(!da&&!db) return 0; if(!da) return 1; if(!db) return -1; return da.d-db.d; });
     const doneToday=mine.filter(l=>l.called&&ymd(new Date(l.calledAt))===todayStr());
-    return `<div class="row-between" style="margin-bottom:10px;"><div class="section-title" style="margin:0;">Meri Leads</div>${staff.sheetUrl?`<button class="mini-btn" data-act="leadsheetpull" data-id="${staff.id}">🔄 Sheet se Layein</button>`:''}</div>
+    return `<div class="row-between" style="margin-bottom:10px;"><div class="section-title" style="margin:0;">Meri Leads</div>${(staff.sheetUrls&&staff.sheetUrls.length)?`<button class="mini-btn" data-act="leadsheetpull" data-id="${staff.id}">🔄 Sheet se Layein</button>`:''}</div>
       <div class="stat-grid"><div class="stat-card"><div class="stat-num">${pending.length}</div><div class="stat-label">Baaki</div></div><div class="stat-card"><div class="stat-num" style="color:var(--green);">${doneToday.length}</div><div class="stat-label">Aaj call ki</div></div></div>
       ${pending.length===0?`<div class="empty-state"><span class="ic">📇</span><p>Koi lead baaki nahi hai.</p></div>`:pending.map(l=>`<div class="card"><div class="row-between"><div class="item-name">${esc(l.customer||'—')}</div>${dueBadge(l)}</div><div class="item-sub">📞 ${esc(l.mobile||l.resTel||'')}${l.product?' · '+esc(l.product):''}</div><div class="item-sub">${esc([l.address1,l.address2,l.address3].filter(Boolean).join(', '))}${l.area?' · '+esc(l.area):''}</div>${l.purchaseDate?`<div class="item-sub">🛒 AC khareedi: ${fmtDate(l.purchaseDate)}</div>`:''}<div class="card-actions">${l.mobile?`<a class="mini-btn" style="text-decoration:none;" href="tel:${l.mobile}">📞 Call</a>`:''}<button class="mini-btn primary" data-act="leadcall" data-id="${l.id}">✅ Call Ho Gayi</button></div></div>`).join('')}
       ${doneToday.length?`<details style="margin-top:10px;"><summary class="item-sub" style="cursor:pointer;font-weight:600;">Aaj call ki hui (${doneToday.length})</summary>${doneToday.map(l=>`<div class="item-sub" style="padding:4px 0;">${esc(l.customer||'—')} — ${fmtT(l.calledAt)}</div>`).join('')}</details>`:''}`;
@@ -1410,7 +1424,7 @@ function renderLeads(){
   // admin / office view
   const callers=STATE.staff.filter(x=>x.role==='telecaller');
   const action=leads.filter(l=>l.called&&!l.dismissed&&!l.convertedJobId).sort((a,b)=>(a.calledAt||0)-(b.calledAt||0));
-  const summary=callers.map(t=>{ const m=leads.filter(l=>l.assignedTo===t.id&&!l.dismissed), c=m.filter(l=>l.called), j=m.filter(l=>l.convertedJobId); return `<div class="row-between" style="padding:5px 0;"><div class="item-sub"><b>${esc(t.name)}</b>${t.sheetUrl?' 🔗':''}</div><div class="item-sub">${m.length} diye · ${c.length} call hui · ${j.length} AMC bani</div><button class="mini-btn" data-act="leadsheeturl" data-id="${t.id}">${t.sheetUrl?'🔗 Sheet':'+ Sheet Link'}</button></div>`; }).join('');
+  const summary=callers.map(t=>{ const m=leads.filter(l=>l.assignedTo===t.id&&!l.dismissed), c=m.filter(l=>l.called), j=m.filter(l=>l.convertedJobId); return `<div class="row-between" style="padding:5px 0;"><div class="item-sub"><b>${esc(t.name)}</b>${(t.sheetUrls&&t.sheetUrls.length)?' 🔗x'+t.sheetUrls.length:''}</div><div class="item-sub">${m.length} diye · ${c.length} call hui · ${j.length} AMC bani</div><button class="mini-btn" data-act="leadsheeturl" data-id="${t.id}">${(t.sheetUrls&&t.sheetUrls.length)?'🔗 Sheets ('+t.sheetUrls.length+')':'+ Sheet Link'}</button></div>`; }).join('');
   const monthKey=l=>(l.purchaseDate||ymd(new Date(l.createdAt))).slice(0,7);
   const months=[...new Set(leads.filter(l=>!l.dismissed).map(monthKey))].sort().reverse().slice(0,6);
   const monthRows=months.map(mk=>{ const m=leads.filter(l=>!l.dismissed&&monthKey(l)===mk), c=m.filter(l=>l.called), j=m.filter(l=>l.convertedJobId);
@@ -1994,11 +2008,15 @@ function modalHtml(){
       <div class="field"><label>File chunein</label><input id="f_leadFile" type="file" accept=".xlsx,.xls,.csv"></div>
       <button class="primary-btn" id="leadImportBtn">Import Karein</button>`}`;
   } else if(activeModal.type==='sheetUrl'){
-    const t=STATE.staff.find(x=>x.id===activeModal.data.staffId)||{};
-    inner=`<div class="modal-head"><h3>🔗 ${esc(t.name||'')} ka Google Sheet</h3><button class="close-x" id="modalClose">×</button></div>
-      <div class="item-sub" style="margin-bottom:10px;">Google Sheet mein: File → Share → Publish to web → CSV chunein → Publish. Wahan mila link yahan paste karein. Isse har baar naya data khud aa jayega.</div>
-      <div class="field"><label>Sheet CSV Link</label><input id="f_sheetUrl" value="${esc(t.sheetUrl||'')}" placeholder="https://docs.google.com/spreadsheets/d/e/.../pub?output=csv"></div>
-      <button class="primary-btn" id="sheetUrlBtn">Save Karein</button>`;
+    const t=STATE.staff.find(x=>x.id===activeModal.data.staffId)||{}, links=t.sheetUrls||[];
+    inner=`<div class="modal-head"><h3>🔗 ${esc(t.name||'')} ke Google Sheets</h3><button class="close-x" id="modalClose">×</button></div>
+      <div class="item-sub" style="margin-bottom:10px;">Har mahine ka data alag sheet mein hai? Har mahine ka link yahan alag-alag add karte jayein — purane links hatane ki zarurat nahi.</div>
+      ${links.length?links.map((l,i)=>`<div class="row-between" style="padding:6px 0;border-bottom:1px solid #e6eef0;"><div class="item-sub" style="word-break:break-all;"><b>${esc(l.label||'Sheet '+(i+1))}</b><br>${esc(l.url.slice(0,50))}…</div><button class="mini-btn danger" data-act="sheeturlrm" data-id="${t.id}" data-idx="${i}">Hatayein</button></div>`).join(''):`<div class="item-sub" style="margin-bottom:8px;">Abhi koi sheet link nahi hai.</div>`}
+      <div class="section-sub">Naya Sheet Link Jodein</div>
+      <div class="item-sub" style="margin-bottom:8px;">Google Sheet mein: File → Share → Publish to web → CSV chunein → Publish. Wahan mila link yahan paste karein.</div>
+      <div class="field"><label>Label (optional, jaise "Sep 2026")</label><input id="f_sheetLabel" placeholder="jaise: September 2026"></div>
+      <div class="field"><label>Sheet CSV Link</label><input id="f_sheetUrl" placeholder="https://docs.google.com/spreadsheets/d/e/.../pub?output=csv"></div>
+      <button class="primary-btn" id="sheetUrlBtn">+ Link Jodein</button>`;
   } else if(activeModal.type==='resetPin'){
     inner=`<div class="modal-head"><h3>${activeModal.data.name} ka PIN Reset</h3><button class="close-x" id="modalClose">×</button></div>
       <div class="field"><label>Naya PIN</label><input id="f_resetpin" type="password" inputmode="numeric" maxlength="6" placeholder="Naya 4-6 digit PIN"></div>
@@ -2143,6 +2161,7 @@ function bindShellEvents(){
     else if(act==='leadimport'){ activeModal={type:'leadImport',data:{}}; render(); }
     else if(act==='leadsheeturl'){ activeModal={type:'sheetUrl',data:{staffId:id}}; render(); }
     else if(act==='leadsheetpull'){ await importLeadsFromSheet(id); }
+    else if(act==='sheeturlrm'){ await removeSheetUrl(id, Number(el.dataset.idx)); }
     else if(act==='converttype'){ const c=STATE.customers.find(x=>x.id===id); if(c){ activeModal={type:'editCustomer',data:Object.assign({},c,{type:el.dataset.totype})}; render(); } }
     else if(act==='delcust'){ if(STATE.session.role!=='admin'){ showToast('Sirf Admin delete kar sakta hai'); return; } if(confirm('Customer delete karein?')){ await deleteCustomer(id); render(); } }
     else if(act==='amcservice'){ await markAmcServiceDone(id); render(); }
@@ -2240,7 +2259,7 @@ function bindShellEvents(){
     if(document.getElementById('recBtn')) initRecorder();
     if(document.getElementById('holdBtn')) initHold();
     if(document.getElementById('leadImportBtn')) initLeadImport();
-    if(document.getElementById('sheetUrlBtn')) document.getElementById('sheetUrlBtn').onclick=async()=>{ const sid=activeModal.data.staffId, url=val('f_sheetUrl'); activeModal=null; await saveSheetUrl(sid,url); render(); };
+    if(document.getElementById('sheetUrlBtn')) document.getElementById('sheetUrlBtn').onclick=async()=>{ const sid=activeModal.data.staffId, url=val('f_sheetUrl'), label=val('f_sheetLabel'); if(!url.trim()){ showToast('Link daalein'); return; } await addSheetUrl(sid,url,label); render(); };
     if(document.getElementById('leaveBtn')) initLeave();
     if(document.getElementById('kycBtn')) initKyc();
     if(document.getElementById('travelBtn')) initTravelAdd();
