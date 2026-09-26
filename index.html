@@ -173,9 +173,25 @@ async function loadKey(key, fallback){
   }
   throw new Error('load-failed:'+key);
 }
-const COLL={st_travel:'st_travel',st_leave:'st_leave',st_media:'st_media',st_staff:'st_staff',st_customers:'st_customers',st_jobs:'st_jobs'};
+const COLL={st_leads:'st_leads',st_travel:'st_travel',st_leave:'st_leave',st_media:'st_media',st_staff:'st_staff',st_customers:'st_customers',st_jobs:'st_jobs'};
 const MAPK={st_locations:'st_loc',st_attendance:'st_att'};
 const SYNCED={}; let PENDING=0;
+function auditLog(staffId,name,role,type,detail){ try{ if(!firestoreDB) return; firestoreDB.collection('st_audit').add({staffId,name,role,type,detail:detail||'',ts:Date.now()}).catch(()=>{}); }catch(e){} }
+async function loadAudit(staffId){
+  STATE.audit=STATE.audit||{};
+  try{ const snap=await firestoreDB.collection('st_audit').where('staffId','==',staffId).limit(60).get();
+    const rows=[]; snap.forEach(d=>rows.push(d.data())); rows.sort((a,b)=>b.ts-a.ts);
+    STATE.audit[staffId]=rows; bgRender();
+  }catch(e){ console.error('audit',e); STATE.audit[staffId]=[]; bgRender(); }
+}
+function auditHtml(staffId){
+  const me=STATE.session, isA=me.role==='admin', own=me.staffId===staffId; if(!isA&&!own) return '';
+  STATE.audit=STATE.audit||{}; STATE.auditReq=STATE.auditReq||{};
+  if(!STATE.auditReq[staffId]){ STATE.auditReq[staffId]=1; loadAudit(staffId); }
+  const rows=STATE.audit[staffId]; if(rows===undefined) return `<div class="card"><div class="item-sub">🕒 Activity load ho rahi hai…</div></div>`;
+  const logins=rows.filter(r=>r.type==='login'), exports=rows.filter(r=>r.type==='export');
+  return `<div class="card"><div class="item-name" style="margin-bottom:6px;">🕒 Activity</div><div class="item-sub">Aakhri login: <b>${logins.length?fmtT(logins[0].ts):'—'}</b></div>${isA?`<details style="margin-top:6px;"><summary class="item-sub" style="cursor:pointer;">Recent logins (${logins.length})</summary>${logins.slice(0,10).map(r=>`<div class="item-sub">${fmtT(r.ts)}</div>`).join('')}</details><details style="margin-top:4px;"><summary class="item-sub" style="cursor:pointer;">Data export ki history (${exports.length})</summary>${exports.length?exports.slice(0,10).map(r=>`<div class="item-sub">${fmtT(r.ts)} — ${esc(r.detail)}</div>`).join(''):'<div class="item-sub">Koi export nahi kiya.</div>'}</details>`:''}</div>`;
+}
 function syncBadge(){ const b=document.getElementById('syncBadge'); if(b) b.textContent=PENDING>0?'⏳ Sync ho raha hai':'✅ Saved'; }
 function track(p){ PENDING++; syncBadge(); p.then(()=>{PENDING--;syncBadge();},(e)=>{PENDING--;syncBadge();console.error('write failed',e);showToast('⚠️ Server par save nahi hua — internet/permission check karein');}); return p; }
 async function saveKey(key, value){
@@ -209,7 +225,7 @@ async function fetchOldSheetAll(url){
 }
 
 /* customers = unified master list: every contact (AMC / one-time / enquiry / quotation) lives here, one record */
-const SKEY = { STAFF:'st_staff', CUSTOMERS:'st_customers', JOBS:'st_jobs', LOCATIONS:'st_locations', ATTENDANCE:'st_attendance', BUSINESS:'st_business', PHOTO_COUNTS:'st_photo_counts' };
+const SKEY = { STAFF:'st_staff', CUSTOMERS:'st_customers', JOBS:'st_jobs', LEADS:'st_leads', LOCATIONS:'st_locations', ATTENDANCE:'st_attendance', BUSINESS:'st_business', PHOTO_COUNTS:'st_photo_counts' };
 function photoKey(jobId, idx){ return 'photo_'+jobId+'_'+idx; }
 function jobSigKey(jobId){ return 'sig_job_'+jobId; }
 function techSigKey(jobId){ return 'sig_tech_'+jobId; }
@@ -256,7 +272,7 @@ async function boot(){
 
 let LISTENING=false;
 function attachListeners(){
-  const cfg=[['st_staff','staff','arr'],['st_customers','customers','arr'],['st_jobs','jobs','arr'],['st_media','media','arr'],['st_leave','leaves','arr'],['st_travel','travelLogs','arr'],['st_locations','locations','loc'],['st_attendance','attendance','att']];
+  const cfg=[['st_staff','staff','arr'],['st_customers','customers','arr'],['st_jobs','jobs','arr'],['st_media','media','arr'],['st_leave','leaves','arr'],['st_travel','travelLogs','arr'],['st_leads','leads','arr'],['st_locations','locations','loc'],['st_attendance','attendance','att']];
   return Promise.all(cfg.map(([key,prop,kind])=>new Promise((res,rej)=>{
     let first=true;
     firestoreDB.collection(COLL[key]||MAPK[key]).onSnapshot(snap=>{
@@ -315,11 +331,11 @@ async function doAdminLogin(pin, recoveryA){
     const newAdmin={id:uid(),name:'Admin',phone:'',role:'admin',pin,recoveryA:recoveryA.trim().toLowerCase()};
     STATE.staff.push(newAdmin);
     await saveKey(SKEY.STAFF, STATE.staff);
-    STATE.session={staffId:newAdmin.id, role:'admin', name:'Admin'};
+    STATE.session={staffId:newAdmin.id, role:'admin', name:'Admin'}; auditLog(newAdmin.id,'Admin','admin','login','App login');
     loginError=''; STATE.view='dashboard'; render(); return;
   }
   if(admin.pin===pin){
-    STATE.session={staffId:admin.id, role:'admin', name:admin.name};
+    STATE.session={staffId:admin.id, role:'admin', name:admin.name}; auditLog(admin.id,admin.name,'admin','login','App login');
     loginError=''; STATE.view='dashboard'; render();
   }else{ loginError='Galat PIN'; render(); }
 }
@@ -336,7 +352,7 @@ async function doStaffLogin(staffId, pin){
   const s=STATE.staff.find(x=>x.id===staffId);
   if(!s){ loginError='Select karein'; render(); return; }
   if(s.pin===pin){
-    STATE.session={staffId:s.id, role:s.role, name:s.name};
+    STATE.session={staffId:s.id, role:s.role, name:s.name}; auditLog(s.id,s.name,s.role,'login','App login');
     loginError='';
     if(s.role==='technician'){
       let alreadyGranted=false;
@@ -349,6 +365,8 @@ async function doStaffLogin(staffId, pin){
       STATE.view = alreadyGranted ? 'myjobs' : 'location';
       render();
       if(alreadyGranted){ startSharingLocation(); }
+    } else if(s.role==='telecaller'){
+      STATE.view='leads'; render();
     } else {
       STATE.view='dashboard'; render();
     }
@@ -386,7 +404,7 @@ function xlsxSave(fname,sheets){
   sheets.forEach(([n,rows])=>{ const data=rows.length?rows:[{'Koi data nahi':''}], keys=Object.keys(data[0]), ws=XLSX.utils.json_to_sheet(data);
     ws['!cols']=keys.map(k=>({wch:Math.min(45,Math.max(k.length+2,...data.slice(0,200).map(r=>String(r[k]==null?'':r[k]).length+2)))}));
     XLSX.utils.book_append_sheet(wb,ws,n.slice(0,31)); });
-  XLSX.writeFile(wb,fname); markBackup(); showToast('Excel download ho gayi'); return true;
+  XLSX.writeFile(wb,fname); markBackup(); auditLog(STATE.session.staffId,STATE.session.name,STATE.session.role,'export','Excel: '+fname); showToast('Excel download ho gayi'); return true;
 }
 const CUST_H={name:'Customer Naam',phone:'Phone',phone2:'Phone 2',email:'Email',address:'Address',type:'Type',brand:'AC Brand',model:'AC Model',acType:'AC Type/Tonnage',sourceType:'Source Type',source:'Source Naam',incentiveTo:'Incentive Kisko',incentiveAmount:'Incentive Amount (Rs)',incentivePaid:'Incentive Diya',amcName:'AMC Plan',amcAmount:'AMC Amount (Rs)',activationDate:'AMC Shuru',expiryDate:'AMC Khatam',totalServices:'Total Services (AMC)',servicesDone:'Services Ho Chuki',lastService:'Aakhri Service',intervalMonths:'Service Gap (mahine)',notes:'Notes',createdAt:'Add Hua'};
 function customersExcel(){
@@ -457,7 +475,7 @@ function exportData(){
   const url=URL.createObjectURL(blob);
   const a=document.createElement('a'); a.href=url; a.download='sheetaltrack-backup-'+todayStr()+'.json';
   document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
-  markBackup(); showToast('Backup file download ho gayi');
+  markBackup(); auditLog(STATE.session.staffId,STATE.session.name,STATE.session.role,'export','Poora Backup'); showToast('Backup file download ho gayi');
 }
 async function importData(file){ if(!confirm('Restore maujooda data ko badal sakta hai. Pehle naya Backup Download kar liya? Aage badhein?')) return;
   try{
@@ -705,7 +723,7 @@ async function importCustomersXlsx(file){
 /* ============ Staff ============ */
 async function addStaff(data){
   const s={id:uid(), name:data.name, phone:data.phone, email:data.email||'', role:data.role, pin:data.pin, joinedAt:Date.now()};
-  STATE.staff.push(s); await saveKey(SKEY.STAFF, STATE.staff); showToast((data.role==='technician'?'Technician':'Sub-admin')+' add ho gaya');
+  STATE.staff.push(s); await saveKey(SKEY.STAFF, STATE.staff); showToast(roleLabel(data.role)+' add ho gaya');
 }
 async function updateStaff(id, data){
   const s=STATE.staff.find(x=>x.id===id); if(!s) return;
@@ -716,6 +734,81 @@ async function deleteStaff(id){
 }
 
 /* ============ Jobs ============ */
+/* ============ Leads (Telecaller) ============ */
+function leadHeaderMatch(h,keys){ h=String(h||'').toLowerCase().replace(/[^a-z0-9]/g,''); return keys.some(k=>h.includes(k)); }
+function rowsToLeads(rows, staffId, staffName, importedBy){
+  const head=rows[0]; const col=keys=>head.findIndex(h=>leadHeaderMatch(h,keys));
+  const cDate=col(['date','purchase','khareed']), cCust=col(['customer','name']), cProd=col(['product']), cA1=col(['address1','addr1']), cA2=col(['address2','addr2']), cA3=col(['address3','addr3']), cArea=col(['area']), cMob=col(['mobile','mobileno','mobno']), cRes=col(['residential','restel','landline']);
+  const out=[];
+  for(let i=1;i<rows.length;i++){ const r=rows[i]; const cust=cCust>-1?r[cCust]:'', mob=cMob>-1?r[cMob]:'';
+    if(!cust&&!mob) continue;
+    out.push({id:uid(), purchaseDate:(cDate>-1?r[cDate]:'').slice(0,10), customer:cust, product:cProd>-1?r[cProd]:'', address1:cA1>-1?r[cA1]:'', address2:cA2>-1?r[cA2]:'', address3:cA3>-1?r[cA3]:'', area:cArea>-1?r[cArea]:'', mobile:mob, resTel:cRes>-1?r[cRes]:'', assignedTo:staffId, assignedName:staffName, called:false, dismissed:false, convertedJobId:null, importedBy, createdAt:Date.now()});
+  }
+  return out;
+}
+function dedupeLeads(newLeads){
+  const have=new Set((STATE.leads||[]).map(l=>l.assignedTo+'|'+(l.mobile||'').replace(/\D/g,'')+'|'+(l.purchaseDate||'')));
+  return newLeads.filter(l=>{ const k=l.assignedTo+'|'+(l.mobile||'').replace(/\D/g,'')+'|'+(l.purchaseDate||''); if(have.has(k)) return false; have.add(k); return true; });
+}
+async function importLeadsFile(file, staffId){
+  const staff=STATE.staff.find(x=>x.id===staffId); if(!staff){ showToast('Telecaller chunein'); return; }
+  try{
+    let rows;
+    if(/\.csv$/i.test(file.name)){ const text=await file.text(); rows=text.split(/\r?\n/).filter(l=>l.trim()).map(l=>parseCsvLine(l)); }
+    else{ const buf=await file.arrayBuffer(); const wb=XLSX.read(buf,{type:'array',cellDates:true}); const ws=wb.Sheets[wb.SheetNames[0]]; rows=XLSX.utils.sheet_to_json(ws,{header:1,raw:false,dateNF:'yyyy-mm-dd',defval:''}); }
+    rows=rows.filter(r=>r.some(c=>String(c||'').trim()!=='')).map(r=>r.map(c=>String(c==null?'':c)));
+    if(rows.length<2){ showToast('File mein data nahi mila'); return; }
+    const all=rowsToLeads(rows,staffId,staff.name,(STATE.session&&STATE.session.name)||''), fresh=dedupeLeads(all);
+    STATE.leads=(STATE.leads||[]).concat(fresh); await saveKey(SKEY.LEADS, STATE.leads);
+    showToast(fresh.length+' nayi leads '+staff.name+' ko de di gayin'+(all.length-fresh.length?' ('+(all.length-fresh.length)+' pehle se thi)':''));
+  }catch(e){ console.error('leads import',e); showToast('File read nahi ho payi'); }
+}
+async function importLeadsFromSheet(staffId){
+  const staff=STATE.staff.find(x=>x.id===staffId); if(!staff||!staff.sheetUrl){ showToast('Pehle is telecaller ka Google Sheet link set karein'); return; }
+  showToast('Sheet se data laaya ja raha hai…');
+  try{
+    const res=await fetch(staff.sheetUrl); if(!res.ok) throw new Error('HTTP '+res.status);
+    const text=await res.text(), rows=text.split(/\r?\n/).filter(l=>l.trim()).map(l=>parseCsvLine(l));
+    if(rows.length<2){ showToast('Sheet mein data nahi mila'); return; }
+    const all=rowsToLeads(rows,staffId,staff.name,(STATE.session&&STATE.session.name)||''), fresh=dedupeLeads(all);
+    STATE.leads=(STATE.leads||[]).concat(fresh); await saveKey(SKEY.LEADS, STATE.leads); render();
+    showToast(fresh.length+' nayi leads mil gayin'+(all.length-fresh.length?' ('+(all.length-fresh.length)+' pehle se thi)':''));
+  }catch(e){ console.error('sheet fetch',e); showToast('Sheet se data nahi mil paya — link "Publish to web → CSV" wala hai check karein'); }
+}
+async function saveSheetUrl(staffId,url){
+  const s=STATE.staff.find(x=>x.id===staffId); if(!s) return;
+  s.sheetUrl=url.trim(); await saveKey(SKEY.STAFF, STATE.staff); showToast('Sheet link save ho gaya');
+}
+async function markLeadCalled(id){
+  const l=(STATE.leads||[]).find(x=>x.id===id); if(!l) return;
+  l.called=true; l.calledAt=Date.now(); l.calledBy=(STATE.session&&STATE.session.name)||''; l.calledByStaffId=STATE.session.staffId;
+  await saveKey(SKEY.LEADS, STATE.leads); showToast('✅ Call mark ho gayi');
+}
+async function dismissLead(id){
+  if(!confirm('Ye lead chhod dein? Isse AMC nahi banegi.')) return;
+  const l=(STATE.leads||[]).find(x=>x.id===id); if(!l) return;
+  l.dismissed=true; l.dismissedBy=(STATE.session&&STATE.session.name)||''; l.dismissedAt=Date.now();
+  await saveKey(SKEY.LEADS, STATE.leads); showToast('Lead hata di gayi'); render();
+}
+async function convertLeadToJob(id){
+  const l=(STATE.leads||[]).find(x=>x.id===id); if(!l||l.convertedJobId) return;
+  const mob=(l.mobile||'').replace(/\D/g,'').slice(-10);
+  let cust=mob&&STATE.customers.find(c=>(c.phone||'').replace(/\D/g,'').slice(-10)===mob);
+  const addr=[l.address1,l.address2,l.address3].filter(Boolean).join(', ');
+  const today=todayStr();
+  if(!cust){
+    cust={id:uid(), name:l.customer||'Naya Customer', type:'amc', phone:l.mobile||'', phone2:l.resTel||'', email:'', address:addr, landmark:'', city:'', state:'', pincode:'', brand:'', model:l.product||'', acType:'', serialNo:'', installDate:l.purchaseDate||'', underWarranty:false, amcName:'AMC', activationDate:today, expiryDate:addMonths(today,12), totalServices:4, servicesDone:0, source:'Telecaller — '+(l.calledBy||l.assignedName||''), sourceType:'telecaller', amcAmount:0, incentiveGiven:false, incentiveTo:'', incentiveAmount:0, incentivePaid:false, lastService:'', intervalMonths:3, notes:'Area: '+(l.area||'')+(l.purchaseDate?' · AC khareedi: '+fmtDate(l.purchaseDate):''), createdAt:Date.now()};
+  } else {
+    cust.type='amc'; if(!cust.activationDate) cust.activationDate=today; if(!cust.expiryDate) cust.expiryDate=addMonths(today,12); if(!cust.totalServices) cust.totalServices=4; if(!cust.model&&l.product) cust.model=l.product; if(!cust.installDate&&l.purchaseDate) cust.installDate=l.purchaseDate;
+  }
+  STATE.customers=STATE.customers.filter(x=>x.id!==cust.id).concat(cust); await saveKey(SKEY.CUSTOMERS, STATE.customers);
+  const j={id:uid(), customerId:cust.id, title:'AMC Renewal Visit', tag:'AMC', amcVisit:false, assignedTo:'', status:'pending', date:today, notes:'Telecaller lead se bani — '+(l.calledBy||''), amount:0, checklist:[], createdAt:Date.now(), history:[{s:'pending',t:Date.now(),by:(STATE.session&&STATE.session.name)||'',why:'Telecaller lead se AMC'}]};
+  STATE.jobs.push(j); await saveKey(SKEY.JOBS, STATE.jobs);
+  l.convertedJobId=j.id; l.convertedBy=(STATE.session&&STATE.session.name)||''; l.convertedAt=Date.now();
+  await saveKey(SKEY.LEADS, STATE.leads);
+  showToast('✅ AMC Customer aur Job ban gayi — ab technician assign karein');
+  STATE.customerDetailId=cust.id; STATE.view='customerProfile'; render();
+}
 async function addJob(data){
   const checklistItems=(data.checklist||'').split(',').map(s=>s.trim()).filter(Boolean).map(text=>({text, done:false}));
   const j={id:uid(), customerId:data.customerId, title:data.title, tag:data.tag||'', amcVisit:!!data.amcVisit, assignedTo:data.assignedTo||'', status:'pending', date:data.date||todayStr(), notes:data.notes||'', amount:Number(data.amount)||0, checklist:checklistItems, createdAt:Date.now()};
@@ -904,7 +997,7 @@ function render(){
   if(!STATE.backendConnected){ app.innerHTML=renderSetup(); bindSetupEvents(); return; }
   if(STATE.loading){ app.innerHTML=`<div class="loading-screen"><div class="brand-mark" style="width:56px;height:56px;border-radius:16px;font-size:28px;margin-bottom:4px;">❄️</div><div class="spinner"></div><div>Data load ho raha hai…</div></div>`; return; }
   if(STATE.loadFailed){
-    app.innerHTML=`<div class="loading-screen"><div style="font-size:34px;">⚠️</div><div style="max-width:300px;">Connection slow/fail ho gaya — data load nahi ho paya. Kuch bhi save nahi hua, dobara try karein.<div style="font-size:11px;margin-top:8px;color:var(--ink-faint);">v3.2 · Error: ${esc(STATE.loadErr||"")}</div></div><button class="primary-btn" id="retryLoadBtn" style="width:auto;padding:12px 24px;">Dobara Try Karein</button></div>`;
+    app.innerHTML=`<div class="loading-screen"><div style="font-size:34px;">⚠️</div><div style="max-width:300px;">Connection slow/fail ho gaya — data load nahi ho paya. Kuch bhi save nahi hua, dobara try karein.<div style="font-size:11px;margin-top:8px;color:var(--ink-faint);">v3.4 · Error: ${esc(STATE.loadErr||"")}</div></div><button class="primary-btn" id="retryLoadBtn" style="width:auto;padding:12px 24px;">Dobara Try Karein</button></div>`;
     const btn=document.getElementById('retryLoadBtn'); if(btn) btn.onclick=()=>init();
     return;
   }
@@ -916,7 +1009,7 @@ function render(){
 function renderSetup(){
   return `
   <div class="login-wrap">
-    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v3.2</p></div>
+    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v3.4</p></div>
     <div class="setup-note">Yeh app ab Firebase (Google ka free real-time database) use karti hai — pehle se tez aur reliable. Firebase Console se apna config copy karke neeche paste karein.</div>
     <div class="field"><label>Firebase Config (poora object paste karein)</label><textarea id="setupConfig" rows="8" placeholder='{"apiKey": "...", "authDomain": "...", "projectId": "...", ...}'>${setupUrlInput}</textarea></div>
     <button class="primary-btn" id="connectBtn">Connect Karein</button>
@@ -976,7 +1069,7 @@ function renderLogin(){
   }
   return `
   <div class="login-wrap">
-    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v3.2</p></div>
+    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v3.4</p></div>
     <div class="role-grid">
       <button class="role-opt ${loginRole==='admin'?'active':''}" data-role="admin"><span class="ic">🗝️</span>Admin</button>
       <button class="role-opt ${loginRole==='subadmin'?'active':''}" data-role="subadmin"><span class="ic">🧑‍💼</span>Office</button>
@@ -1009,11 +1102,12 @@ function bindLoginEvents(){
 
 /* ============ App shell ============ */
 function navItemsFor(role){
-  if(role==='admin') return [{v:'dashboard',ic:'🏠',label:'Home'},{v:'customers',ic:'🛡️',label:'AMC'},{v:'jobs',ic:'🧾',label:'Jobs'},{v:'staff',ic:'🧑‍🔧',label:'Team'},{v:'attendance',ic:'📅',label:'Attend.'},{v:'map',ic:'📍',label:'Map'},{v:'settings',ic:'⚙️',label:'Settings'}];
-  if(role==='subadmin') return [{v:'dashboard',ic:'🏠',label:'Home'},{v:'customers',ic:'🛡️',label:'AMC'},{v:'jobs',ic:'🧾',label:'Jobs'},{v:'attendance',ic:'📅',label:'Attend.'},{v:'map',ic:'📍',label:'Map'},{v:'settings',ic:'⚙️',label:'Settings'}];
+  if(role==='admin') return [{v:'dashboard',ic:'🏠',label:'Home'},{v:'customers',ic:'🛡️',label:'AMC'},{v:'jobs',ic:'🧾',label:'Jobs'},{v:'leads',ic:'📇',label:'Leads'},{v:'staff',ic:'🧑‍🔧',label:'Team'},{v:'attendance',ic:'📅',label:'Attend.'},{v:'map',ic:'📍',label:'Map'},{v:'settings',ic:'⚙️',label:'Settings'}];
+  if(role==='subadmin') return [{v:'dashboard',ic:'🏠',label:'Home'},{v:'customers',ic:'🛡️',label:'AMC'},{v:'jobs',ic:'🧾',label:'Jobs'},{v:'leads',ic:'📇',label:'Leads'},{v:'attendance',ic:'📅',label:'Attend.'},{v:'map',ic:'📍',label:'Map'},{v:'settings',ic:'⚙️',label:'Settings'}];
+  if(role==='telecaller') return [{v:'leads',ic:'📇',label:'Leads'},{v:'attendance',ic:'📅',label:'Attend.'},{v:'settings',ic:'⚙️',label:'Profile'}];
   return [{v:'myjobs',ic:'🧾',label:'My Jobs'},{v:'location',ic:'📍',label:'Location'},{v:'attendance',ic:'📅',label:'Attend.'},{v:'settings',ic:'⚙️',label:'Profile'}];
 }
-function roleLabel(r){ return r==='admin'?'Admin':r==='subadmin'?'Office':'Technician'; }
+function roleLabel(r){ return r==='admin'?'Admin':r==='subadmin'?'Office':r==='telecaller'?'Telecaller':'Technician'; }
 
 function renderShell(){
   const nav=navItemsFor(STATE.session.role);
@@ -1027,10 +1121,11 @@ function renderShell(){
   else if(STATE.view==='staff') body=renderStaff();
   else if(STATE.view==='staffProfile') body=renderStaffProfile();
   else if(STATE.view==='map') body=renderMap();
+  else if(STATE.view==='leads') body=renderLeads();
   else if(STATE.view==='myjobs') body=renderMyJobs();
   else if(STATE.view==='location') body=renderLocationShare();
-  else if(STATE.view==='attendance') body = STATE.session.role==='technician' ? renderMyAttendance() : renderAdminAttendance();
-  else if(STATE.view==='settings') body=STATE.session.role==='technician'?renderTechProfile():renderSettings();
+  else if(STATE.view==='attendance') body = (STATE.session.role==='technician'||STATE.session.role==='telecaller') ? renderMyAttendance() : renderAdminAttendance();
+  else if(STATE.view==='settings') body=STATE.session.role==='technician'?renderTechProfile():STATE.session.role==='telecaller'?renderTelecallerProfile():renderSettings();
   return `
   <div class="topbar"><div class="brand"><div class="brand-mark" style="width:30px;height:30px;font-size:15px;">❄️</div><div class="brand-text"><div class="name">SheetalTrack</div><div class="who">${esc(STATE.session.name)} · ${roleLabel(STATE.session.role)} · <span id="syncBadge">${PENDING>0?'⏳ Sync ho raha hai':'✅ Saved'}</span></div></div></div><button class="logout-btn" id="logoutBtn">Logout</button></div>
   <div class="content">${body}</div>
@@ -1298,6 +1393,46 @@ function renderCustomerProfile(){
 }
 
 /* ============ Jobs ============ */
+function renderLeads(){
+  const role=STATE.session.role, leads=STATE.leads||[];
+  const dueInfo=l=>{ if(!l.purchaseDate) return null; const due=addMonths(l.purchaseDate,11), d=daysUntil(due); return {due,d}; };
+  const dueBadge=l=>{ const info=dueInfo(l); if(!info) return ''; const txt=info.d<0?Math.abs(info.d)+'d overdue':info.d<=30?'in '+info.d+'d':fmtDate(info.due); const cls=info.d<0?'pill-red':info.d<=30?'pill-amber':'pill-sky'; return `<span class="pill ${cls}">Free service: ${txt}</span>`; };
+  if(role==='telecaller'){
+    const staff=STATE.staff.find(x=>x.id===STATE.session.staffId)||{};
+    const mine=leads.filter(l=>l.assignedTo===STATE.session.staffId&&!l.dismissed);
+    const pending=mine.filter(l=>!l.called).sort((a,b)=>{ const da=dueInfo(a),db=dueInfo(b); if(!da&&!db) return 0; if(!da) return 1; if(!db) return -1; return da.d-db.d; });
+    const doneToday=mine.filter(l=>l.called&&ymd(new Date(l.calledAt))===todayStr());
+    return `<div class="row-between" style="margin-bottom:10px;"><div class="section-title" style="margin:0;">Meri Leads</div>${staff.sheetUrl?`<button class="mini-btn" data-act="leadsheetpull" data-id="${staff.id}">🔄 Sheet se Layein</button>`:''}</div>
+      <div class="stat-grid"><div class="stat-card"><div class="stat-num">${pending.length}</div><div class="stat-label">Baaki</div></div><div class="stat-card"><div class="stat-num" style="color:var(--green);">${doneToday.length}</div><div class="stat-label">Aaj call ki</div></div></div>
+      ${pending.length===0?`<div class="empty-state"><span class="ic">📇</span><p>Koi lead baaki nahi hai.</p></div>`:pending.map(l=>`<div class="card"><div class="row-between"><div class="item-name">${esc(l.customer||'—')}</div>${dueBadge(l)}</div><div class="item-sub">📞 ${esc(l.mobile||l.resTel||'')}${l.product?' · '+esc(l.product):''}</div><div class="item-sub">${esc([l.address1,l.address2,l.address3].filter(Boolean).join(', '))}${l.area?' · '+esc(l.area):''}</div>${l.purchaseDate?`<div class="item-sub">🛒 AC khareedi: ${fmtDate(l.purchaseDate)}</div>`:''}<div class="card-actions">${l.mobile?`<a class="mini-btn" style="text-decoration:none;" href="tel:${l.mobile}">📞 Call</a>`:''}<button class="mini-btn primary" data-act="leadcall" data-id="${l.id}">✅ Call Ho Gayi</button></div></div>`).join('')}
+      ${doneToday.length?`<details style="margin-top:10px;"><summary class="item-sub" style="cursor:pointer;font-weight:600;">Aaj call ki hui (${doneToday.length})</summary>${doneToday.map(l=>`<div class="item-sub" style="padding:4px 0;">${esc(l.customer||'—')} — ${fmtT(l.calledAt)}</div>`).join('')}</details>`:''}`;
+  }
+  // admin / office view
+  const callers=STATE.staff.filter(x=>x.role==='telecaller');
+  const action=leads.filter(l=>l.called&&!l.dismissed&&!l.convertedJobId).sort((a,b)=>(a.calledAt||0)-(b.calledAt||0));
+  const summary=callers.map(t=>{ const m=leads.filter(l=>l.assignedTo===t.id&&!l.dismissed), c=m.filter(l=>l.called), j=m.filter(l=>l.convertedJobId); return `<div class="row-between" style="padding:5px 0;"><div class="item-sub"><b>${esc(t.name)}</b>${t.sheetUrl?' 🔗':''}</div><div class="item-sub">${m.length} diye · ${c.length} call hui · ${j.length} AMC bani</div><button class="mini-btn" data-act="leadsheeturl" data-id="${t.id}">${t.sheetUrl?'🔗 Sheet':'+ Sheet Link'}</button></div>`; }).join('');
+  const monthKey=l=>(l.purchaseDate||ymd(new Date(l.createdAt))).slice(0,7);
+  const months=[...new Set(leads.filter(l=>!l.dismissed).map(monthKey))].sort().reverse().slice(0,6);
+  const monthRows=months.map(mk=>{ const m=leads.filter(l=>!l.dismissed&&monthKey(l)===mk), c=m.filter(l=>l.called), j=m.filter(l=>l.convertedJobId);
+    const lbl=new Date(mk+'-01').toLocaleString('en-IN',{month:'long',year:'numeric'});
+    return `<div class="row-between" style="padding:4px 0;"><div class="item-sub"><b>${lbl}</b></div><div class="item-sub">${m.length} leads · ${c.length} call hui · <span style="color:var(--green);font-weight:600;">${j.length} AMC bane</span></div></div>`; }).join('');
+  return `<div class="row-between" style="margin-bottom:12px;"><div class="section-title" style="margin:0;">Leads</div>${role==='admin'?`<button class="mini-btn primary" data-act="leadimport">📥 Leads Import Karein</button>`:''}</div>
+    ${callers.length?`<div class="card"><div class="item-name" style="margin-bottom:6px;">📊 Telecaller-wise</div>${summary}</div>`:`<div class="card"><div class="item-sub">Abhi koi Telecaller nahi hai. Team mein "Telecaller" role se add karein.</div></div>`}
+    ${months.length?`<div class="card"><div class="item-name" style="margin-bottom:6px;">📅 Month-wise (kis mahine kitni AMC bani)</div>${monthRows}</div>`:''}
+    <div class="section-title">Call Hui — AMC Banani Baaki (${action.length})</div>
+    ${action.length===0?`<div class="empty-state"><span class="ic">✅</span><p>Sab clear hai.</p></div>`:action.map(l=>`<div class="card"><div class="row-between"><div><div class="item-name">${esc(l.customer||'—')}</div><div class="item-sub">📞 ${esc(l.mobile||l.resTel||'')}${l.product?' · '+esc(l.product):''}</div></div><span class="pill pill-sky">${esc(l.assignedName||'')}</span></div><div class="item-sub">${esc([l.address1,l.address2,l.address3].filter(Boolean).join(', '))}${l.area?' · '+esc(l.area):''}</div>${l.purchaseDate?`<div class="item-sub">🛒 AC khareedi: ${fmtDate(l.purchaseDate)}</div>`:''}<div class="item-sub" style="opacity:.75;">Call: ${fmtT(l.calledAt)} by ${esc(l.calledBy||'')}</div><div class="card-actions"><button class="mini-btn primary" data-act="leadjob" data-id="${l.id}">✅ AMC Bana Do</button><button class="mini-btn danger" data-act="leaddismiss" data-id="${l.id}">✖ Chhod Do</button></div></div>`).join('')}`;
+}
+function renderTelecallerProfile(){
+  const s=STATE.staff.find(x=>x.id===STATE.session.staffId)||{id:STATE.session.staffId,name:STATE.session.name};
+  const mine=(STATE.leads||[]).filter(l=>l.assignedTo===s.id&&!l.dismissed), mk=todayStr().slice(0,7);
+  const mDone=mine.filter(l=>l.called&&ymd(new Date(l.calledAt)).startsWith(mk)), mJob=mine.filter(l=>l.convertedJobId&&ymd(new Date(l.convertedAt)).startsWith(mk));
+  const ini=esc((s.name||'?').split(/\s+/).map(w=>w[0]||'').join('').slice(0,2).toUpperCase());
+  return `<div class="card" style="text-align:center;padding:22px 16px;"><div style="width:76px;height:76px;border-radius:50%;margin:0 auto 10px;background:linear-gradient(155deg,var(--frost),var(--teal));color:#fff;font:700 28px var(--font-display);display:flex;align-items:center;justify-content:center;">${ini}</div><div class="item-name" style="font-size:19px;">${esc(s.name)}</div><div class="item-sub">Telecaller</div></div>
+    <div class="stat-grid"><div class="stat-card"><div class="stat-num">${mine.filter(l=>!l.called).length}</div><div class="stat-label">Leads baaki</div></div><div class="stat-card"><div class="stat-num" style="color:var(--green);">${mDone.length}</div><div class="stat-label">Is mahine call ki</div></div><div class="stat-card"><div class="stat-num">${mJob.length}</div><div class="stat-label">Job bani</div></div></div>
+    ${kycCardHtml(s.id)}
+    ${auditHtml(s.id)}
+    <div class="card"><div class="item-name" style="margin-bottom:10px;">PIN badlein</div><div class="field"><label>Naya PIN</label><input id="f_newOwnPin" type="password" inputmode="numeric" maxlength="6" placeholder="Naya PIN"></div><button class="primary-btn" id="changePinBtn">PIN Update Karein</button></div>`;
+}
 function renderJobs(){
   const statusPill=s=>s==='done'?'pill-green':s==='ongoing'?'pill-sky':s==='onhold'?'pill-grey':s==='rejected'?'pill-red':'pill-amber';
   const statusLabel=s=>s==='done'?'Completed':s==='ongoing'?'Ongoing':s==='onhold'?'On Hold':s==='rejected'?'Rejected':'Pending';
@@ -1330,7 +1465,7 @@ function renderJobs(){
 
 /* ============ Staff (Team) ============ */
 function renderStaff(){ if(STATE.session.role!=='admin') return '<div class="empty-state"><p>Sirf Admin ke liye</p></div>';
-  const techs=STATE.staff.filter(s=>s.role==='technician'); const subs=STATE.staff.filter(s=>s.role==='subadmin');
+  const techs=STATE.staff.filter(s=>s.role==='technician'); const subs=STATE.staff.filter(s=>s.role==='subadmin'); const callers=STATE.staff.filter(s=>s.role==='telecaller');
   return `
     <div class="section-title">Technicians (${techs.length})</div>
     ${techs.length===0?`<div class="empty-state"><span class="ic">🔧</span><p>Koi technician add nahi hai.</p></div>`:
@@ -1338,6 +1473,9 @@ function renderStaff(){ if(STATE.session.role!=='admin') return '<div class="emp
     <div class="section-title" style="margin-top:18px;">Office / Sub-admins (${subs.length})</div>
     ${subs.length===0?`<div class="empty-state"><span class="ic">🧑‍💼</span><p>Koi sub-admin add nahi hai.</p></div>`:
       subs.map(t=>`<div class="card"><div class="row-between"><div data-viewstaff="${t.id}" style="cursor:pointer;"><div class="item-name" style="text-decoration:underline;color:var(--teal);">${t.name} ›</div><div class="item-sub">${t.phone||''}</div></div><button class="mini-btn danger" style="flex:none;padding:8px 12px;" data-act="delstaff" data-id="${t.id}">Remove</button></div></div>`).join('')}
+    <div class="section-title" style="margin-top:18px;">Telecallers (${callers.length})</div>
+    ${callers.length===0?`<div class="empty-state"><span class="ic">📇</span><p>Koi telecaller add nahi hai.</p></div>`:
+      callers.map(t=>{ const m=(STATE.leads||[]).filter(l=>l.assignedTo===t.id&&!l.dismissed); return `<div class="card"><div class="row-between"><div data-viewstaff="${t.id}" style="cursor:pointer;"><div class="item-name" style="text-decoration:underline;color:var(--teal);">${esc(t.name)} ›</div><div class="item-sub">${t.phone||''} · ${m.length} leads, ${m.filter(l=>l.called).length} call hui</div></div></div></div>`; }).join('')}
     <button class="fab" id="addStaffBtn">+</button>
   `;
 }
@@ -1372,6 +1510,7 @@ function renderStaffProfile(){
     <div class="card"><div class="row-between"><div class="item-sub">Is mahine attendance</div><div class="item-name">${thisMonthCount} din</div></div></div>
     ${s.role==='technician'?techMonthHtml(s.id):''}
     ${(STATE.session.role==='admin'&&s.role!=='admin')?kycCardHtml(s.id):''}
+    ${(STATE.session.role==='admin'&&s.role!=='admin')?auditHtml(s.id):''}
     ${(()=>{ const open=staffJobs.filter(j=>j.status!=='done'&&j.status!=='rejected'); if(!open.length) return ''; return `<div class="section-title">Pending / Ongoing kaam (${open.length})</div>`+open.map(j=>{ const cu=STATE.customers.find(c=>c.id===j.customerId); return `<div class="card"><div class="row-between"><div><div class="item-name">${esc(j.title)}${j.tag?' <span class="pill pill-sky">'+esc(j.tag)+'</span>':''}</div>${cu?`<div class="item-sub" data-viewcust="${cu.id}" style="cursor:pointer;text-decoration:underline;color:var(--teal);font-weight:600;">${esc(cu.name)} ›</div><div class="item-sub">📞 ${esc(cu.phone||'')}</div><div class="item-sub">📍 ${esc(cu.address||'')}</div>`:''}</div><span class="pill ${statusPill(j.status)}">${statusLabel(j.status)}</span></div><div class="item-sub" style="margin-top:6px;">📅 ${fmtDate(j.date)}${j.amount?' · '+rupee(j.amount):''}${j.status==='onhold'&&j.holdReason?' · ⏸ '+esc(j.holdReason):''}</div>${j.notes?`<div class="item-sub">📝 ${esc(j.notes)}</div>`:''}${(j.checklist||[]).length?`<div class="item-sub">☑ ${j.checklist.filter(x=>x.done).length}/${j.checklist.length} checklist</div>`:''}${mediaHtml(j.id)}</div>`; }).join(''); })()}
     <div class="section-title">Sabhi Jobs (A se Z)</div>
     ${staffJobs.length===0?`<div class="empty-state"><span class="ic">🧾</span><p>Koi job assign nahi hua hai.</p></div>`:
@@ -1465,7 +1604,7 @@ function renderLocationShare(){
 /* ============ Technician: My Attendance ============ */
 function renderMyAttendance(){
   const rec=STATE.attendance[STATE.session.staffId]||{}; const dates=Object.keys(rec).sort().reverse();
-  return `${techMonthHtml(STATE.session.staffId)}${leaveCardHtml()}<div class="section-title">Meri Attendance</div>
+  return `${STATE.session.role==='technician'?techMonthHtml(STATE.session.staffId):''}${leaveCardHtml()}<div class="section-title">Meri Attendance</div>
     ${dates.length===0?`<div class="empty-state"><span class="ic">📅</span><p>Abhi tak koi attendance record nahi hai. Location share karne par automatically mark hoti hai.</p></div>`:
       dates.slice(0,30).map(d=>`<div class="card"><div class="row-between"><div class="item-name" style="font-size:14px;">${fmtDate(d)}</div><span class="pill pill-green">Present</span></div></div>`).join('')}`;
 }
@@ -1484,7 +1623,7 @@ function settingsTabs(role){
   const t=[['account','Account'],['biz','Business'],['team','Team PIN'],['data','Data'],['backup','Backup'],['mail','Email'],['adv','Advanced']], cur=STATE.setTab||'account';
   return `<div class="tabbar">${t.map(([k,l])=>`<button class="tabbtn ${cur===k?'active':''}" data-settab="${k}">${l}</button>`).join('')}</div>`;
 }
-function settingsBody(role,extra){ return (role==='subadmin'?leaveCardHtml():'')+settingsBody0(role,extra); }
+function settingsBody(role,extra){ return (role==='subadmin'?(leaveCardHtml()+kycCardHtml(STATE.session.staffId)+auditHtml(STATE.session.staffId)):'')+settingsBody0(role,extra); }
 function settingsBody0(role,extra){
   const cur=STATE.setTab||'account';
   const acc={admin:['Sab kuch dekh aur badal sakte hain','Team, PIN, customers, jobs, attendance, map, kamai, backup'],subadmin:['Customers add/edit, jobs assign, attendance aur map dekh sakte hain','Delete, kamai ke total, team PIN aur data settings nahi dikhti']}[role];
@@ -1823,7 +1962,7 @@ function modalHtml(){
       <button class="primary-btn" id="modalSave">Save</button>`;
   } else if(activeModal.type==='addStaff'){
     inner=`<div class="modal-head"><h3>Team Member Add Karein</h3><button class="close-x" id="modalClose">×</button></div>
-      <div class="field"><label>Role</label><select id="f_role"><option value="technician">Technician</option><option value="subadmin">Office / Sub-admin</option></select></div>
+      <div class="field"><label>Role</label><select id="f_role"><option value="technician">Technician</option><option value="subadmin">Office / Sub-admin</option><option value="telecaller">Telecaller</option></select></div>
       <div class="field"><label>Naam</label><input id="f_name" placeholder="Naam"></div>
       <div class="field"><label>Phone</label><input id="f_phone" placeholder="10-digit number"></div>
       <div class="field"><label>Email (optional)</label><input id="f_staffEmail" placeholder="email@example.com"></div>
@@ -1846,6 +1985,20 @@ function modalHtml(){
       <div class="field"><label>Notes (optional)</label><textarea id="f_jnotes" rows="2"></textarea></div>
       <button class="primary-btn" id="modalSave">Job Assign Karein</button>`;
     setTimeout(paintAmcNote,0);
+  } else if(activeModal.type==='leadImport'){
+    const callers=STATE.staff.filter(s=>s.role==='telecaller');
+    inner=`<div class="modal-head"><h3>📥 Leads Import Karein</h3><button class="close-x" id="modalClose">×</button></div>
+      ${callers.length===0?`<div class="item-sub" style="margin-bottom:12px;">Pehle Team mein "Telecaller" role se ek staff add karein.</div>`:`
+      <div class="field"><label>Kis Telecaller ko dena hai</label><select id="f_leadStaff">${callers.map(t=>`<option value="${t.id}">${esc(t.name)}</option>`).join('')}</select></div>
+      <div class="item-sub" style="margin-bottom:8px;">Excel/CSV mein ye columns hone chahiye: Date (AC khareed ki tarikh), Customer, Product, Address1, Address2, Address3, Area, Mobile No, Residential Tel No.</div>
+      <div class="field"><label>File chunein</label><input id="f_leadFile" type="file" accept=".xlsx,.xls,.csv"></div>
+      <button class="primary-btn" id="leadImportBtn">Import Karein</button>`}`;
+  } else if(activeModal.type==='sheetUrl'){
+    const t=STATE.staff.find(x=>x.id===activeModal.data.staffId)||{};
+    inner=`<div class="modal-head"><h3>🔗 ${esc(t.name||'')} ka Google Sheet</h3><button class="close-x" id="modalClose">×</button></div>
+      <div class="item-sub" style="margin-bottom:10px;">Google Sheet mein: File → Share → Publish to web → CSV chunein → Publish. Wahan mila link yahan paste karein. Isse har baar naya data khud aa jayega.</div>
+      <div class="field"><label>Sheet CSV Link</label><input id="f_sheetUrl" value="${esc(t.sheetUrl||'')}" placeholder="https://docs.google.com/spreadsheets/d/e/.../pub?output=csv"></div>
+      <button class="primary-btn" id="sheetUrlBtn">Save Karein</button>`;
   } else if(activeModal.type==='resetPin'){
     inner=`<div class="modal-head"><h3>${activeModal.data.name} ka PIN Reset</h3><button class="close-x" id="modalClose">×</button></div>
       <div class="field"><label>Naya PIN</label><input id="f_resetpin" type="password" inputmode="numeric" maxlength="6" placeholder="Naya 4-6 digit PIN"></div>
@@ -1984,6 +2137,12 @@ function bindShellEvents(){
     if(act==='service'){ await markServiced(id); render(); }
     else if(act==='editcust'){ const c=STATE.customers.find(x=>x.id===id); activeModal={type:'editCustomer', data:{...c, id}}; render(); }
     else if(act==='viewcust'){ openCustomerProfile(id); }
+    else if(act==='leadcall'){ await markLeadCalled(id); }
+    else if(act==='leadjob'){ await convertLeadToJob(id); }
+    else if(act==='leaddismiss'){ await dismissLead(id); }
+    else if(act==='leadimport'){ activeModal={type:'leadImport',data:{}}; render(); }
+    else if(act==='leadsheeturl'){ activeModal={type:'sheetUrl',data:{staffId:id}}; render(); }
+    else if(act==='leadsheetpull'){ await importLeadsFromSheet(id); }
     else if(act==='converttype'){ const c=STATE.customers.find(x=>x.id===id); if(c){ activeModal={type:'editCustomer',data:Object.assign({},c,{type:el.dataset.totype})}; render(); } }
     else if(act==='delcust'){ if(STATE.session.role!=='admin'){ showToast('Sirf Admin delete kar sakta hai'); return; } if(confirm('Customer delete karein?')){ await deleteCustomer(id); render(); } }
     else if(act==='amcservice'){ await markAmcServiceDone(id); render(); }
@@ -2080,6 +2239,8 @@ function bindShellEvents(){
     const closeX=document.getElementById('modalClose'); if(closeX) closeX.onclick=()=>{ activeModal=null; render(); };
     if(document.getElementById('recBtn')) initRecorder();
     if(document.getElementById('holdBtn')) initHold();
+    if(document.getElementById('leadImportBtn')) initLeadImport();
+    if(document.getElementById('sheetUrlBtn')) document.getElementById('sheetUrlBtn').onclick=async()=>{ const sid=activeModal.data.staffId, url=val('f_sheetUrl'); activeModal=null; await saveSheetUrl(sid,url); render(); };
     if(document.getElementById('leaveBtn')) initLeave();
     if(document.getElementById('kycBtn')) initKyc();
     if(document.getElementById('travelBtn')) initTravelAdd();
@@ -2156,6 +2317,14 @@ async function lookupPincode(pin){
     const areas=[...new Set(po.map(p=>p.Name))];
     box.innerHTML='<div class="item-sub">✅ '+esc(po[0].District)+', '+esc(po[0].State)+(areas.length?' — Area: '+areas.map(a=>esc(a)).join(', '):'')+'</div>';
   }catch(e){ box.innerHTML='<div class="item-sub">Pincode check nahi ho paya — internet check karein ya khud bharein.</div>'; }
+}
+function initLeadImport(){
+  document.getElementById('leadImportBtn').onclick=async()=>{
+    const staffId=document.getElementById('f_leadStaff').value, file=document.getElementById('f_leadFile').files[0];
+    if(!file){ showToast('File chunein'); return; }
+    activeModal=null; showToast('Leads import ho rahi hain…'); render();
+    await importLeadsFile(file,staffId); render();
+  };
 }
 function paintAmcNote(){
   const box=document.getElementById('amcVisitNote'); if(!box) return;
