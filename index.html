@@ -341,7 +341,7 @@ async function init(){
     STATE.businessInfo=await loadKey(SKEY.BUSINESS,{name:'Super Air Cool', phone:'', address:'', terms:''});
     const pc=await loadKey(SKEY.PHOTO_COUNTS,{});
     STATE.photos={}; STATE.signatures={}; STATE.techSignatures={}; STATE.amcSignatures={};
-    STATE.loading=false; STATE.loadFailed=false; render();
+    STATE.loading=false; STATE.loadFailed=false; restoreSession(); render();
     loadPhotosBg(pc);
   }catch(e){ console.error('init failed',e); STATE.loadErr=(e&&(e.code||e.message))||'unknown'; STATE.loading=false; STATE.loadFailed=true; render(); }
 }
@@ -383,16 +383,7 @@ async function doStaffLogin(staffId, pin){
     STATE.session={staffId:s.id, role:s.role, name:s.name}; auditLog(s.id,s.name,s.role,'login','App login'); linkAuthUid(s.id,s.role,s.name);
     loginError='';
     if(s.role==='technician'){
-      let alreadyGranted=false;
-      try{
-        if(navigator.permissions && navigator.permissions.query){
-          const status=await navigator.permissions.query({name:'geolocation'});
-          alreadyGranted = status.state==='granted';
-        }
-      }catch(e){}
-      STATE.view = alreadyGranted ? 'myjobs' : 'location';
-      render();
-      if(alreadyGranted){ startSharingLocation(); }
+      STATE.view='techhome'; STATE.locOK=undefined; render(); initTechLocation();
     } else if(s.role==='telecaller'){
       STATE.view='leads'; render();
     } else {
@@ -402,7 +393,7 @@ async function doStaffLogin(staffId, pin){
 }
 function logout(){
   stopSharingLocation();
-  STATE.session=null; loginPin=''; loginError=''; loginSelectedStaff=null; loginRole='admin'; forgotFlow=null;
+  clearSessionLocal(); STATE.session=null; navReady=false; loginPin=''; loginError=''; loginSelectedStaff=null; loginRole='admin'; forgotFlow=null;
   render();
   /* Shared laptop/device par agle banda ka role purane (admin) mapping se na mil jaye, isliye is device ka
      Firebase-auth identity yahin reset kar dete hain — naya anonymous user, koi role-mapping nahi. */
@@ -555,8 +546,11 @@ async function sendEmailViaBackend(to, subject, message){
 function getAllDueCustomers(){
   const amcDue=STATE.customers.filter(c=>c.type==='amc' && c.expiryDate && daysUntil(c.expiryDate)<=90)
     .map(c=>({...c, dueDate:c.expiryDate, dueLabel:'AMC Renewal', dueMsg:'AMC contract ('+(c.amcName||'AC Service')+')'}));
-  const oneTimeDue=STATE.customers.filter(c=>c.type!=='amc' && c.lastService && daysUntil(addMonths(c.lastService,c.intervalMonths))<=15)
-    .map(c=>({...c, dueDate:addMonths(c.lastService,c.intervalMonths), dueLabel:'Service Due', dueMsg:'AC Service'}));
+  const oneTimeDue=STATE.customers.filter(c=>c.type==='onetime').map(c=>{
+      const jd=(STATE.jobs||[]).filter(j=>j.customerId===c.id && j.status==='done').map(j=>j.completedAt?ymd(new Date(j.completedAt)):j.date).filter(Boolean).sort().pop();
+      const last=[c.lastService,jd].filter(Boolean).sort().pop(), iv=Number(c.intervalMonths)||3;
+      return last?{...c, lastService:last, intervalMonths:iv, dueDate:addMonths(last,iv), dueLabel:'Service Due', dueMsg:'AC Service'}:null; })
+    .filter(c=>c && daysUntil(c.dueDate)<=15);
   return [...amcDue, ...oneTimeDue].sort((a,b)=>new Date(a.dueDate)-new Date(b.dueDate));
 }
 async function sendAmcReminders(){
@@ -602,7 +596,7 @@ function startSharingLocation(){
     if(!STATE.attendance[staffId][t]){ STATE.attendance[staffId][t]=true; saveKey(SKEY.ATTENDANCE, STATE.attendance); }
     if(STATE.view==='location') bgRender();
   }, (err)=>{
-    if(err.code===1){ showToast('Permission denied. Phone Settings → Chrome/Browser → Site Settings → Location mein "Allow" karein.'); }
+    if(err.code===1){ STATE.locOK=false; showToast('Permission denied. Phone Settings → Chrome/Browser → Site Settings → Location mein "Allow" karein.'); }
     else{ showToast('Location error: '+err.message); }
     STATE.sharingLocation=false; render();
   }, {enableHighAccuracy:true, maximumAge:60000, timeout:20000});
@@ -856,7 +850,7 @@ function normalizeSheetUrl(u){
 function readSheetRemarks(remarks){
   const t=remarks.join(' | '), pm=t.match(/\b(online|cash|cheque|upi)\b/i);
   const amcPay=pm?(pm[1][0].toUpperCase()+pm[1].slice(1).toLowerCase()):'';
-  const wantsLater=!amcPay && /(\bcb\b|\blater\b|baad\s*me(in)?\b|call\s*back)/i.test(t);
+  const wantsLater=!amcPay && /(\bcb\b|\blater\b|baad\s*me(in)?\b|call\s*back)/i.test(t.replace(/own\s*cb/gi,''));
   let fu='';
   if(wantsLater){
     fu=todayStr();
@@ -886,8 +880,8 @@ function rowsToLeads(rows, staffId, staffName, importedBy){
 }
 let leadsUpdated=0;
 function leadKey(l){ const m=(l.mobile||'').replace(/\D/g,'')||(l.resTel||'').replace(/\D/g,''); return l.assignedTo+'|'+(m||('n:'+(l.customer||'').trim().toLowerCase()))+'|'+(l.purchaseDate||''); }
-/* v4.7: jo lead pehle se app mein hai use skip karne ki jagah update karte hain —
-   sheet ka TRUE checkbox aur purane call notes purani (v4.7 se pehle import hui) leads mein bhi aa jayenge. */
+/* v4.4: jo lead pehle se app mein hai use skip karne ki jagah update karte hain —
+   sheet ka TRUE checkbox aur purane call notes purani (v4.3 se pehle import hui) leads mein bhi aa jayenge. */
 function dedupeLeads(newLeads){
   const have=new Map((STATE.leads||[]).map(l=>[leadKey(l),l]));
   return newLeads.filter(l=>{
@@ -896,6 +890,7 @@ function dedupeLeads(newLeads){
       if(l.preDone && !ex.called){ ex.called=true; ex.calledAt=Date.now(); ex.calledBy='(Sheet se import)'; ex.preDone=true; ex.remarkNote=l.remarkNote; leadsUpdated++; }
       if(l.followUpDate && !ex.called && !ex.followUpDate){ ex.followUpDate=l.followUpDate; leadsUpdated++; }
       if(l.amcPay && !ex.amcPay) ex.amcPay=l.amcPay;
+      if(l.srcUrl && !ex.srcUrl) ex.srcUrl=l.srcUrl;
       const cur=ex.remarks||[], add=(l.remarks||[]).filter(r=>!cur.includes(r));
       if(add.length){ ex.remarks=cur.concat(add); if(!(l.preDone&&ex.preDone&&ex.calledBy==='(Sheet se import)')) leadsUpdated++; }
       return false;
@@ -928,7 +923,7 @@ async function importLeadsFromSheet(staffId){
       const text=(await res.text()).replace(/^\uFEFF/,'');
       if(/^\s*<(!doctype|html)/i.test(text)) throw new Error('html-not-csv');
       const rows=text.split(/\r?\n/).filter(l=>l.trim()).map(l=>parseCsvLine(l));
-      const all=rowsToLeads(rows,staffId,staff.name,(STATE.session&&STATE.session.name)||''), fresh=dedupeLeads(all);
+      const all=rowsToLeads(rows,staffId,staff.name,(STATE.session&&STATE.session.name)||''); all.forEach(l=>{ l.srcUrl=normalizeSheetUrl(lk.url); }); const fresh=dedupeLeads(all);
       if(!all.length){ empty.push(nm); continue; }
       STATE.leads=(STATE.leads||[]).concat(fresh); totalFresh+=fresh.length; totalAll+=all.length;
     }catch(e){ console.error('sheet fetch',lk,e); failed.push(nm); }
@@ -948,8 +943,17 @@ async function addSheetUrl(staffId,url,label){
 }
 async function removeSheetUrl(staffId,idx){
   const s=STATE.staff.find(x=>x.id===staffId); if(!s) return;
+  const lk=(s.sheetUrls||[])[idx]; if(!lk) return;
+  if(!confirm('"'+(lk.label||'Sheet '+(idx+1))+'" ka link hata dein?\n\nDhyan dein: ek baar hatane ke baad wapas nahi aayega (naya link dobara jodna padega).')) return;
+  const url=normalizeSheetUrl(lk.url);
+  const mine=(STATE.leads||[]).filter(l=>l.assignedTo===staffId && l.srcUrl===url);
+  const untouched=mine.filter(l=>!l.called && !l.convertedJobId);
+  let removeLeads=false;
+  if(untouched.length && confirm('Is sheet ki '+untouched.length+' leads jinpar call nahi hui, unhe bhi hata dein?\n\nOK = leads bhi hategi\nCancel = sirf link hategi, leads rahengi\n(Call ho chuki ya AMC bani hui leads kabhi nahi hategi.)')) removeLeads=true;
   s.sheetUrls=(s.sheetUrls||[]).filter((x,i)=>i!==idx);
-  await saveKey(SKEY.STAFF, STATE.staff); showToast('Sheet link hata diya'); render();
+  if(removeLeads){ const ids=new Set(untouched.map(l=>l.id)); STATE.leads=(STATE.leads||[]).filter(l=>!ids.has(l.id)); await saveKey(SKEY.LEADS, STATE.leads); }
+  await saveKey(SKEY.STAFF, STATE.staff);
+  showToast('Sheet link hata diya'+(removeLeads?' aur '+untouched.length+' leads bhi hata di':'')); render();
 }
 async function markLeadLater(id, remark, date){
   const l=(STATE.leads||[]).find(x=>x.id===id); if(!l) return;
@@ -1035,13 +1039,17 @@ async function completeJobWithAmount(id, amount, rating, signatureDataUrl, techS
     await saveKey(SKEY.CUSTOMERS, STATE.customers);
     if(cust.totalServices&&cust.servicesDone>=cust.totalServices) showToast('Job complete — AMC ki saari '+cust.totalServices+' services ho gayin, renewal karein');
     else showToast('Job complete — AMC Service '+cust.servicesDone+(cust.totalServices?'/'+cust.totalServices:'')+' record ho gayi');
-  } else showToast('Job complete ho gaya');
+  } else {
+    if(cust && cust.type==='onetime'){ cust.lastService=todayStr(); cust.intervalMonths=Number(cust.intervalMonths)||3; await saveKey(SKEY.CUSTOMERS, STATE.customers); showToast('Job complete -- '+cust.intervalMonths+' mahine baad service reminder aayega'); }
+    else showToast('Job complete ho gaya');
+  }
 }
 async function deleteJob(id){
   STATE.jobs=STATE.jobs.filter(x=>x.id!==id); await saveKey(SKEY.JOBS, STATE.jobs); showToast('Job delete ho gaya');
 }
 async function assignJobQuick(jobId, techId){
   const j=STATE.jobs.find(x=>x.id===jobId); if(!j) return;
+  if(j.status==='done'){ showToast('Complete job mein technician nahi badal sakte'); render(); return; }
   if(techId && isOnLeaveOn(techId, j.date)){ showToast('⚠️ Ye technician us din chhutti par hai — assign nahi ho saka'); render(); return; }
   j.assignedTo=techId; await saveKey(SKEY.JOBS, STATE.jobs); showToast(techId?'Job assign ho gaya':'Unassign ho gaya'); render();
 }
@@ -1184,6 +1192,96 @@ async function generateAmcPdf(customerId){
 }
 
 /* ============ Render root ============ */
+/* ===== Technician: location permission zaroori. Jab tak allow nahi, koi screen nahi dikhegi. Allow hote hi ye page hat jata hai aur sharing background mein chalti hai. ===== */
+async function initTechLocation(){
+  let ok=false;
+  try{
+    if(navigator.permissions && navigator.permissions.query){
+      const st=await navigator.permissions.query({name:'geolocation'});
+      ok = st.state==='granted';
+      st.onchange=()=>{ const g=st.state==='granted'; if(g===STATE.locOK) return; STATE.locOK=g; if(g){ if(!STATE.sharingLocation) startSharingLocation(); } else { stopSharingLocation(); } render(); };
+    }
+  }catch(e){}
+  STATE.locOK=ok; if(ok && !STATE.sharingLocation) startSharingLocation(); render();
+}
+function renderLocationGate(){
+  if(STATE.locOK===undefined) return `<div class="loading-screen"><div class="spinner"></div><div>Location check ho rahi hai...</div></div>`;
+  return `<div class="login-wrap"><div class="login-hero"><div class="brand-mark">📍</div><h1>Location Allow Karein</h1><p>Kaam shuru karne ke liye location zaroori hai</p></div>
+    <div class="card"><div class="item-sub">Aapki attendance aur jobs tabhi dikhengi jab location allow hogi. Office ko aapki live location dikhti hai.</div>${STATE.locErr?`<div class="error-msg" style="margin-top:10px;">${STATE.locErr}</div>`:''}</div>
+    <button class="primary-btn" id="locAllowBtn" style="margin-top:12px;">📍 Location Allow Karein</button>
+    <button class="ghost-btn" id="locLogoutBtn" style="margin-top:8px;">Logout</button></div>`;
+}
+function bindLocationGate(){
+  const b=document.getElementById('locAllowBtn'), lo=document.getElementById('locLogoutBtn');
+  if(lo) lo.onclick=()=>logout();
+  if(b) b.onclick=()=>{
+    if(!navigator.geolocation){ STATE.locErr='Is browser mein location supported nahi hai.'; render(); return; }
+    b.disabled=true; b.textContent='Location le rahe hain...';
+    navigator.geolocation.getCurrentPosition(()=>{ STATE.locOK=true; STATE.locErr=''; startSharingLocation(); render(); },
+      (err)=>{ STATE.locErr=err.code===1?'Permission band hai. Phone Settings -> Browser/Chrome -> Site Settings -> Location mein "Allow" karke wapas aayein.':'Location nahi mili ('+err.message+'). GPS on karke dobara try karein.'; render(); },
+      {enableHighAccuracy:true, timeout:20000, maximumAge:0});
+  };
+}
+function renderTechHome(){
+  const me=STATE.session.staffId, t=todayStr(), mine=(STATE.jobs||[]).filter(j=>j.assignedTo===me);
+  const today=mine.filter(j=>j.date===t), open=mine.filter(j=>j.status!=='done'&&j.status!=='rejected').sort((a,b)=>(a.date||'').localeCompare(b.date||''));
+  const doneToday=today.filter(j=>j.status==='done').length, present=(STATE.attendance[me]||{})[t];
+  return `<div class="section-title">Namaste, ${esc(STATE.session.name||'')}</div>
+    <div class="stat-grid"><div class="stat-card"><div class="stat-num">${today.length}</div><div class="stat-label">Aaj ki jobs</div></div><div class="stat-card"><div class="stat-num" style="color:var(--amber);">${open.length}</div><div class="stat-label">Baaki jobs</div></div></div>
+    <div class="stat-grid"><div class="stat-card"><div class="stat-num" style="color:var(--green);">${doneToday}</div><div class="stat-label">Aaj complete</div></div><div class="stat-card"><div class="stat-num" style="font-size:18px;">${present?'✅ Present':'—'}</div><div class="stat-label">Aaj ki attendance</div></div></div>
+    <div class="item-sub" style="margin:4px 0 12px;"><span class="status-dot ${STATE.sharingLocation?'dot-live':'dot-stale'}"></span>${STATE.sharingLocation?'Location live hai':'Location shuru ho rahi hai...'}</div>
+    <div class="section-title">Agli jobs</div>
+    ${open.length===0?`<div class="empty-state"><span class="ic">✅</span><p>Abhi koi job baaki nahi hai.</p></div>`:open.slice(0,5).map(j=>{ const c=STATE.customers.find(x=>x.id===j.customerId)||{}; return `<div class="card" data-navto="myjobs" style="cursor:pointer;"><div class="row-between"><div><div class="item-name">${esc(j.title||'Job')}</div><div class="item-sub">${esc(c.name||'')}${c.phone?' · '+esc(c.phone):''}</div><div class="item-sub">${esc((c.address||'').slice(0,70))}</div></div><span class="pill ${j.date===t?'pill-amber':'pill-grey'}">${j.date===t?'Aaj':fmtDate(j.date)}</span></div></div>`; }).join('')}
+    <button class="ghost-btn" data-navto="myjobs" style="margin-top:10px;">Sab jobs dekhein</button>`;
+}
+/* Auto logout: screen band/app background mein 5 min se zyada, ya chalu app par 15 min koi activity nahi */
+const HIDDEN_LIMIT_MS=5*60*1000, IDLE_LIMIT_MS=15*60*1000, SEEN_KEY='st_seen_v1';
+let lastActiveTs=Date.now(), hiddenAtTs=0;
+function markSeen(){ try{ localStorage.setItem(SEEN_KEY,String(Date.now())); }catch(e){} }
+function autoLogout(msg){ if(!STATE.session) return; logout(); setTimeout(()=>showToast(msg),300); }
+['click','touchstart','keydown','scroll'].forEach(ev=>document.addEventListener(ev,()=>{ lastActiveTs=Date.now(); },{passive:true,capture:true}));
+document.addEventListener('visibilitychange',()=>{
+  if(document.hidden){ hiddenAtTs=Date.now(); markSeen(); }
+  else { if(STATE.session && hiddenAtTs && Date.now()-hiddenAtTs>HIDDEN_LIMIT_MS) autoLogout('Kaafi der app use nahi hui, isliye logout ho gaya'); hiddenAtTs=0; lastActiveTs=Date.now(); markSeen(); }
+});
+window.addEventListener('pagehide',markSeen);
+setInterval(()=>{ if(!STATE.session||document.hidden) return; markSeen(); if(Date.now()-lastActiveTs>IDLE_LIMIT_MS) autoLogout('Koi activity nahi hui, isliye logout ho gaya'); },30000);
+/* Refresh par login na maange: session is device ke localStorage mein 30 din tak rehta hai (PIN save nahi hota). Logout dabane par hat jata hai. */
+const SESS_KEY='st_session_v1', SESS_DAYS=30;
+function saveSessionLocal(){ try{ if(!STATE.session) return; localStorage.setItem(SESS_KEY, JSON.stringify({s:STATE.session, view:(STATE.view&&STATE.view!=='customerProfile')?STATE.view:'', ts:Date.now()})); }catch(e){} }
+function clearSessionLocal(){ try{ localStorage.removeItem(SESS_KEY); }catch(e){} }
+function restoreSession(){
+  if(STATE.session) return;
+  try{
+    const raw=localStorage.getItem(SESS_KEY); if(!raw) return;
+    const o=JSON.parse(raw), seen=Number(localStorage.getItem(SEEN_KEY))||o.ts||0; if(!o||!o.s||!o.ts||Date.now()-o.ts>SESS_DAYS*86400000||Date.now()-seen>HIDDEN_LIMIT_MS){ clearSessionLocal(); return; }
+    const st=(STATE.staff||[]).find(x=>x.id===o.s.staffId);
+    if(!st||st.role!==o.s.role||st.deleted){ clearSessionLocal(); return; }
+    STATE.session={staffId:st.id, role:st.role, name:st.name};
+    STATE.view=o.view||homeViewFor(st.role);
+    if(st.role==='technician'){ if(!o.view||o.view==='location') STATE.view='techhome'; STATE.locOK=undefined; setTimeout(initTechLocation,0); }
+    linkAuthUid(st.id,st.role,st.name);
+  }catch(e){}
+}
+/* Mobile Back button: app ke andar wapas jaye (modal band -> profile se list -> home). Home par 2 baar back dabane par hi app band hoga. */
+let navReady=false, navListening=false, exitArmed=false;
+function homeViewFor(role){ return role==='telecaller'?'leads':role==='technician'?'techhome':'dashboard'; }
+function syncNavHistory(){
+  if(navReady||!STATE.session) return;
+  navReady=true;
+  try{ history.replaceState({st:'base'},''); history.pushState({st:'app'},''); }catch(e){}
+  if(navListening) return; navListening=true;
+  window.addEventListener('popstate',()=>{
+    if(!STATE.session){ return; }
+    const keep=()=>{ try{ history.pushState({st:'app'},''); }catch(e){} };
+    if(activeModal){ activeModal=null; keep(); render(); return; }
+    const home=homeViewFor(STATE.session.role);
+    if(STATE.view==='customerProfile'){ STATE.view=STATE.backView&&STATE.backView!=='customerProfile'?STATE.backView:'customers'; keep(); render(); return; }
+    if(STATE.view!==home){ STATE.view=home; keep(); render(); return; }
+    if(exitArmed){ exitArmed=false; try{ history.back(); }catch(e){} return; }
+    exitArmed=true; keep(); showToast('App band karne ke liye dobara Back dabayein'); setTimeout(()=>{ exitArmed=false; },2500);
+  });
+}
 function render(){
   const isCam=activeModal&&(activeModal.type==='recVideo'||activeModal.type==='recPhoto');
   if(REC.stream&&isCam) return;
@@ -1193,19 +1291,20 @@ function render(){
   if(!STATE.backendConnected){ app.innerHTML=renderSetup(); bindSetupEvents(); return; }
   if(STATE.loading){ app.innerHTML=`<div class="loading-screen"><div class="brand-mark" style="width:56px;height:56px;border-radius:16px;font-size:28px;margin-bottom:4px;">❄️</div><div class="spinner"></div><div>Data load ho raha hai…</div></div>`; return; }
   if(STATE.loadFailed){
-    app.innerHTML=`<div class="loading-screen"><div style="font-size:34px;">⚠️</div><div style="max-width:300px;">Connection slow/fail ho gaya — data load nahi ho paya. Kuch bhi save nahi hua, dobara try karein.<div style="font-size:11px;margin-top:8px;color:var(--ink-faint);">v4.7 · Error: ${esc(STATE.loadErr||"")}</div></div><button class="primary-btn" id="retryLoadBtn" style="width:auto;padding:12px 24px;">Dobara Try Karein</button></div>`;
+    app.innerHTML=`<div class="loading-screen"><div style="font-size:34px;">⚠️</div><div style="max-width:300px;">Connection slow/fail ho gaya — data load nahi ho paya. Kuch bhi save nahi hua, dobara try karein.<div style="font-size:11px;margin-top:8px;color:var(--ink-faint);">v5.4 · Error: ${esc(STATE.loadErr||"")}</div></div><button class="primary-btn" id="retryLoadBtn" style="width:auto;padding:12px 24px;">Dobara Try Karein</button></div>`;
     const btn=document.getElementById('retryLoadBtn'); if(btn) btn.onclick=()=>init();
     return;
   }
   if(!STATE.session){ app.innerHTML=renderLogin(); bindLoginEvents(); return; }
-  app.innerHTML=renderShell(); bindShellEvents();
+  if(STATE.session.role==='technician' && STATE.locOK!==true){ app.innerHTML=renderLocationGate(); bindLocationGate(); return; }
+  app.innerHTML=renderShell(); bindShellEvents(); syncNavHistory(); saveSessionLocal();
 }
 
 /* ============ Setup screen ============ */
 function renderSetup(){
   return `
   <div class="login-wrap">
-    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v4.7</p></div>
+    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v5.4</p></div>
     <div class="setup-note">Yeh app ab Firebase (Google ka free real-time database) use karti hai — pehle se tez aur reliable. Firebase Console se apna config copy karke neeche paste karein.</div>
     <div class="field"><label>Firebase Config (poora object paste karein)</label><textarea id="setupConfig" rows="8" placeholder='{"apiKey": "...", "authDomain": "...", "projectId": "...", ...}'>${setupUrlInput}</textarea></div>
     <button class="primary-btn" id="connectBtn">Connect Karein</button>
@@ -1256,16 +1355,16 @@ function renderLogin(){
     `;
   } else {
     body=`
-      <div class="field"><label>Apna naam chunein</label><select id="staffSelect"><option value="">-- Select --</option>${nonAdmins.filter(s=>s.role===loginRole).map(s=>`<option value="${s.id}" ${loginSelectedStaff===s.id?'selected':''}>${s.name}</option>`).join('')}</select></div>
+      <div class="field"><label>Apna naam chunein</label><select id="staffSelect"><option value="">-- Select --</option>${nonAdmins.filter(s=>s.role===loginRole||(loginRole==='subadmin'&&s.role==='telecaller')).map(s=>`<option value="${s.id}" ${loginSelectedStaff===s.id?'selected':''}>${esc(s.name)}${s.role==='telecaller'?' (Telecaller)':''}</option>`).join('')}</select></div>
       <div class="field"><label>PIN</label><input id="pinInput" type="password" inputmode="numeric" maxlength="6" placeholder="••••" value="${loginPin}"></div>
       <button class="primary-btn" id="loginSubmit">Login</button>
-      ${nonAdmins.filter(s=>s.role===loginRole).length===0?`<div class="error-msg">Koi ${loginRole==='technician'?'technician':'sub-admin'} add nahi hai abhi. Admin se add karwayein.</div>`:''}
+      ${nonAdmins.filter(s=>s.role===loginRole||(loginRole==='subadmin'&&s.role==='telecaller')).length===0?`<div class="error-msg">Koi ${loginRole==='technician'?'technician':'sub-admin'} add nahi hai abhi. Admin se add karwayein.</div>`:''}
       <div class="item-sub" style="text-align:center;margin-top:12px;">PIN bhool gaye? Apne Admin/Office se Settings mein reset karwayein.</div>
     `;
   }
   return `
   <div class="login-wrap">
-    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v4.7</p></div>
+    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v5.4</p></div>
     <div class="role-grid">
       <button class="role-opt ${loginRole==='admin'?'active':''}" data-role="admin"><span class="ic">🗝️</span>Admin</button>
       <button class="role-opt ${loginRole==='subadmin'?'active':''}" data-role="subadmin"><span class="ic">🧑‍💼</span>Office</button>
@@ -1301,7 +1400,7 @@ function navItemsFor(role){
   if(role==='admin') return [{v:'dashboard',ic:'🏠',label:'Home'},{v:'customers',ic:'🛡️',label:'AMC'},{v:'jobs',ic:'🧾',label:'Jobs'},{v:'leads',ic:'📇',label:'Leads'},{v:'staff',ic:'🧑‍🔧',label:'Team'},{v:'attendance',ic:'📅',label:'Attend.'},{v:'map',ic:'📍',label:'Map'},{v:'settings',ic:'⚙️',label:'Settings'}];
   if(role==='subadmin') return [{v:'dashboard',ic:'🏠',label:'Home'},{v:'customers',ic:'🛡️',label:'AMC'},{v:'jobs',ic:'🧾',label:'Jobs'},{v:'leads',ic:'📇',label:'Leads'},{v:'attendance',ic:'📅',label:'Attend.'},{v:'map',ic:'📍',label:'Map'},{v:'settings',ic:'⚙️',label:'Settings'}];
   if(role==='telecaller') return [{v:'leads',ic:'📇',label:'Leads'},{v:'attendance',ic:'📅',label:'Attend.'},{v:'settings',ic:'⚙️',label:'Profile'}];
-  return [{v:'myjobs',ic:'🧾',label:'My Jobs'},{v:'location',ic:'📍',label:'Location'},{v:'attendance',ic:'📅',label:'Attend.'},{v:'settings',ic:'⚙️',label:'Profile'}];
+  return [{v:'techhome',ic:'🏠',label:'Home'},{v:'myjobs',ic:'🛠️',label:'My Jobs'},{v:'attendance',ic:'📅',label:'Attend.'},{v:'settings',ic:'⚙️',label:'Profile'}];
 }
 function roleLabel(r){ return r==='admin'?'Admin':r==='subadmin'?'Office':r==='telecaller'?'Telecaller':'Technician'; }
 
@@ -1319,7 +1418,7 @@ function renderShell(){
   else if(STATE.view==='map') body=renderMap();
   else if(STATE.view==='leads') body=renderLeads();
   else if(STATE.view==='myjobs') body=renderMyJobs();
-  else if(STATE.view==='location') body=renderLocationShare();
+  else if(STATE.view==='location'||STATE.view==='techhome') body=renderTechHome();
   else if(STATE.view==='attendance') body = (STATE.session.role==='technician'||STATE.session.role==='telecaller') ? renderMyAttendance() : renderAdminAttendance();
   else if(STATE.view==='settings') body=STATE.session.role==='technician'?renderTechProfile():STATE.session.role==='telecaller'?renderTelecallerProfile():renderSettings();
   return `
@@ -1456,12 +1555,12 @@ function amcTimelineHtml(c){
 function sourceLabel(t){ return {online:'🌐 Online',telecaller:'📞 Telecaller',offline:'🚶 Offline / Walk-in',reference:'🤝 Reference',other:'Anya'}[t]||'🚶 Offline / Walk-in'; }
 function sourceCardHtml(c){
   if(STATE.session.role==='technician') return '';
-  return `<div class="card"><div class="item-name" style="margin-bottom:4px;">📍 Lead Source</div><div class="item-sub">${sourceLabel(c.sourceType)}${c.source?' — '+esc(c.source):''}</div>${c.incentiveGiven?`<div class="item-sub" style="margin-top:4px;">💰 Incentive: <b>${esc(c.incentiveTo||'—')}</b> · ${rupee(c.incentiveAmount||0)} · ${c.incentivePaid?'<span style="color:var(--green);">✅ De diya</span>':'<span style="color:#a12a20;">⏳ Baaki hai</span>'}</div>`:''}</div>`;
+  return `<div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:6px 0 8px;font-size:12px;"><span class="pill pill-grey">📍 ${sourceLabel(c.sourceType)}${c.source?' — '+esc(c.source):''}</span>${c.incentiveGiven?`<span class="pill ${c.incentivePaid?'pill-green':'pill-amber'}">💰 ${esc(c.incentiveTo||'--')} · ${rupee(c.incentiveAmount||0)} · ${c.incentivePaid?'De diya':'Baaki'}</span>`:''}</div>`;
 }
 function convertBtnsHtml(c){
   const opts={amc:[['onetime','One-time mein badlein (AMC renew nahi hui)']],onetime:[['amc','AMC mein badlein']],enquiry:[['onetime','One-time Service banayein'],['amc','AMC Customer banayein']],quotation:[['onetime','One-time Service banayein'],['amc','AMC Customer banayein']]}[c.type||'amc']||[];
   if(!opts.length||STATE.session.role==='technician') return '';
-  return `<div class="card"><div class="item-name" style="margin-bottom:6px;">🔄 Customer Type Badlein</div><div class="item-sub" style="margin-bottom:8px;">${c.type==='amc'?'AMC khatam ho gaya aur renew nahi hua? One-time mein badal dein, purani services ka record wahi rahega.':'Naye type ke liye zaroori details bharne ka form khulega.'}</div><div class="card-actions">${opts.map(([t,l])=>`<button class="mini-btn primary" data-act="converttype" data-id="${c.id}" data-totype="${t}">${l}</button>`).join('')}</div></div>`;
+  return `<div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:0 0 10px;"><span class="item-sub" style="margin:0;">🔄</span>${opts.map(([t,l])=>`<button class="mini-btn" style="padding:5px 10px;font-size:11px;" data-act="converttype" data-id="${c.id}" data-totype="${t}">${l.replace(/ \(.*\)$/,'')}</button>`).join('')}</div>`;
 }
 function customerTypeLabel(t){ return t==='onetime'?'One-time':t==='enquiry'?'Enquiry':t==='quotation'?'Quotation':'AMC'; }
 function customerTypePill(t){ return t==='onetime'?'pill-sky':t==='enquiry'?'pill-amber':t==='quotation'?'pill-grey':'pill-green'; }
@@ -1510,7 +1609,7 @@ function renderCustomers(){
   STATE.customers.forEach(c=>{ const t=c.type||'amc'; if(typeCounts[t]!==undefined) typeCounts[t]++; });
   return `
     <div class="tabbar"><button class="tabbtn active" data-navto="customers">List</button><button class="tabbtn" data-navto="amccal">AMC Calendar</button></div>
-    <div class="row-between" style="margin-bottom:12px;"><div class="section-title" style="margin:0;">Customers (${list.length})</div></div>
+    <div class="row-between" style="margin-bottom:12px;"><div class="section-title" style="margin:0;" id="custCount">Customers (${list.length})</div></div>
     <div class="searchbar"><input id="custSearchInput" placeholder="Naam ya number type karein…" value="${STATE.custSearch}"></div>
     <div class="tabbar">
       <button class="tabbtn ${filterType==='all'?'active':''}" data-typefilter="all">Sab (${typeCounts.all})</button>
@@ -1519,7 +1618,7 @@ function renderCustomers(){
       <button class="tabbtn ${filterType==='enquiry'?'active':''}" data-typefilter="enquiry">Enquiry (${typeCounts.enquiry})</button>
       <button class="tabbtn ${filterType==='quotation'?'active':''}" data-typefilter="quotation">Quotation (${typeCounts.quotation})</button>
     </div>
-    ${list.length===0?`<div class="empty-state"><span class="ic">👥</span><p>${q?'Koi match nahi mila.':'Abhi tak koi customer add nahi hua.<br>Neeche + button se add karein.'}</p></div>`:
+    <div id="custListWrap">${list.length===0?`<div class="empty-state"><span class="ic">👥</span><p>${q?'Koi match nahi mila.':'Abhi tak koi customer add nahi hua.<br>Neeche + button se add karein.'}</p></div>`:
       list.map(c=>{
         let pillClass='pill-grey', pillText='';
         if(c.type==='amc' && c.expiryDate){ const d=daysUntil(c.expiryDate); pillClass=d<0?'pill-red':d<=15?'pill-amber':'pill-green'; pillText=d<0?Math.abs(d)+'d overdue':d+'d left'; }
@@ -1527,7 +1626,7 @@ function renderCustomers(){
         return `<div class="card">
         <div class="row-between" data-viewcust="${c.id}" style="cursor:pointer;"><div><div class="item-name">${c.name} <span class="pill ${customerTypePill(c.type)}" style="margin-left:4px;">${customerTypeLabel(c.type)}</span></div><div class="item-sub">${c.phone||'no phone'}${c.phone2?' / '+c.phone2:''}</div><div class="item-sub">${c.address||'no address'}${c.pincode?' - '+c.pincode:''}</div>${c.type==='amc'&&c.brand?`<div class="item-sub">${c.brand} ${c.model||''}</div>`:''}</div>${pillText?`<span class="pill ${pillClass}">${pillText}</span>`:''}</div>
         <div class="card-actions" style="margin-top:6px;">${c.phone?`<a class="mini-btn" style="text-decoration:none;" href="tel:${c.phone}">📞 Call</a>`:''}${c.phone?`<a class="mini-btn" style="text-decoration:none;" href="https://wa.me/${waNum(c.phone)}">💬 WhatsApp</a>`:''}</div>
-        <div class="card-actions"><button class="mini-btn primary" data-act="service" data-id="${c.id}">Service ho gaya</button><button class="mini-btn" data-act="editcust" data-id="${c.id}">Edit</button><button class="mini-btn" data-act="viewcust" data-id="${c.id}">Profile</button>${STATE.session.role==='admin'?`<button class="mini-btn danger" data-act="delcust" data-id="${c.id}">Delete</button>`:''}</div></div>`; }).join('')}
+        <div class="card-actions"><button class="mini-btn primary" data-act="service" data-id="${c.id}">Service ho gaya</button><button class="mini-btn" data-act="editcust" data-id="${c.id}">Edit</button><button class="mini-btn" data-act="viewcust" data-id="${c.id}">Profile</button>${STATE.session.role==='admin'?`<button class="mini-btn danger" data-act="delcust" data-id="${c.id}">Delete</button>`:''}</div></div>`; }).join('')}</div>
     <button class="fab" id="addCustBtn">+</button>
   `;
 }
@@ -1592,7 +1691,7 @@ function renderCustomerProfile(){
     ${convertBtnsHtml(c)}
       <div class="item-sub" style="margin-top:6px;">${c.phone||''}${c.phone2?' / '+c.phone2:''}${c.email?' · '+c.email:''}</div>
       <div class="item-sub">${c.address||''}${c.landmark?', '+c.landmark:''}${c.city?', '+c.city:''}${c.state?', '+c.state:''}${c.pincode?' - '+c.pincode:''}</div>
-      <div class="card-actions" style="margin-top:10px;">${c.phone?`<a class="mini-btn primary" style="text-decoration:none;" href="tel:${c.phone}">📞 Call</a>`:''}${c.phone?`<a class="mini-btn" style="text-decoration:none;" href="https://wa.me/${waNum(c.phone)}">💬 WhatsApp</a>`:''}</div>
+      <div class="card-actions" style="margin-top:10px;">${c.phone?`<a class="mini-btn primary" style="text-decoration:none;" href="tel:${c.phone}">📞 Call</a>`:''}${c.phone?`<a class="mini-btn" style="text-decoration:none;" href="https://wa.me/${waNum(c.phone)}">💬 WhatsApp</a>`:''}${STATE.session.role==='technician'?'':`<button class="mini-btn" data-act="editcust" data-id="${c.id}">✏️ Details Badlein</button>`}</div>
     </div>
     ${c.type==='amc'?`<div class="card">
       <div class="section-title" style="margin:0 0 8px 0;">AMC Contract</div>
@@ -1614,11 +1713,26 @@ function renderCustomerProfile(){
         const statusLabel=s=>s==='done'?'Completed':s==='ongoing'?'Ongoing':s==='onhold'?'On Hold':s==='rejected'?'Rejected':'Pending';
         const statusPill=s=>s==='done'?'pill-green':s==='ongoing'?'pill-sky':s==='onhold'?'pill-grey':s==='rejected'?'pill-red':'pill-amber';
         return `<div class="card"><div class="row-between"><div><div class="item-name">${j.title}</div><div class="item-sub">${fmtDate(j.date)}${j.completedAt?' · '+new Date(j.completedAt).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true}):''} · ${tech?`<span data-viewstaff="${tech.id}" style="cursor:pointer;text-decoration:underline;color:var(--teal);">${esc(tech.name)}</span>`:'Unassigned'}${j.status==='done'?' · '+rupee(j.amount):''}</div></div><span class="pill ${statusPill(j.status)}">${statusLabel(j.status)}</span></div>
-        ${j.status==='done'?`<div class="card-actions"><button class="mini-btn primary" data-act="invoice" data-id="${j.id}">Invoice</button></div>`:''}</div>`; }).join('')}
+        ${j.notes?`<div class="item-sub" style="margin-top:6px;">📝 ${esc(j.notes)}</div>`:''}${j.status==='done'?`<div class="card-actions"><button class="mini-btn primary" data-act="invoice" data-id="${j.id}">Invoice</button></div>`:''}</div>`; }).join('')}
   `;
 }
 
 /* ============ Jobs ============ */
+/* Admin/Sub-admin tabs: AMC (ONLINE/CASH ya sheet ✅) · Follow-up (CB/LATER/BAAD ME) · Own CB · Call Hui */
+function leadBucket(l){
+  if(l.dismissed||l.convertedJobId) return '';
+  const rem=(l.remarks||[]).join(' | '), ownCb=/own\s*cb/i.test(rem), manualFu=(l.remarks||[]).some(r=>/Baad mein call \(/.test(r));
+  const later=/(\bcb\b|\blater\b|baad\s*me(in)?\b|call\s*back)/i.test(rem.replace(/own\s*cb/gi,''));
+  if(l.amcPay||l.preDone||/\b(online|cash|cheque|upi)\b/i.test(rem)) return 'amc';
+  if(!l.called&&(manualFu||l.followUpDate||later)&&!(ownCb&&!manualFu&&!later)) return 'followup';
+  if(ownCb&&!l.called) return 'owncb';
+  if(l.called) return 'called';
+  return '';
+}
+function adminLeadCard(l){
+  const fu=l.followUpDate?`<span class="pill ${l.followUpDate<todayStr()?'pill-red':l.followUpDate===todayStr()?'pill-amber':'pill-sky'}">${l.followUpDate<todayStr()?'Late · ':l.followUpDate===todayStr()?'Aaj · ':''}${fmtDate(l.followUpDate)}</span>`:'';
+  return `<div class="card">${l.remarkNote?`<div class="item-sub" style="background:var(--amber-pale);border-radius:8px;padding:6px 9px;margin-bottom:8px;">ℹ️ ${esc(l.remarkNote)}</div>`:''}<div class="row-between"><div><div class="item-name">${esc(l.customer||'—')}</div><div class="item-sub">📞 ${esc(l.mobile||l.resTel||'')}${l.product?' · '+esc(l.product):''}</div></div><div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end;">${fu}<span class="pill pill-sky">${esc(l.assignedName||'')}</span></div></div><div class="item-sub">${esc([l.address1,l.address2,l.address3].filter(Boolean).join(', '))}${l.area?' · '+esc(l.area):''}</div>${l.purchaseDate?`<div class="item-sub">🛒 AC khareedi: ${fmtDate(l.purchaseDate)}</div>`:''}${l.called?`<div class="item-sub" style="opacity:.75;">Call: ${fmtT(l.calledAt)} by ${esc(l.calledBy||'')}</div>`:''}${(l.remarks&&l.remarks.length)?`<details style="margin-top:6px;"><summary class="item-sub" style="cursor:pointer;">📝 Remarks (${l.remarks.length})</summary>${l.remarks.map(rm=>`<div class="item-sub" style="padding:2px 0;">${esc(rm)}</div>`).join('')}</details>`:''}<div class="card-actions">${l.mobile?`<a class="mini-btn" style="text-decoration:none;" href="tel:${l.mobile}">📞 Call</a>`:''}<button class="mini-btn primary" data-act="leadjob" data-id="${l.id}">✅ AMC Bana Do</button><button class="mini-btn danger" data-act="leaddismiss" data-id="${l.id}">✖ Chhod Do</button></div>${l.called&&l.calledBy?'':`<div class="card-actions" style="align-items:center;"><select id="ra_${l.id}" style="flex:1;min-width:130px;padding:8px 10px;">${(STATE.staff||[]).filter(t=>t.role==='telecaller').map(t=>`<option value="${t.id}" ${t.id===l.assignedTo?'selected':''}>${esc(t.name)}</option>`).join('')}</select><button class="mini-btn" data-act="leadreassign" data-id="${l.id}">🔁 Telecaller Badlein</button></div>`}</div>`;
+}
 function renderLeads(){
   const role=STATE.session.role, leads=STATE.leads||[];
   const dueInfo=l=>{ if(!l.purchaseDate) return null; const due=addMonths(l.purchaseDate,11), d=daysUntil(due); return {due,d}; };
@@ -1650,10 +1764,13 @@ function renderLeads(){
   return `<div class="row-between" style="margin-bottom:12px;"><div class="section-title" style="margin:0;">Leads</div>${role==='admin'?`<button class="mini-btn primary" data-act="leadimport">📥 Leads Import Karein</button>`:''}</div>
     ${callers.length?`<div class="card"><div class="item-name" style="margin-bottom:6px;">📊 Telecaller-wise</div>${summary}</div>`:`<div class="card"><div class="item-sub">Abhi koi Telecaller nahi hai. Team mein "Telecaller" role se add karein.</div></div>`}
     ${months.length?`<div class="card"><div class="item-name" style="margin-bottom:6px;">📅 Month-wise (kis mahine kitni AMC bani)</div>${monthRows}</div>`:''}
-    <div class="section-title">⏰ Follow-up — Baad mein call (${fuList.length}${fuDue?' · '+fuDue+' aaj/late':''})</div>
-    ${fuList.length===0?`<div class="card"><div class="item-sub">Abhi koi follow-up set nahi hai. Telecaller "⏰ Baad mein call" dabayega to yahan dikhega.</div></div>`:fuList.map(l=>`<div class="card"><div class="row-between"><div><div class="item-name">${esc(l.customer||'—')}</div><div class="item-sub">📞 ${esc(l.mobile||l.resTel||'')}${l.product?' · '+esc(l.product):''}</div></div><span class="pill ${l.followUpDate<todayStr()?'pill-red':l.followUpDate===todayStr()?'pill-amber':'pill-sky'}">${l.followUpDate<todayStr()?'Late · ':l.followUpDate===todayStr()?'Aaj · ':''}${fmtDate(l.followUpDate)}</span></div><div class="item-sub">${esc([l.address1,l.address2,l.address3].filter(Boolean).join(', '))}${l.area?' · '+esc(l.area):''}</div><div class="item-sub" style="opacity:.75;">Telecaller: ${esc(l.assignedName||'')}</div>${(l.remarks&&l.remarks.length)?`<details style="margin-top:6px;" open><summary class="item-sub" style="cursor:pointer;">📝 Remarks (${l.remarks.length})</summary>${l.remarks.map(rm=>`<div class="item-sub" style="padding:2px 0;">${esc(rm)}</div>`).join('')}</details>`:''}${l.mobile?`<div class="card-actions"><a class="mini-btn" style="text-decoration:none;" href="tel:${l.mobile}">📞 Call</a></div>`:''}</div>`).join('')}
-    <div class="section-title">Call Hui — AMC Banani Baaki (${action.length})</div>
-    ${action.length===0?`<div class="empty-state"><span class="ic">✅</span><p>Sab clear hai.</p></div>`:action.map(l=>`<div class="card">${l.remarkNote?`<div class="item-sub" style="background:var(--amber-pale);border-radius:8px;padding:6px 9px;margin-bottom:8px;">ℹ️ ${esc(l.remarkNote)}</div>`:''}<div class="row-between"><div><div class="item-name">${esc(l.customer||'—')}</div><div class="item-sub">📞 ${esc(l.mobile||l.resTel||'')}${l.product?' · '+esc(l.product):''}</div></div><span class="pill pill-sky">${esc(l.assignedName||'')}</span></div><div class="item-sub">${esc([l.address1,l.address2,l.address3].filter(Boolean).join(', '))}${l.area?' · '+esc(l.area):''}</div>${l.purchaseDate?`<div class="item-sub">🛒 AC khareedi: ${fmtDate(l.purchaseDate)}</div>`:''}<div class="item-sub" style="opacity:.75;">Call: ${fmtT(l.calledAt)} by ${esc(l.calledBy||'')}</div>${(l.remarks&&l.remarks.length)?`<details style="margin-top:6px;"><summary class="item-sub" style="cursor:pointer;">📝 Remarks (${l.remarks.length})</summary>${l.remarks.map(rm=>`<div class="item-sub" style="padding:2px 0;">${esc(rm)}</div>`).join('')}</details>`:''}<div class="card-actions"><button class="mini-btn primary" data-act="leadjob" data-id="${l.id}">✅ AMC Bana Do</button><button class="mini-btn danger" data-act="leaddismiss" data-id="${l.id}">✖ Chhod Do</button></div></div>`).join('')}`;
+    ${(()=>{ const B={amc:[],followup:[],owncb:[],called:[]}; leads.forEach(l=>{ const k=leadBucket(l); if(k) B[k].push(l); });
+      B.followup.sort((a,b)=>(a.followUpDate||todayStr()).localeCompare(b.followUpDate||todayStr()));
+      const tab=STATE.leadTab&&B[STATE.leadTab]?STATE.leadTab:'amc', list=B[tab], lim=STATE.leadsShown||40;
+      const tabs=[['amc','📋 AMC'],['followup','⏰ Follow-up'],['owncb','↩️ Own CB'],['called','📞 Call Hui']];
+      const hint={amc:'AMC ho chuki lagti hai (sheet ✅ ya ONLINE/CASH) — review karke AMC bana dein',followup:'CB / LATER / BAAD ME — baad mein call karni hai',owncb:'OWN CB — customer ne khud call back kiya/karega',called:'Call ho gayi — AMC banani baaki'}[tab];
+      return `<div class="tabbar">${tabs.map(t=>`<button class="tabbtn ${t[0]===tab?'active':''}" data-act="leadtab" data-tab="${t[0]}">${t[1]} (${B[t[0]].length})</button>`).join('')}</div><div class="item-sub" style="margin:-6px 0 10px;">${hint}</div>`
+      +(list.length===0?`<div class="empty-state"><span class="ic">✅</span><p>Is tab mein abhi kuch nahi hai.</p></div>`:list.slice(0,lim).map(adminLeadCard).join('')+(list.length>lim?`<button class="ghost-btn" data-act="leadsmore" style="margin-top:10px;">Aur dikhayein (${list.length-lim} baaki)</button>`:'')); })()}`;
 }
 function renderTelecallerProfile(){
   const s=STATE.staff.find(x=>x.id===STATE.session.staffId)||{id:STATE.session.staffId,name:STATE.session.name};
@@ -1680,7 +1797,7 @@ function renderJobs(){
         <div class="item-sub" style="margin-top:6px;">📅 ${fmtDate(j.date)}${j.amount?' · '+rupee(j.amount):''}</div>
         ${j.notes?`<div style="margin-top:10px;background:var(--amber-pale);border-left:3px solid var(--amber);border-radius:6px;padding:10px 12px;"><div style="font-size:11px;font-weight:700;color:#8A5A0F;letter-spacing:.2px;">Note from office</div><div style="font-size:13.5px;color:#5C3D0F;margin-top:2px;">${j.notes}</div></div>`:''}
         ${mediaHtml(j.id)}
-        <div class="field" style="margin:10px 0 0 0;"><label style="margin-bottom:4px;">Assign to (1-click)</label><select data-quickassign="${j.id}"><option value="">-- Unassigned --</option>${techOptionsHtml(j.date, j.assignedTo)}</select></div>
+        ${j.status==='done'?`<div class="item-sub" style="margin-top:8px;">👷 ${(STATE.staff.find(x=>x.id===j.assignedTo)||{}).name||'Unassigned'}${j.completedAt?' · Complete: '+fmtDate(ymd(new Date(j.completedAt))):''}</div>`:`<div class="field" style="margin:10px 0 0 0;"><label style="margin-bottom:4px;">Assign to (1-click)</label><select data-quickassign="${j.id}"><option value="">-- Unassigned --</option>${techOptionsHtml(j.date, j.assignedTo)}</select></div>`}
         <div class="card-actions">
           ${j.status!=='done'?`<div class="card-actions" style="margin-top:0;">
             ${j.status!=='ongoing'?`<button class="mini-btn" data-act="jobstatus" data-status="ongoing" data-id="${j.id}">Start</button>`:''}
@@ -2488,7 +2605,7 @@ function bindShellEvents(){
   const addStaffBtn=document.getElementById('addStaffBtn'); if(addStaffBtn) addStaffBtn.onclick=()=>{ activeModal={type:'addStaff'}; render(); };
   const addJobBtn=document.getElementById('addJobBtn'); if(addJobBtn) addJobBtn.onclick=()=>{ jobCustQuery=''; jobCustSelectedId=''; activeModal={type:'addJob'}; render(); };
   const custSearchInput=document.getElementById('custSearchInput');
-  if(custSearchInput){ custSearchInput.oninput=(e)=>{ STATE.custSearch=e.target.value; render(); }; setTimeout(()=>{ const el=document.getElementById('custSearchInput'); if(el){ el.focus(); el.selectionStart=el.selectionEnd=el.value.length; } },0); }
+  if(custSearchInput){ custSearchInput.oninput=(e)=>{ STATE.custSearch=e.target.value; const tmp=document.createElement('div'); tmp.innerHTML=renderCustomers(); const nw=tmp.querySelector('#custListWrap'), ow=document.getElementById('custListWrap'), nc=tmp.querySelector('#custCount'), oc=document.getElementById('custCount'); if(nw&&ow){ ow.innerHTML=nw.innerHTML; if(nc&&oc) oc.textContent=nc.textContent; bindShellEvents(); } else render(); }; }
   const shareToggle=document.getElementById('shareToggle'); if(shareToggle) shareToggle.onclick=()=>{ if(STATE.sharingLocation) stopSharingLocation(); else startSharingLocation(); render(); };
 
   document.querySelectorAll('[data-act]').forEach(el=>el.onclick=async ()=>{
@@ -2496,6 +2613,8 @@ function bindShellEvents(){
     if(act==='service'){ await markServiced(id); render(); }
     else if(act==='editcust'){ const c=STATE.customers.find(x=>x.id===id); activeModal={type:'editCustomer', data:{...c, id}}; render(); }
     else if(act==='viewcust'){ openCustomerProfile(id); }
+    else if(act==='leadreassign'){ const sel=document.getElementById('ra_'+id), l=(STATE.leads||[]).find(x=>x.id===id), t=sel&&STATE.staff.find(x=>x.id===sel.value); if(l&&t&&t.id!==l.assignedTo){ l.assignedTo=t.id; l.assignedName=t.name; await saveKey(SKEY.LEADS, STATE.leads); showToast('Lead '+t.name+' ko de di'); render(); } }
+    else if(act==='leadtab'){ STATE.leadTab=el.dataset.tab; STATE.leadsShown=40; render(); }
     else if(act==='leadlater'){ const rBox=document.getElementById('remark_'+id), dBox=document.getElementById('fu_'+id); await markLeadLater(id, rBox?rBox.value:'', dBox?dBox.value:''); }
     else if(act==='leadcall'){ const rBox=document.getElementById('remark_'+id); await markLeadCalled(id, rBox?rBox.value:''); }
     else if(act==='leadjob'){ await convertLeadToJob(id); }
@@ -2569,7 +2688,7 @@ function bindShellEvents(){
   const sendRemindersBtn=document.getElementById('sendRemindersBtn'); if(sendRemindersBtn) sendRemindersBtn.onclick=sendAmcReminders;
   const disconnectBtn=document.getElementById('disconnectBtn');
   if(disconnectBtn) disconnectBtn.onclick=()=>{
-    if(confirm('Yeh Firebase disconnect karke naya connect karna chahte hain?')){ clearFirebaseConfig(); STATE.backendConnected=false; STATE.session=null; STATE.loading=true; render(); }
+    if(confirm('Yeh Firebase disconnect karke naya connect karna chahte hain?')){ clearFirebaseConfig(); clearSessionLocal(); STATE.backendConnected=false; STATE.session=null; STATE.loading=true; render(); }
   };
   const saveEmailUrlBtn=document.getElementById('saveEmailUrlBtn');
   if(saveEmailUrlBtn) saveEmailUrlBtn.onclick=()=>{ setEmailUrl(val('f_emailUrl')); showToast('Email URL save ho gaya'); };
@@ -2632,7 +2751,7 @@ function bindShellEvents(){
     const saveBtn=document.getElementById('modalSave');
     if(saveBtn){
       document.querySelectorAll('.modal-sheet input, .modal-sheet select').forEach(inp=>{
-        inp.onkeydown=(e)=>{ if(e.key==='Enter'){ e.preventDefault(); saveBtn.click(); } };
+        inp.onkeydown=(e)=>{ if(e.key==='Enter'){ e.preventDefault(); const all=[...document.querySelectorAll('.modal-sheet input:not([type=hidden]):not([type=file]):not([type=checkbox]), .modal-sheet select')].filter(x=>!x.disabled&&x.offsetParent!==null); const i=all.indexOf(inp); if(inp.tagName==='INPUT'){ if(i>-1&&i<all.length-1) all[i+1].focus(); else inp.blur(); } } };
       });
     }
     if(saveBtn) saveBtn.onclick=async ()=>{
