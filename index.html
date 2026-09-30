@@ -1362,7 +1362,7 @@ function render(){
   if(!STATE.backendConnected){ app.innerHTML=renderSetup(); bindSetupEvents(); return; }
   if(STATE.loading){ app.innerHTML=`<div class="loading-screen"><div class="brand-mark" style="width:56px;height:56px;border-radius:16px;font-size:28px;margin-bottom:4px;">❄️</div><div class="spinner"></div><div>Data load ho raha hai…</div></div>`; return; }
   if(STATE.loadFailed){
-    app.innerHTML=`<div class="loading-screen"><div style="font-size:34px;">⚠️</div><div style="max-width:300px;">Connection slow/fail ho gaya — data load nahi ho paya. Kuch bhi save nahi hua, dobara try karein.<div style="font-size:11px;margin-top:8px;color:var(--ink-faint);">v5.6 · Error: ${esc(STATE.loadErr||"")}</div></div><button class="primary-btn" id="retryLoadBtn" style="width:auto;padding:12px 24px;">Dobara Try Karein</button></div>`;
+    app.innerHTML=`<div class="loading-screen"><div style="font-size:34px;">⚠️</div><div style="max-width:300px;">Connection slow/fail ho gaya — data load nahi ho paya. Kuch bhi save nahi hua, dobara try karein.<div style="font-size:11px;margin-top:8px;color:var(--ink-faint);">v5.7 · Error: ${esc(STATE.loadErr||"")}</div></div><button class="primary-btn" id="retryLoadBtn" style="width:auto;padding:12px 24px;">Dobara Try Karein</button></div>`;
     const btn=document.getElementById('retryLoadBtn'); if(btn) btn.onclick=()=>init();
     return;
   }
@@ -1375,7 +1375,7 @@ function render(){
 function renderSetup(){
   return `
   <div class="login-wrap">
-    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v5.6</p></div>
+    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v5.7</p></div>
     <div class="setup-note">Yeh app ab Firebase (Google ka free real-time database) use karti hai — pehle se tez aur reliable. Firebase Console se apna config copy karke neeche paste karein.</div>
     <div class="field"><label>Firebase Config (poora object paste karein)</label><textarea id="setupConfig" rows="8" placeholder='{"apiKey": "...", "authDomain": "...", "projectId": "...", ...}'>${setupUrlInput}</textarea></div>
     <button class="primary-btn" id="connectBtn">Connect Karein</button>
@@ -1435,7 +1435,7 @@ function renderLogin(){
   }
   return `
   <div class="login-wrap">
-    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v5.6</p></div>
+    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v5.7</p></div>
     <div class="role-grid">
       <button class="role-opt ${loginRole==='admin'?'active':''}" data-role="admin"><span class="ic">🗝️</span>Admin</button>
       <button class="role-opt ${loginRole==='subadmin'?'active':''}" data-role="subadmin"><span class="ic">🧑‍💼</span>Office</button>
@@ -1854,16 +1854,17 @@ function renderLeadsInner(){
   const months=[...new Set(leads.filter(l=>!l.dismissed).map(monthKey))].sort().reverse().slice(0,6);
   const monthRows=months.map(mk=>{ const m=leads.filter(l=>!l.dismissed&&monthKey(l)===mk), c=m.filter(l=>l.called), j=m.filter(l=>l.convertedJobId);
     const lbl=new Date(mk+'-01').toLocaleString('en-IN',{month:'long',year:'numeric'});
-    return `<div class="row-between" style="padding:4px 0;"><div class="item-sub"><b>${lbl}</b></div><div class="item-sub">${m.length} leads · ${c.length} call hui · <span style="color:var(--green);font-weight:600;">${j.length} AMC bane</span></div></div>`; }).join('');
+    return `<div class="row-between" style="padding:4px 0;"><div class="item-sub"><b>${lbl}</b></div><div class="item-sub">${m.length} leads · ${c.length} call hui · ${j.length?`<button class="mini-btn" style="padding:3px 10px;font-size:12px;color:var(--green);border-color:var(--green);font-weight:700;" data-act="leadmonth" data-month="${mk}">${j.length} AMC bane ›</button>`:`<span style="color:var(--green);font-weight:600;">0 AMC bane</span>`}</div></div>`; }).join('');
   return `<div class="row-between" style="margin-bottom:12px;"><div class="section-title" style="margin:0;">Leads</div>${role==='admin'?`<button class="mini-btn primary" data-act="leadimport">📥 Leads Import Karein</button>`:''}</div>
     ${callers.length?`<div class="card"><div class="item-name" style="margin-bottom:6px;">📊 Telecaller-wise</div>${summary}</div>`:`<div class="card"><div class="item-sub">Abhi koi Telecaller nahi hai. Team mein "Telecaller" role se add karein.</div></div>`}
     ${months.length?`<div class="card"><div class="item-name" style="margin-bottom:6px;">📅 Month-wise (kis mahine kitni AMC bani)</div>${monthRows}</div>`:''}
     ${(()=>{ const B={amc:[],followup:[],owncb:[],called:[],amcdone:[],closed:[]}; leads.forEach(l=>{ const k=leadBucket(l); if(k) B[k].push(l); });
       B.followup.sort((a,b)=>(a.followUpDate||todayStr()).localeCompare(b.followUpDate||todayStr()));
-      const tab=STATE.leadTab&&B[STATE.leadTab]?STATE.leadTab:'amc', list=B[tab], lim=STATE.leadsShown||40;
+      const tab=STATE.leadTab&&B[STATE.leadTab]?STATE.leadTab:'amc', mf=(tab==='amcdone'&&STATE.leadMonth)?STATE.leadMonth:'', list=mf?B[tab].filter(l=>monthKey(l)===mf):B[tab], lim=STATE.leadsShown||40;
       const tabs=[['amc','📋 AMC'],['followup','⏰ Follow-up'],['owncb','↩️ Own CB'],['called','📞 Call Hui'],['amcdone','✅ Ban Gayi'],['closed','🗂 Band']];
       const hint={amc:'AMC ho chuki lagti hai (sheet ✅ ya ONLINE/CASH) — review karke AMC bana dein',followup:'CB / LATER / BAAD ME — baad mein call karni hai',owncb:'OWN CB — customer ne khud call back kiya/karega',called:'Call ho gayi — AMC ya One-time banana baaki',amcdone:'AMC / One-time ban chuki leads — poora detail',closed:'Band ki hui leads (na AMC, na One-time) — wapas khol sakte hain'}[tab];
-      return `<div class="tabbar">${tabs.map(t=>`<button class="tabbtn ${t[0]===tab?'active':''}" data-act="leadtab" data-tab="${t[0]}">${t[1]} (${B[t[0]].length})</button>`).join('')}</div><div class="item-sub" style="margin:-6px 0 10px;">${hint}</div>`
+      const mBanner=mf?`<div class="card" style="background:var(--sky-pale);"><div class="row-between"><div class="item-sub" style="margin:0;font-weight:600;">📅 ${new Date(mf+'-01').toLocaleString('en-IN',{month:'long',year:'numeric'})} ki AMC / One-time (${list.length})</div><button class="mini-btn" data-act="leadmonthclear">Sab dikhayein</button></div></div>`:'';
+      return `<div id="leadTabs"></div><div class="tabbar">${tabs.map(t=>`<button class="tabbtn ${t[0]===tab?'active':''}" data-act="leadtab" data-tab="${t[0]}">${t[1]} (${B[t[0]].length})</button>`).join('')}</div><div class="item-sub" style="margin:-6px 0 10px;">${hint}</div>${mBanner}`
       +(list.length===0?`<div class="empty-state"><span class="ic">✅</span><p>Is tab mein abhi kuch nahi hai.</p></div>`:list.slice(0,lim).map(tab==='amcdone'?convertedLeadCard:adminLeadCard).join('')+(list.length>lim?`<button class="ghost-btn" data-act="leadsmore" style="margin-top:10px;">Aur dikhayein (${list.length-lim} baaki)</button>`:'')); })()}`;
 }
 function renderTelecallerProfile(){
@@ -2716,7 +2717,9 @@ function bindShellEvents(){
     else if(act==='leadmode'){ STATE.subLeadMode=el.dataset.mode; STATE.leadsShown=40; render(); }
     else if(act==='leadonetime'){ await convertLeadToOnetime(id); }
     else if(act==='leadreopen'){ await reopenLead(id); }
-    else if(act==='leadtab'){ STATE.leadTab=el.dataset.tab; STATE.leadsShown=40; render(); }
+    else if(act==='leadmonth'){ STATE.leadTab='amcdone'; STATE.leadMonth=el.dataset.month; STATE.leadsShown=40; render(); setTimeout(()=>{ const a=document.getElementById('leadTabs'); if(a&&a.scrollIntoView) a.scrollIntoView({behavior:'smooth',block:'start'}); },50); }
+    else if(act==='leadmonthclear'){ STATE.leadMonth=''; STATE.leadsShown=40; render(); }
+    else if(act==='leadtab'){ STATE.leadMonth=''; STATE.leadTab=el.dataset.tab; STATE.leadsShown=40; render(); }
     else if(act==='leadlater'){ const rBox=document.getElementById('remark_'+id), dBox=document.getElementById('fu_'+id); await markLeadLater(id, rBox?rBox.value:'', dBox?dBox.value:''); }
     else if(act==='leadcall'){ const rBox=document.getElementById('remark_'+id); await markLeadCalled(id, rBox?rBox.value:''); }
     else if(act==='leadjob'){ await convertLeadToJob(id); }
