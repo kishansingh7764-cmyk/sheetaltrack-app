@@ -500,6 +500,7 @@ function backupCenterHtml(){
     <div class="card"><div class="item-name" style="margin-bottom:6px;">💾 Poora Backup (restore ke liye)</div>
       <div class="item-sub" style="margin-bottom:8px;">Ek file mein sab kuch. Kabhi data bigde toh isi file se wapas aa sakta hai (Data tab mein Restore).</div>
       <div class="card-actions"><button class="mini-btn primary" data-act="bkfull">Poora Backup Download</button></div></div>
+    ${STATE.session.role==='admin'?`<div class="card"><div class="item-name" style="margin-bottom:6px;">🧹 Test Data Saaf Karo (live hone se pehle)</div><div class="item-sub" style="margin-bottom:8px;">Testing ke customers aur jobs hatane ke liye. Staff, PIN aur settings nahi hatate. Pehle Poora Backup download kar lein.</div><div class="card-actions"><button class="mini-btn danger" data-act="wipetest">🧹 Test Data Saaf Karo</button></div></div>`:''}
     <div class="card"><div class="item-name" style="margin-bottom:6px;">🗑 Recycle Bin</div>
       <div class="item-sub" style="margin-bottom:8px;">Galti se delete hua customer, job ya staff yahan se wapas aa sakta hai. Delete karne par data mitta nahi, sirf chhup jaata hai.</div>
       <div class="card-actions"><button class="mini-btn" data-act="bkbin">Recycle Bin kholein</button></div>
@@ -706,6 +707,7 @@ function parseAnyDate(s){
   if(!s) return '';
   const t=String(s).trim();
   if(!t) return '';
+  if(/^\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4}/.test(t)){ const r=dmyParse(t,1950); if(r) return r; }
   const d=new Date(t);
   if(!isNaN(d.getTime()) && d.getFullYear()>1950) return d.toISOString().slice(0,10);
   const m=t.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
@@ -1016,6 +1018,186 @@ async function markLeadCalled(id, remark){
   l.followUpDate='';
   const txt=(remark||'').trim(); if(txt){ l.remarks=(l.remarks||[]).concat(fmtDate(todayStr())+': '+txt); }
   await saveKey(SKEY.LEADS, STATE.leads); showToast('✅ Call mark ho gayi');
+}
+/* ===== AMC Import (purani contract sheet): ek customer ki saari renewal rows -> ek profile + poori AMC History ===== */
+function dmyParse(v, minYear){
+  if(v===null||v===undefined) return '';
+  const lo=minYear||1990;
+  if(v instanceof Date){ const y=v.getFullYear(); return (y>=lo&&y<=2100)?ymd(v):''; }
+  const t=String(v).trim(); if(!t) return '';
+  let y,m,d,mm;
+  if((mm=t.match(/(\d{4})-(\d{1,2})-(\d{1,2})/))){ y=+mm[1]; m=+mm[2]; d=+mm[3]; }
+  else if((mm=t.match(/(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/))){ d=+mm[1]; m=+mm[2]; y=+mm[3]; if(y<100) y+=2000; if(m>12&&d<=12){ const x=d; d=m; m=x; } }
+  else if(/^\d{5}(\.\d+)?$/.test(t)){ const n=Math.floor(+t); if(n>25000&&n<80000){ const dt=new Date(Date.UTC(1899,11,30)+n*86400000); y=dt.getUTCFullYear(); m=dt.getUTCMonth()+1; d=dt.getUTCDate(); } else return ''; }
+  else { const dt=new Date(t); if(isNaN(dt.getTime())) return ''; y=dt.getFullYear(); m=dt.getMonth()+1; d=dt.getDate(); }
+  if(y<lo||y>2100) return '';
+  return isoDate(y,m,d)||'';
+}
+function findDateIn(s,minYear){ const t=String(s==null?'':s).trim(); if(!t) return ''; const m=t.match(/\d{4}-\d{1,2}-\d{1,2}|\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4}/); return m?dmyParse(m[0],minYear||2000):(/^\d{5}$/.test(t)?dmyParse(t,minYear||2000):''); }
+function amcPhones(cell){ const out=[]; String(cell==null?'':cell).split(/[\/,;&\n]|\s{2,}/).forEach(tok=>{ const dg=tok.replace(/\D/g,''); if(dg.length>=20&&dg.length%10===0){ for(let i=0;i<dg.length;i+=10) out.push(dg.slice(i,i+10)); } else if(dg.length>=10) out.push(dg.slice(-10)); }); return [...new Set(out)]; }
+function colLetter(n){ let s='',x=n+1; while(x>0){ const m=(x-1)%26; s=String.fromCharCode(65+m)+s; x=Math.floor((x-1)/26); } return s; }
+const AI_FIELDS=[['start','Date (AMC shuru)',/^date$|^start|^from/i],['end','End Date',/end|expiry|upto/i],['purch','Purch = Install Date',/purch|install|^pur/i],['name','Customer Naam',/customer|^name|naam/i],['phone','Contact / Mobile',/cont|mobile|phone|mob/i],['address','Address',/address/i],['area','Area',/^area/i],['brand','Brand',/brand|^bra/i],['model','Model / Type',/model|^mo/i],['units','AC ki ginti (C)',/^c$|unit|qty|nos/i],['amount','Amount',/^amt|amount|^ai$|charge|rate/i],['teli','Telecaller (Teli)',/teli|caller/i],['years','Year',/year|yr|period/i],['tech','Technician',/^tec|tech/i],['desc','Description',/desc|note/i],['renewal','Renewal note',/renew/i],['status','Status (optional)',/^status/i]];
+function amcGuessMap(H){ const map={}, used=new Set(); AI_FIELDS.forEach(([k,,re])=>{ const i=H.findIndex((h,ix)=>!used.has(ix)&&re.test(String(h||'').trim())); map[k]=i; if(i>-1) used.add(i); }); map.ser=H.map((h,i)=>/^ser/i.test(String(h||'').trim())?i:-1).filter(i=>i>-1); return map; }
+function amcFindHeader(rows){ for(let i=0;i<Math.min(rows.length,20);i++){ const r=(rows[i]||[]).map(c=>String(c||'').toLowerCase().trim()); if(r.some(c=>/customer|naam/.test(c)) && r.some(c=>/^date/.test(c))) return i; } return findHeaderRowIndex(rows); }
+function amcBuildPlan(d){
+  const rows=d.rows, M=d.map, today=todayStr(), k10=v=>String(v||'').replace(/\D/g,'').slice(-10);
+  const cell=(r,k)=>(M[k]>-1&&r[M[k]]!=null)?String(r[M[k]]).trim():'';
+  const st={rows:0,noName:0,badStart:0,futureSvc:0,purch:0,badPurch:0,noPhone:0}, groups=new Map();
+  for(let i=d.hdrIdx+1;i<rows.length;i++){
+    const r=rows[i]; if(!r||!r.some(c=>String(c||'').trim()!=='')) continue;
+    const name=cell(r,'name'); if(!name){ st.noName++; continue; }
+    st.rows++;
+    const phones=amcPhones(cell(r,'phone')); if(!phones.length) st.noPhone++;
+    const start=dmyParse(M.start>-1?r[M.start]:'',2000); if(!start) st.badStart++;
+    let end=dmyParse(M.end>-1?r[M.end]:'',2000);
+    const ym=cell(r,'years').match(/(\d+)/); let years=ym?Math.max(1,Math.min(5,+ym[1])):0;
+    if(start&&!end&&years) end=addMonths(start,12*years);
+    if(start&&end&&!years) years=Math.max(1,Math.round((new Date(end)-new Date(start))/(365*86400000)));
+    if(!years) years=1;
+    const svc=[]; (M.ser||[]).forEach(ci=>{ const dt=findDateIn(r[ci],2000); if(dt){ if(dt>today) st.futureSvc++; else if(svc.indexOf(dt)<0) svc.push(dt); } }); svc.sort();
+    const pr=cell(r,'purch'); let purch=pr?dmyParse(pr,1995):''; if(purch&&purch>today) purch=''; if(pr){ if(purch) st.purch++; else st.badPurch++; }
+    const sv=cell(r,'status').toLowerCase(); let status='';
+    if(sv){ if(/cancel|red|lapse|not\b|nahi|band|expire/.test(sv)) status='lapsed'; else if(/renew|green|done/.test(sv)) status='renewed'; else if(/active|current|chal/.test(sv)) status='active'; }
+    const amount=Number(cell(r,'amount').replace(/[^0-9.]/g,''))||0, units=Number(cell(r,'units').replace(/[^0-9]/g,''))||0;
+    const cyc={start,end,years,units,amount,services:svc,tech:cell(r,'tech'),teli:cell(r,'teli'),desc:cell(r,'desc'),renewalNote:cell(r,'renewal'),status,srcRow:i+1};
+    const key=phones[0]||('n:'+name.toLowerCase().replace(/\s+/g,' ')+'|'+cell(r,'address').toLowerCase().slice(0,25));
+    let g=groups.get(key); if(!g){ g={key,name,phones,address:'',area:'',brand:'',model:'',purch:'',cycles:[]}; groups.set(key,g); }
+    g.cycles.push(cyc); g.name=name; if(phones.length) g.phones=phones;
+    ['address','area','brand','model'].forEach(f=>{ const v=cell(r,f); if(v) g[f]=v; });
+    if(purch&&(!g.purch||purch<g.purch)) g.purch=purch;
+  }
+  const have=new Set(), haveKey=new Set(); (STATE.customers||[]).forEach(c=>{ if(k10(c.phone)) have.add(k10(c.phone)); if(k10(c.phone2)) have.add(k10(c.phone2)); if(c.importKey) haveKey.add(c.importKey); });
+  const out=[]; let newN=0, existN=0, cycles=0, renewals=0, svcN=0; const lastSt={active:0,expired:0,lapsed:0};
+  groups.forEach(g=>{
+    g.cycles.sort((a,b)=>(a.start||'9999').localeCompare(b.start||'9999'));
+    g.cycles.forEach((c,i)=>{ const next=g.cycles[i+1];
+      if(next){ if(c.status!=='lapsed'){ c.status='renewed'; c.renewedOn=next.start||''; } }
+      else if(!c.status){ c.status=(c.end&&c.end>=today)?'active':'expired'; }
+    });
+    g.exists=g.phones.some(p=>have.has(p))||haveKey.has(g.key);
+    if(g.exists){ existN++; } else { newN++; cycles+=g.cycles.length; renewals+=g.cycles.filter(c=>c.status==='renewed'&&c.renewedOn!==undefined).length; g.cycles.forEach(c=>{ svcN+=c.services.length; }); const l=g.cycles[g.cycles.length-1]; lastSt[l.status==='lapsed'?'lapsed':(l.status==='renewed'||(l.end&&l.end>=today))?'active':'expired']++; }
+    out.push(g);
+  });
+  return {groups:out,st,newN,existN,cycles,renewals,svcN,lastSt};
+}
+async function amcApplyImport(d){
+  const plan=d.plan; if(!plan||!plan.newN){ showToast('Import karne ko kuch nahi hai'); return; }
+  const batch='IMP-'+Date.now().toString(36), now=Date.now(), today=todayStr(); let n=0, cyc=0;
+  plan.groups.forEach(g=>{
+    if(g.exists) return;
+    const cs=g.cycles, last=cs[cs.length-1], years=last.years||1, total=years*4, svcLast=last.services;
+    const teli=(last.teli||'').trim(), isOld=!teli||/^old/i.test(teli);
+    const all=[].concat.apply([],cs.map(c=>c.services)).sort(), lastSvc=all.length?all[all.length-1]:(last.start||'');
+    const amcStatus=last.status==='lapsed'?'lapsed':((last.status==='renewed'||(last.end&&last.end>=today))?'active':'expired');
+    const first=cs[0].start;
+    STATE.customers.push({id:uid(), name:g.name, type:'amc', phone:g.phones[0]||'', phone2:g.phones[1]||'', email:'', address:[g.address,g.area].filter(Boolean).join(', '), landmark:'', city:'', state:'', pincode:'',
+      brand:g.brand, model:g.model, acType:'', serialNo:'', installDate:g.purch||'', underWarranty:false, amcName:g.name+' AMC',
+      activationDate:last.start||'', expiryDate:last.end||'', totalServices:total, servicesDone:Math.min(svcLast.length,total), lastService:lastSvc, intervalMonths:3,
+      amcAmount:last.amount||0, units:last.units||0, source:'AMC Sheet (purani)', sourceType:'', leadTelecaller:isOld?'':teli, importTech:last.tech||'', notes:last.desc||'',
+      serviceLog:svcLast.map((dt,i)=>({date:new Date(dt+'T12:00:00').getTime(),visitNo:i+1,imported:true,by:'AMC Import'})),
+      amcHistory:cs, amcStatus, importBatch:batch, importKey:g.key, importedAt:now, createdAt:first?new Date(first+'T12:00:00').getTime():now});
+    n++; cyc+=cs.length;
+  });
+  await saveKey(SKEY.CUSTOMERS, STATE.customers);
+  auditLog(STATE.session.staffId,STATE.session.name,STATE.session.role,'import','AMC Import '+batch+': '+n+' customers, '+cyc+' contracts');
+  d.step='done'; d.result={n,cyc,batch}; d.plan=null; showToast('✅ '+n+' customers import hue ('+cyc+' contracts)'); render();
+}
+async function amcUndoBatch(batch){
+  const mine=(STATE.customers||[]).filter(c=>c.importBatch===batch); if(!mine.length) return;
+  if(!confirm(mine.length+' imported customers hata dein (batch '+batch+')?\n\nJin customers par is import ke baad job bani hai unhe bhi hataya jayega. Recycle Bin se wapas bhi aa sakte hain.')) return;
+  const ids=new Set(mine.map(c=>c.id));
+  STATE.customers=STATE.customers.filter(c=>!ids.has(c.id)); STATE.jobs=STATE.jobs.filter(j=>!ids.has(j.customerId));
+  await saveKey(SKEY.CUSTOMERS, STATE.customers); await saveKey(SKEY.JOBS, STATE.jobs);
+  auditLog(STATE.session.staffId,STATE.session.name,STATE.session.role,'import','AMC Import wapas '+batch);
+  showToast('Import wapas ho gaya'); render();
+}
+async function amcLoadFile(file){
+  try{
+    let rows; const fn=(file.name||'').toLowerCase();
+    if(fn.endsWith('.csv')){ const text=(await file.text()).replace(/^\uFEFF/,''); rows=text.split(/\r?\n/).filter(l=>l.trim()).map(l=>parseCsvLine(l)); }
+    else{
+      const buf=await file.arrayBuffer(), wb=XLSX.read(buf,{type:'array',cellDates:true});
+      let best=null, bestN=-1; wb.SheetNames.forEach(nm=>{ const ws=wb.Sheets[nm], ref=ws['!ref']; if(!ref) return; const rg=XLSX.utils.decode_range(ref), n=rg.e.r-rg.s.r; if(n>bestN){ bestN=n; best=ws; } });
+      rows=XLSX.utils.sheet_to_json(best,{header:1,raw:false,dateNF:'yyyy-mm-dd',defval:''}).map(r=>r.map(c=>String(c==null?'':c)));
+    }
+    const hdr=amcFindHeader(rows); if(hdr<0||rows.length<hdr+2){ showToast('Header row ya data nahi mila'); return; }
+    const d=activeModal.data; d.rows=rows; d.hdrIdx=hdr; d.fname=file.name; d.map=amcGuessMap(rows[hdr].map(h=>String(h||''))); d.plan=null; d.step='map'; render();
+  }catch(e){ console.error(e); showToast('File read nahi ho payi'); }
+}
+function amcImportInner(d){
+  const batches={}; (STATE.customers||[]).forEach(c=>{ if(c.importBatch){ const b=batches[c.importBatch]||(batches[c.importBatch]={n:0,at:c.importedAt}); b.n++; } });
+  const bl=Object.keys(batches).sort().reverse();
+  const undo=bl.length?`<div class="section-sub">Pichhle imports</div>${bl.map(b=>`<div class="row-between" style="padding:4px 0;"><div class="item-sub" style="margin:0;">${fmtT(batches[b].at)} · ${batches[b].n} customers</div><button class="mini-btn danger" data-aiundo="${b}">↩️ Wapas Karein</button></div>`).join('')}`:'';
+  let body='';
+  if(d.step==='done'&&d.result){ body=`<div class="card" style="background:var(--sky-pale);"><div class="item-name">✅ Import ho gaya</div><div class="item-sub">${d.result.n} customers · ${d.result.cyc} contracts (renewals ke saath). Kisi customer ki profile kholkar <b>📜 AMC History</b> dekhein.</div></div><button class="primary-btn" data-modalclose="1" id="aiClose">Theek hai</button>`; }
+  else if(!d.rows){ body=`<div class="item-sub" style="margin-bottom:10px;">Apni purani AMC contract sheet (Excel .xlsx ya CSV) chunein. Ek customer ki jitni rows hongi (har renewal ki ek row), sab ek profile mein <b>AMC History</b> ban jayengi: kab service hui, kab renewal hui, sab date ke saath. Pehle se app mein maujood number wale customer <b>skip</b> honge (kuch badlega nahi).</div>
+      <div class="field"><label>Excel / CSV file</label><input type="file" id="aiFile" accept=".xlsx,.xls,.csv"></div>
+      <div class="item-sub">🟢/🔴 rang file mein nahi jata. Chahein to sheet mein ek <b>STATUS</b> column banayein (RENEWED / CANCELLED). Nahi banaya to app khud tay karega: aage ki row ho to Renewed, last row ki End Date nikal gayi ho to Expired.</div>`; }
+  else{
+    const H=d.rows[d.hdrIdx].map(h=>String(h||'').trim());
+    const opt=sel=>`<option value="-1">— nahi —</option>`+H.map((h,i)=>`<option value="${i}" ${i===sel?'selected':''}>${colLetter(i)}: ${esc(h||'(khaali)')}</option>`).join('');
+    body=`<div class="item-sub"><b>${esc(d.fname)}</b> · ${d.rows.length-d.hdrIdx-1} rows. Columns check karein, galat ho to badal dein:</div>
+      ${AI_FIELDS.map(([k,l])=>`<div class="field" style="margin:6px 0;"><label style="font-size:12px;">${l}</label><select data-aimap="${k}">${opt(d.map[k])}</select></div>`).join('')}
+      <div class="item-sub" style="margin:6px 0;">🔧 Service date columns (SER): ${d.map.ser.length?esc(d.map.ser.map(i=>H[i]).join(', ')):'<b style="color:#c0392b;">nahi mile</b>'}</div>
+      <button class="primary-btn" id="aiPreview">🔍 Preview Dekhein</button>${d.plan?amcPreviewHtml(d.plan):''}`; }
+  return `<div class="modal-head"><h3>📥 AMC Import (History ke saath)</h3><button class="close-x" id="modalClose">x</button></div>${body}${undo}`;
+}
+function amcPreviewHtml(p){
+  const sample=p.groups.filter(g=>!g.exists).slice(0,4).map(g=>`<div class="item-sub" style="padding:4px 0;border-bottom:1px solid var(--border);"><b>${esc(g.name)}</b> · ${esc(g.phones[0]||'no number')} · ${g.cycles.length} contract${g.purch?' · install '+fmtDate(g.purch):''}<br>${g.cycles.map(c=>(c.start?fmtDate(c.start):'?')+' ('+c.services.length+' svc, '+({renewed:'renewed',active:'chal rahi',expired:'expired',lapsed:'cancel'}[c.status]||c.status)+')').join(' → ')}</div>`).join('');
+  return `<div class="section-sub">Preview</div>
+    <div class="item-sub" style="margin-bottom:6px;">Naye customers: <b>${p.newN}</b> · Contracts: <b>${p.cycles}</b> · Renewals: <b>${p.renewals}</b> · Services (dates): <b>${p.svcN}</b></div>
+    <div class="item-sub">Abhi ki sthiti: ✅ chal rahi <b>${p.lastSt.active}</b> · ⏳ expired <b>${p.lastSt.expired}</b> · 🔴 cancel <b>${p.lastSt.lapsed}</b></div>
+    <div class="item-sub">Pehle se app mein (skip): <b>${p.existN}</b> · Naam nahi (skip): <b>${p.st.noName}</b> · Number nahi: <b>${p.st.noPhone}</b> · Date galat/khali: <b>${p.st.badStart}</b></div>
+    <div class="item-sub">Install date (Purch) mili: <b>${p.st.purch}</b> · khali/galat (chhodi): <b>${p.st.badPurch}</b> · Aage ki service dates (chhodi): <b>${p.st.futureSvc}</b></div>
+    <div style="margin-top:8px;">${sample}</div>
+    ${p.newN?`<button class="primary-btn" id="aiApply" style="margin-top:12px;">✅ ${p.newN} customers Import Karein</button>`:''}`;
+}
+function amcStatusOf(c){
+  if((c.type||'amc')!=='amc') return '';
+  if(c.amcStatus==='lapsed') return 'lapsed';
+  const h=c.amcHistory, lastRenewed=!!(h&&h.length&&h[h.length-1].status==='renewed');
+  return (c.expiryDate&&c.expiryDate<todayStr()&&!lastRenewed)?'expired':'active';
+}
+function amcHistoryHtml(c){
+  const h=c.amcHistory; if(!h||!h.length) return '';
+  const ren=h.filter(x=>x.renewedOn!==undefined&&x.status==='renewed').length;
+  const chip=x=>x.status==='renewed'?`<span class="pill pill-green">🟢 Renewed${x.renewedOn?' · '+fmtDate(x.renewedOn):''}</span>`:x.status==='lapsed'?`<span class="pill pill-red">🔴 Renewal nahi hui / Cancel</span>`:x.status==='expired'?`<span class="pill pill-amber">⏳ Expired — renewal baaki</span>`:`<span class="pill pill-sky">✅ Chal rahi</span>`;
+  const rows=h.slice().reverse().map((x,ri)=>{ const idx=h.length-ri; return `<div style="padding:8px 0;border-top:1px solid var(--border);"><div class="row-between"><div class="item-sub" style="margin:0;font-weight:700;">Contract ${idx}: ${x.start?fmtDate(x.start):'—'} → ${x.end?fmtDate(x.end):'—'}</div>${chip(x)}</div>
+    <div class="item-sub">${x.amount?'₹'+x.amount:''}${x.units?' · '+x.units+' AC':''}${x.years>1?' · '+x.years+' saal':''}${x.tech?' · 👷 '+esc(x.tech):''}${x.teli&&!/^old/i.test(x.teli)?' · 📞 '+esc(x.teli):''}</div>
+    <div class="item-sub">🔧 Services (${x.services.length}): ${x.services.length?x.services.map((dt,i)=>(i+1)+') '+fmtDate(dt)).join(' · '):'—'}</div>
+    ${x.renewalNote?`<div class="item-sub">🔁 Renewal note: ${esc(x.renewalNote)}</div>`:''}${x.desc?`<div class="item-sub">📝 ${esc(x.desc)}</div>`:''}</div>`; }).join('');
+  return `<div class="card"><div class="item-name" style="margin-bottom:2px;">📜 AMC History</div><div class="item-sub">${h.length} contract · ${ren} baar renewal hui${h[0].start?' · pehli AMC: '+fmtDate(h[0].start):''}</div>${rows}</div>`;
+}
+/* ===== Test Data Saaf Karo (live hone se pehle) ===== */
+function wipeInner(d){
+  const imp=(STATE.customers||[]).filter(c=>c.importBatch).length, keepSet=new Set((d.keepImported?(STATE.customers||[]).filter(c=>c.importBatch):[]).map(c=>c.id));
+  const rmC=(STATE.customers||[]).length-keepSet.size, rmJ=(STATE.jobs||[]).filter(j=>!keepSet.has(j.customerId)).length;
+  return `<div class="modal-head"><h3>🧹 Test Data Saaf Karo</h3><button class="close-x" id="modalClose">x</button></div>
+    <div class="item-sub" style="margin-bottom:8px;"><b>Rahega:</b> staff ke login/PIN, settings, business details, holidays.<br><b>Hatega:</b> test customers aur unki jobs (photos/videos samet).</div>
+    <div class="card-actions" style="margin-bottom:10px;"><button class="mini-btn primary" data-act="bkfull">⬇️ Pehle Poora Backup Download karein</button></div>
+    <label class="item-sub" style="display:flex;gap:8px;align-items:center;"><input type="checkbox" id="wKeep" ${d.keepImported?'checked':''}> AMC Import se aaye customers (${imp}) rakhein</label>
+    <label class="item-sub" style="display:flex;gap:8px;align-items:center;"><input type="checkbox" id="wLeads" ${d.leads?'checked':''}> Leads bhi saaf karein (${(STATE.leads||[]).length}) <span style="opacity:.7;">— telecaller ki asli leads ho to tick na karein</span></label>
+    <label class="item-sub" style="display:flex;gap:8px;align-items:center;"><input type="checkbox" id="wOps" ${d.ops?'checked':''}> Travel (${(STATE.travelLogs||[]).length}), Chhutti (${(STATE.leaves||[]).length}) aur Attendance/Location history bhi saaf karein <span style="opacity:.7;">— attendance wapas nahi aati</span></label>
+    <div class="card" style="margin-top:10px;background:var(--amber-pale);"><div class="item-sub" style="margin:0;">Hatega: <b>${rmC}</b> customers · <b>${rmJ}</b> jobs${d.leads?' · <b>'+(STATE.leads||[]).length+'</b> leads':''}</div></div>
+    <div class="field"><label>Confirm karne ke liye <b>SAAF</b> likhein</label><input id="wText" value="${esc(d.text||'')}" placeholder="SAAF"></div>
+    <button class="primary-btn" id="wApply" style="background:#c0392b;">🧹 Test Data Saaf Karo</button>
+    <div class="item-sub" style="margin-top:8px;">Customers, jobs aur leads Recycle Bin se wapas aa sakte hain.</div>`;
+}
+async function applyWipe(d){
+  if((d.text||'').trim().toUpperCase()!=='SAAF'){ showToast('Confirm ke liye SAAF likhein'); return; }
+  const keepC=STATE.customers.filter(c=>d.keepImported&&c.importBatch), keep=new Set(keepC.map(c=>c.id));
+  const rmC=STATE.customers.length-keepC.length, rmJobs=STATE.jobs.filter(j=>!keep.has(j.customerId));
+  STATE.customers=keepC; STATE.jobs=STATE.jobs.filter(j=>keep.has(j.customerId));
+  await saveKey(SKEY.CUSTOMERS, STATE.customers); await saveKey(SKEY.JOBS, STATE.jobs);
+  if(firestoreDB){ for(const j of rmJobs){ try{ const snap=await firestoreDB.collection('st_media').where('jobId','==',j.id).get(); snap.forEach(x=>track(x.ref.set({deleted:true,deletedAt:Date.now()},{merge:true}))); }catch(e){} } }
+  let nl=0; if(d.leads){ nl=(STATE.leads||[]).length; STATE.leads=[]; await saveKey(SKEY.LEADS, STATE.leads); }
+  if(d.ops){
+    STATE.travelLogs=[]; await saveKey('st_travel',STATE.travelLogs); STATE.leaves=[]; await saveKey('st_leave',STATE.leaves);
+    if(firestoreDB){ Object.keys(STATE.attendance||{}).forEach(k=>track(firestoreDB.collection('st_att').doc(k).delete())); Object.keys(STATE.locations||{}).forEach(k=>track(firestoreDB.collection('st_loc').doc(k).delete())); }
+    STATE.attendance={}; STATE.locations={}; delete SYNCED['st_attendance']; delete SYNCED['st_locations'];
+  }
+  auditLog(STATE.session.staffId,STATE.session.name,STATE.session.role,'wipe','Test data saaf: '+rmC+' customers, '+rmJobs.length+' jobs'+(nl?', '+nl+' leads':'')+(d.ops?', ops':''));
+  activeModal=null; showToast('🧹 Saaf ho gaya: '+rmC+' customers, '+rmJobs.length+' jobs'+(nl?', '+nl+' leads':'')); render();
 }
 const leadOwners=()=>STATE.staff.filter(x=>x.role==='telecaller'||x.role==='subadmin');
 function leadOfCustomer(c){ const ids=new Set((STATE.jobs||[]).filter(j=>j.customerId===c.id).map(j=>j.id)); return (STATE.leads||[]).find(l=>l.convertedJobId&&ids.has(l.convertedJobId)); }
@@ -1420,7 +1602,7 @@ function render(){
   if(!STATE.backendConnected){ app.innerHTML=renderSetup(); bindSetupEvents(); return; }
   if(STATE.loading){ app.innerHTML=`<div class="loading-screen"><div class="brand-mark" style="width:56px;height:56px;border-radius:16px;font-size:28px;margin-bottom:4px;">❄️</div><div class="spinner"></div><div>Data load ho raha hai…</div></div>`; return; }
   if(STATE.loadFailed){
-    app.innerHTML=`<div class="loading-screen"><div style="font-size:34px;">⚠️</div><div style="max-width:300px;">Connection slow/fail ho gaya — data load nahi ho paya. Kuch bhi save nahi hua, dobara try karein.<div style="font-size:11px;margin-top:8px;color:var(--ink-faint);">v5.8 · Error: ${esc(STATE.loadErr||"")}</div></div><button class="primary-btn" id="retryLoadBtn" style="width:auto;padding:12px 24px;">Dobara Try Karein</button></div>`;
+    app.innerHTML=`<div class="loading-screen"><div style="font-size:34px;">⚠️</div><div style="max-width:300px;">Connection slow/fail ho gaya — data load nahi ho paya. Kuch bhi save nahi hua, dobara try karein.<div style="font-size:11px;margin-top:8px;color:var(--ink-faint);">v6.0 · Error: ${esc(STATE.loadErr||"")}</div></div><button class="primary-btn" id="retryLoadBtn" style="width:auto;padding:12px 24px;">Dobara Try Karein</button></div>`;
     const btn=document.getElementById('retryLoadBtn'); if(btn) btn.onclick=()=>init();
     return;
   }
@@ -1433,7 +1615,7 @@ function render(){
 function renderSetup(){
   return `
   <div class="login-wrap">
-    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v5.8</p></div>
+    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v6.0</p></div>
     <div class="setup-note">Yeh app ab Firebase (Google ka free real-time database) use karti hai — pehle se tez aur reliable. Firebase Console se apna config copy karke neeche paste karein.</div>
     <div class="field"><label>Firebase Config (poora object paste karein)</label><textarea id="setupConfig" rows="8" placeholder='{"apiKey": "...", "authDomain": "...", "projectId": "...", ...}'>${setupUrlInput}</textarea></div>
     <button class="primary-btn" id="connectBtn">Connect Karein</button>
@@ -1493,7 +1675,7 @@ function renderLogin(){
   }
   return `
   <div class="login-wrap">
-    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v5.8</p></div>
+    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v6.0</p></div>
     <div class="role-grid">
       <button class="role-opt ${loginRole==='admin'?'active':''}" data-role="admin"><span class="ic">🗝️</span>Admin</button>
       <button class="role-opt ${loginRole==='subadmin'?'active':''}" data-role="subadmin"><span class="ic">🧑‍💼</span>Office</button>
@@ -1734,11 +1916,13 @@ function renderCustomers(){
   const filterType=STATE.custTypeFilter||'all';
   let list=STATE.customers.filter(c=> !q || c.name.toLowerCase().includes(q) || (c.phone||'').includes(q) || (c.phone2||'').includes(q));
   if(filterType!=='all') list=list.filter(c=>(c.type||'amc')===filterType);
+  const amcCnt={all:0,active:0,exp:0}; STATE.customers.forEach(c=>{ if((c.type||'amc')==='amc'){ amcCnt.all++; if(amcStatusOf(c)==='active') amcCnt.active++; else amcCnt.exp++; } });
+  if(filterType==='amc'&&STATE.custStatus) list=list.filter(c=>{ const st=amcStatusOf(c); return STATE.custStatus==='active'?st==='active':(st==='expired'||st==='lapsed'); });
   const typeCounts={all:STATE.customers.length, amc:0, onetime:0, enquiry:0, quotation:0};
   STATE.customers.forEach(c=>{ const t=c.type||'amc'; if(typeCounts[t]!==undefined) typeCounts[t]++; });
   return `
     <div class="tabbar"><button class="tabbtn active" data-navto="customers">List</button><button class="tabbtn" data-navto="amccal">AMC Calendar</button></div>
-    <div class="row-between" style="margin-bottom:12px;"><div class="section-title" style="margin:0;" id="custCount">Customers (${list.length})</div></div>
+    <div class="row-between" style="margin-bottom:12px;"><div class="section-title" style="margin:0;" id="custCount">Customers (${list.length})</div>${STATE.session.role==='admin'?`<button class="mini-btn primary" data-act="amcimport">📥 AMC Import</button>`:''}</div>
     <div class="searchbar"><input id="custSearchInput" placeholder="Naam ya number type karein…" value="${STATE.custSearch}"></div>
     <div class="tabbar">
       <button class="tabbtn ${filterType==='all'?'active':''}" data-typefilter="all">Sab (${typeCounts.all})</button>
@@ -1747,13 +1931,14 @@ function renderCustomers(){
       <button class="tabbtn ${filterType==='enquiry'?'active':''}" data-typefilter="enquiry">Enquiry (${typeCounts.enquiry})</button>
       <button class="tabbtn ${filterType==='quotation'?'active':''}" data-typefilter="quotation">Quotation (${typeCounts.quotation})</button>
     </div>
+    ${filterType==='amc'?`<div class="tabbar"><button class="tabbtn ${!STATE.custStatus?'active':''}" data-custstatus="">Sab AMC (${amcCnt.all})</button><button class="tabbtn ${STATE.custStatus==='active'?'active':''}" data-custstatus="active">✅ Chal rahi (${amcCnt.active})</button><button class="tabbtn ${STATE.custStatus==='expired'?'active':''}" data-custstatus="expired">⏳ Expired / Cancel (${amcCnt.exp})</button></div>`:''}
     <div id="custListWrap">${list.length===0?`<div class="empty-state"><span class="ic">👥</span><p>${q?'Koi match nahi mila.':'Abhi tak koi customer add nahi hua.<br>Neeche + button se add karein.'}</p></div>`:
       list.map(c=>{
         let pillClass='pill-grey', pillText='';
         if(c.type==='amc' && c.expiryDate){ const d=daysUntil(c.expiryDate); pillClass=d<0?'pill-red':d<=15?'pill-amber':'pill-green'; pillText=d<0?Math.abs(d)+'d overdue':d+'d left'; }
         else if(c.lastService){ const due=addMonths(c.lastService,c.intervalMonths); const d=daysUntil(due); pillClass=d<0?'pill-red':d<=7?'pill-amber':'pill-green'; pillText=d<0?Math.abs(d)+'d overdue':d+'d left'; }
         return `<div class="card">
-        <div class="row-between" data-viewcust="${c.id}" style="cursor:pointer;"><div><div class="item-name">${c.name} <span class="pill ${customerTypePill(c.type)}" style="margin-left:4px;">${customerTypeLabel(c.type)}</span></div><div class="item-sub">${c.phone||'no phone'}${c.phone2?' / '+c.phone2:''}</div><div class="item-sub">${c.address||'no address'}${c.pincode?' - '+c.pincode:''}</div>${c.type==='amc'&&c.brand?`<div class="item-sub">${c.brand} ${c.model||''}</div>`:''}${c.installDate?`<div class="item-sub">🛠 Install: ${fmtDate(c.installDate)}${c.leadTelecaller?' · 📞 '+esc(c.leadTelecaller):''}</div>`:(c.leadTelecaller?`<div class="item-sub">📞 Telecaller: ${esc(c.leadTelecaller)}</div>`:'')}</div>${pillText?`<span class="pill ${pillClass}">${pillText}</span>`:''}</div>
+        <div class="row-between" data-viewcust="${c.id}" style="cursor:pointer;"><div><div class="item-name">${c.name} <span class="pill ${customerTypePill(c.type)}" style="margin-left:4px;">${customerTypeLabel(c.type)}</span></div><div class="item-sub">${c.phone||'no phone'}${c.phone2?' / '+c.phone2:''}</div><div class="item-sub">${c.address||'no address'}${c.pincode?' - '+c.pincode:''}</div>${c.type==='amc'&&c.brand?`<div class="item-sub">${c.brand} ${c.model||''}</div>`:''}${c.installDate?`<div class="item-sub">🛠 Install: ${fmtDate(c.installDate)}${c.leadTelecaller?' · 📞 '+esc(c.leadTelecaller):''}</div>`:(c.leadTelecaller?`<div class="item-sub">📞 Telecaller: ${esc(c.leadTelecaller)}</div>`:'')}${amcStatusOf(c)==='lapsed'?`<div class="item-sub" style="color:#c0392b;font-weight:600;">🔴 Renewal nahi hui / Cancel</div>`:amcStatusOf(c)==='expired'?`<div class="item-sub" style="color:var(--amber);font-weight:600;">⏳ Expired — renewal baaki</div>`:''}${c.amcHistory&&c.amcHistory.length>1?`<div class="item-sub">🔁 ${c.amcHistory.length-1} baar renewal</div>`:''}</div>${pillText?`<span class="pill ${pillClass}">${pillText}</span>`:''}</div>
         <div class="card-actions" style="margin-top:6px;">${c.phone?`<a class="mini-btn" style="text-decoration:none;" href="tel:${c.phone}">📞 Call</a>`:''}${c.phone?`<a class="mini-btn" style="text-decoration:none;" href="https://wa.me/${waNum(c.phone)}">💬 WhatsApp</a>`:''}</div>
         <div class="card-actions"><button class="mini-btn primary" data-act="service" data-id="${c.id}">Service ho gaya</button><button class="mini-btn" data-act="editcust" data-id="${c.id}">Edit</button><button class="mini-btn" data-act="viewcust" data-id="${c.id}">Profile</button>${STATE.session.role==='admin'?`<button class="mini-btn danger" data-act="delcust" data-id="${c.id}">Delete</button>`:''}</div></div>`; }).join('')}</div>
     <button class="fab" id="addCustBtn">+</button>
@@ -1822,7 +2007,7 @@ function renderCustomerProfile(){
       <div class="item-sub">${c.address||''}${c.landmark?', '+c.landmark:''}${c.city?', '+c.city:''}${c.state?', '+c.state:''}${c.pincode?' - '+c.pincode:''}</div>
       <div class="card-actions" style="margin-top:10px;">${c.phone?`<a class="mini-btn primary" style="text-decoration:none;" href="tel:${c.phone}">📞 Call</a>`:''}${c.phone?`<a class="mini-btn" style="text-decoration:none;" href="https://wa.me/${waNum(c.phone)}">💬 WhatsApp</a>`:''}${STATE.session.role==='technician'?'':`<button class="mini-btn" data-act="editcust" data-id="${c.id}">✏️ Details Badlein</button>`}</div>
     </div>
-    ${amcDetailsHtml(c)}
+    ${amcDetailsHtml(c)}${amcHistoryHtml(c)}
     ${c.type==='amc'?`<div class="card">
       <div class="section-title" style="margin:0 0 8px 0;">AMC Contract</div>
       <div class="item-sub">${c.brand||''} ${c.model||''} ${c.serialNo?'· SN: '+c.serialNo:''}</div>
@@ -2591,6 +2776,10 @@ function modalHtml(){
       <div class="field"><label>Notes (optional)</label><textarea id="f_jnotes" rows="2"></textarea></div>
       <button class="primary-btn" id="modalSave">Job Assign Karein</button>`;
     setTimeout(paintAmcNote,0); setTimeout(wireJobDateLeaveCheck,0);
+  } else if(activeModal.type==='amcImport'){
+    inner=amcImportInner(activeModal.data||{});
+  } else if(activeModal.type==='wipeTest'){
+    inner=wipeInner(activeModal.data||{});
   } else if(activeModal.type==='bulkDone'){
     const d=activeModal.data||{};
     inner=`<div class="modal-head"><h3>📋 Dusri File se Check / Done</h3><button class="close-x" id="modalClose">x</button></div>
@@ -2724,6 +2913,7 @@ function bindShellEvents(){
   document.querySelectorAll('.navbtn').forEach(b=>b.onclick=()=>{ STATE.view=b.dataset.view; STATE.jobStatusFilter=''; render(); });
   document.querySelectorAll('[data-navto]').forEach(el=>el.onclick=()=>{ STATE.view=el.dataset.navto; render(); });
   document.querySelectorAll('[data-typefilter]').forEach(el=>el.onclick=()=>{ STATE.custTypeFilter=el.dataset.typefilter; render(); });
+  document.querySelectorAll('[data-custstatus]').forEach(el=>el.onclick=()=>{ STATE.custStatus=el.dataset.custstatus; render(); });
   if(document.getElementById('liveMapBox')){ setTimeout(initLiveMap, 0); }
   document.querySelectorAll('[data-viewcust]').forEach(el=>el.onclick=()=>{ openCustomerProfile(el.dataset.viewcust); });
   document.querySelectorAll('[data-viewstaff]').forEach(el=>el.onclick=()=>{ activeModal=null; STATE.staffDetailId=el.dataset.viewstaff; STATE.view='staffProfile'; render(); });
@@ -2781,6 +2971,8 @@ function bindShellEvents(){
     else if(act==='deltelecaller'){ await removeTelecaller(id); }
     else if(act==='zerotc'){ await zeroTelecallerData(id); }
     else if(act==='leadmode'){ STATE.subLeadMode=el.dataset.mode; STATE.leadsShown=40; render(); }
+    else if(act==='amcimport'){ if(STATE.session.role!=='admin') return; activeModal={type:'amcImport',data:{step:'pick'}}; render(); }
+    else if(act==='wipetest'){ if(STATE.session.role!=='admin') return; activeModal={type:'wipeTest',data:{keepImported:true,leads:false,ops:false,text:''}}; render(); }
     else if(act==='bulkdone'){ activeModal={type:'bulkDone',data:{text:'',date:todayStr(),preview:null}}; render(); }
     else if(act==='leadundone'){ await undoLeadDone(id); }
     else if(act==='leadonetime'){ await convertLeadToOnetime(id); }
@@ -2903,6 +3095,15 @@ function bindShellEvents(){
     if(document.getElementById('leadImportBtn')) initLeadImport();
     if(document.getElementById('bdCheck')) document.getElementById('bdCheck').onclick=()=>{ const d=activeModal.data; d.text=document.getElementById('bdText').value; d.date=document.getElementById('bdDate').value||todayStr(); d.preview=bulkMatch(d.text,d.date); render(); };
     if(document.getElementById('bdApply')) document.getElementById('bdApply').onclick=async()=>{ await applyBulkDone(activeModal.data.preview); };
+    { const f=document.getElementById('aiFile'); if(f) f.onchange=async()=>{ if(f.files&&f.files[0]) await amcLoadFile(f.files[0]); };
+      document.querySelectorAll('[data-aimap]').forEach(sel=>sel.onchange=()=>{ const d=activeModal.data; d.map[sel.dataset.aimap]=Number(sel.value); d.plan=null; render(); });
+      const pv=document.getElementById('aiPreview'); if(pv) pv.onclick=()=>{ const d=activeModal.data; d.plan=amcBuildPlan(d); render(); };
+      const ap=document.getElementById('aiApply'); if(ap) ap.onclick=async()=>{ await amcApplyImport(activeModal.data); };
+      const ac=document.getElementById('aiClose'); if(ac) ac.onclick=()=>{ activeModal=null; render(); };
+      document.querySelectorAll('[data-aiundo]').forEach(b=>b.onclick=async()=>{ await amcUndoBatch(b.dataset.aiundo); });
+      const wa=document.getElementById('wApply'); if(wa){ const d=activeModal.data, k=document.getElementById('wKeep'), l=document.getElementById('wLeads'), o=document.getElementById('wOps'), t=document.getElementById('wText');
+        [k,l,o].forEach(x=>{ if(x) x.onchange=()=>{ d.text=t?t.value:''; d.keepImported=k.checked; d.leads=l.checked; d.ops=o.checked; render(); }; });
+        wa.onclick=async()=>{ d.text=t.value; d.keepImported=k.checked; d.leads=l.checked; d.ops=o.checked; await applyWipe(d); }; } }
     if(document.getElementById('sheetUrlBtn')) document.getElementById('sheetUrlBtn').onclick=async()=>{ const sid=activeModal.data.staffId, url=val('f_sheetUrl'), label=val('f_sheetLabel'); if(!url.trim()){ showToast('Link daalein'); return; } await addSheetUrl(sid,url,label); render(); };
     if(document.getElementById('leaveBtn')) initLeave();
     if(document.getElementById('kycBtn')) initKyc();
