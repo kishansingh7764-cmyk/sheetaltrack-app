@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en"><head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, interactive-widget=resizes-content">
 <title>SheetalTrack</title>
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#0A343F">
@@ -107,7 +107,7 @@ label{display:block;font-size:12.5px;color:var(--ink-soft);margin-bottom:5px;fon
 .suggest-item .n{font-weight:700;color:var(--ink);}
 .suggest-item .p{font-size:12px;color:var(--ink-soft);}
 .modal-overlay{position:fixed;inset:0;background:rgba(10,30,35,.55);z-index:50;display:flex;align-items:flex-end;justify-content:center;backdrop-filter:blur(2px);}
-.modal-sheet{background:var(--surface);width:100%;max-width:520px;border-radius:20px 20px 0 0;padding:22px 18px calc(env(safe-area-inset-bottom,0px) + 20px) 18px;max-height:88vh;overflow-y:auto;}
+.modal-sheet{background:var(--surface);width:100%;max-width:520px;border-radius:20px 20px 0 0;padding:22px 18px calc(env(safe-area-inset-bottom,0px) + 20px) 18px;max-height:88vh;max-height:88dvh;overflow-y:auto;-webkit-overflow-scrolling:touch;scroll-padding-bottom:80px;}
 .modal-head{display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:5;background:var(--surface);margin:-22px -18px 16px;padding:22px 18px 12px;border-radius:20px 20px 0 0;border-bottom:1px solid var(--border);}
 .modal-head h3{font-family:var(--font-display);font-size:17px;font-weight:600;color:var(--teal-deep);}
 .close-x{background:none;border:none;font-size:26px;line-height:1;color:var(--ink-soft);padding:4px 10px;}
@@ -1263,7 +1263,7 @@ function dueRows(){ return moneyRows().filter(r=>r.due>0&&(r.k==='job'||r.k==='b
 /* ---- Kamai screen ---- */
 function moneyRowLine(r,isAdmin){
   const nm=r.custId?`<span data-viewcust="${r.custId}" style="cursor:pointer;text-decoration:underline;color:var(--teal);">${esc(r.name||'Customer')}</span>`:esc(r.name||'Customer pata nahi');
-  return `<div class="row-between" style="padding:6px 0;border-bottom:1px solid var(--border);"><div><div class="item-sub" style="margin:0;color:var(--text);"><b>${nm}</b></div><div class="item-sub" style="margin:0;">${fmtDate(r.date)} · ${esc(r.title||MCAT_L[r.cat]||'')}${r.mode?' · '+MODE_L[r.mode]:''}${isAdmin&&r.due>0?' · <span style="color:#c0392b;">Due '+rupee(r.due)+'</span>':''}</div></div><div class="item-name" style="font-size:14px;">${rupee(r.amount)}</div></div>`;
+  return `<div class="row-between" style="padding:6px 0;border-bottom:1px solid var(--border);"><div><div class="item-sub" style="margin:0;color:var(--text);"><b>${nm}</b></div><div class="item-sub" style="margin:0;">${fmtDate(r.date)} · ${esc(r.title||MCAT_L[r.cat]||'')}${r.mode?' · '+MODE_L[r.mode]:''}${isAdmin&&r.due>0?' · <span style="color:#c0392b;">Due '+rupee(r.due)+'</span>':''}</div>${fixBtn(r)}</div><div class="item-name" style="font-size:14px;">${rupee(r.amount)}</div></div>`;
 }
 const rowOdd=r=>r.date<'2015-01-01'||r.date>addMonths(todayStr(),13);
 function moneyMonthDetail(R,k,isAdmin){
@@ -1271,7 +1271,7 @@ function moneyMonthDetail(R,k,isAdmin){
   const cats=['amcnew','renewal','repair','onetime','amcold'].filter(c=>rs.some(r=>r.cat===c));
   return cats.map(c=>{ const L=rs.filter(r=>r.cat===c).sort((x,y)=>String(y.date).localeCompare(String(x.date))); return `<div class="item-sub" style="margin:10px 0 2px;font-weight:700;color:var(--teal);">${MCAT_L[c]} — ${L.length} · ${rupee(L.reduce((t,r)=>t+r.amount,0))}</div>`+L.map(r=>{
     const nm=r.custId?`<span data-viewcust="${r.custId}" style="cursor:pointer;text-decoration:underline;color:var(--teal);">${esc(r.name||'Customer')}</span>`:esc(r.name||'Customer pata nahi');
-    return `<div class="row-between" style="padding:7px 0;border-bottom:1px solid var(--border);align-items:flex-start;"><div style="min-width:0;"><div class="item-sub" style="margin:0;color:var(--text);"><b>${nm}</b>${rowOdd(r)?' <span class="pill pill-red">⚠️ Date check</span>':''}</div><div class="item-sub" style="margin:0;">${fmtDate(r.date)}${r.phone?' · 📞 '+esc(r.phone):''}${r.title?' · '+esc(r.title):''}${r.mode?' · '+MODE_L[r.mode]:''}${r.teli?' · Telecaller: '+esc(r.teli):''}${isAdmin&&r.due>0?' · <span style="color:#c0392b;">Due '+rupee(r.due)+'</span>':''}</div></div><div class="item-name" style="font-size:14px;">${rupee(r.amount)}</div></div>`; }).join(''); }).join('')||'<div class="item-sub">Koi entry nahi.</div>';
+    return `<div class="row-between" style="padding:7px 0;border-bottom:1px solid var(--border);align-items:flex-start;"><div style="min-width:0;"><div class="item-sub" style="margin:0;color:var(--text);"><b>${nm}</b>${rowOdd(r)?' <span class="pill pill-red">⚠️ Date check</span>':''}</div><div class="item-sub" style="margin:0;">${fmtDate(r.date)}${r.phone?' · 📞 '+esc(r.phone):''}${r.title?' · '+esc(r.title):''}${r.mode?' · '+MODE_L[r.mode]:''}${r.teli?' · Telecaller: '+esc(r.teli):''}${isAdmin&&r.due>0?' · <span style="color:#c0392b;">Due '+rupee(r.due)+'</span>':''}</div>${fixBtn(r)}</div><div class="item-name" style="font-size:14px;">${rupee(r.amount)}</div></div>`; }).join(''); }).join('')||'<div class="item-sub">Koi entry nahi.</div>';
 }
 function moneyGroupHtml(R,isAdmin){
   const len=MONEY.group==='year'?4:7, m=new Map();
@@ -1287,7 +1287,7 @@ function moneyGroupHtml(R,isAdmin){
 function moneyOddHtml(all,isAdmin){
   const odd=all.filter(r=>MCAT_L[r.cat]&&r.amount&&r.date&&rowOdd(r)).sort((a,b)=>String(a.date).localeCompare(String(b.date)));
   if(!odd.length) return '';
-  return `<div class="card" style="border-left:4px solid #c0392b;"><div class="item-name">⚠️ Date check karein (${odd.length})</div><div class="item-sub">In entries ki date 2015 se pehle ya bahut aage ki hai, isliye mahine ke hisaab me galat jagah dikh sakti hain. Customer par tap karke profile me <b>Details Badlein</b> se sahi date daalein.</div>${odd.slice(0,10).map(r=>moneyRowLine(r,isAdmin)).join('')}${odd.length>10?`<div class="item-sub">…aur ${odd.length-10}</div>`:''}</div>`;
+  return `<div class="card" style="border-left:4px solid #c0392b;"><div class="item-name">⚠️ Date check karein (${odd.length})</div><div class="item-sub">In entries ki date 2015 se pehle ya bahut aage ki hai, isliye mahine ke hisaab me galat jagah dikh sakti hain. Har entry ke neeche <b>📅 Date theek karein</b> dabake sahi tarikh chunein.</div>${odd.slice(0,10).map(r=>moneyRowLine(r,isAdmin)).join('')}${odd.length>10?`<div class="item-sub">…aur ${odd.length-10}</div>`:''}</div>`;
 }
 function moneyPickerHtml(all){
   const now=new Date(), cy=now.getFullYear(); let lo=cy-3; all.forEach(r=>{ const y=+String(r.date||'').slice(0,4); if(y>=1990&&y<lo) lo=y; });
@@ -1301,9 +1301,7 @@ function moneyTotalsHtml(isAdmin){
   const catCard=(k,ic)=>`<div class="card" data-act="mcat" data-id="${k}" style="cursor:pointer;margin:0;${MONEY.cat===k?'outline:2px solid var(--teal);':''}"><div class="item-sub" style="margin:0;">${ic} ${MCAT_L[k]}</div><div class="item-name" style="font-size:18px;">${rupee(T[k])}</div><div class="item-sub" style="margin:0;">${T.cnt[k]||0} bill</div></div>`;
   let dueTotal=0; if(isAdmin) dueTotal=dueRows().reduce((s,r)=>s+r.due,0);
   const drill=MONEY.cat?`<div class="section-sub" style="margin-top:12px;">${MCAT_L[MONEY.cat]} — list</div><div class="card">${R.filter(r=>r.cat===MONEY.cat&&r.amount).sort((x,y)=>String(y.date).localeCompare(String(x.date))).slice(0,150).map(r=>moneyRowLine(r,isAdmin)).join('')||'<div class="item-sub">Koi entry nahi.</div>'}</div>`:'';
-  return `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;">${chips.map(([k,l])=>`<button class="mini-btn ${MONEY.range===k?'primary':''}" data-act="mrange" data-id="${k}" style="flex:none;">${l}</button>`).join('')}</div>
-    ${moneyPickerHtml(all)}
-    ${MONEY.range==='custom'?moneyCustomHtml():''}
+  return `${moneyPeriodHtml(all,true)}
     <div class="item-sub">📆 ${lbl}</div>
     <div class="card" style="background:var(--sky-pale);"><div class="item-sub" style="margin:0;">Kul Kamai (sirf bill ka amount)</div><div class="item-name" style="font-size:26px;">${rupee(T.all)}</div>
       <div class="item-sub" style="margin:4px 0 0;">💵 Cash <b>${rupee(T.cash)}</b> · 📲 Online <b>${rupee(T.online)}</b> · 🏦 Cheque <b>${rupee(T.cheque)}</b>${T.nomode?' · Mode nahi likha <b>'+rupee(T.nomode)+'</b>':''}</div></div>
@@ -1375,7 +1373,7 @@ function renderMoney(){
   const isAdmin=STATE.session.role==='admin'; if(!isAdmin&&MONEY.tab==='due') MONEY.tab='totals';
   const pend=(STATE.jobs||[]).filter(j=>j.status==='done'&&!j.extra&&(Number(j.amount)||0)>0&&(j.completedAt||0)>=Date.now()-30*864e5&&!(j.tag==='AMC'&&j.amcVisit===false)).length;
   const tabs=[['totals','💰 Kamai'],['incentive','🎯 Incentive'],['extra','🔧 Extra Kaam'+(pend?' ('+pend+')':'')]].concat(isAdmin?[['due','⏳ Due']]:[]).concat([['bills','🧾 Bills']]);
-  const rangeBar=(MONEY.tab==='incentive')?(()=>{ const chips=[['thism','Is Mahina'],['m1','1 Mahina'],['m6','6 Mahine'],['y1','1 Saal'],['all','Sab'],['custom','Date se Date']]; return `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;">${chips.map(([k,l])=>`<button class="mini-btn ${MONEY.range===k?'primary':''}" data-act="mrange" data-id="${k}" style="flex:none;">${l}</button>`).join('')}</div>${MONEY.range==='custom'?moneyCustomHtml():''}`; })():'';
+  const rangeBar=(MONEY.tab==='incentive')?moneyPeriodHtml(moneyRows(),false):'';
   let body='';
   if(MONEY.tab==='totals') body=moneyTotalsHtml(isAdmin);
   else if(MONEY.tab==='incentive') body=rangeBar+`<div class="section-title">🆕 Telecaller — Naya AMC (month-wise)</div>`+teleIncentiveHtml()+`<div class="section-title" style="margin-top:18px;">👷 Technician — Extra Kaam (5%)</div>`+techIncentiveHtml();
@@ -1772,6 +1770,36 @@ function dmyVal(pre){
 function moneyCustomHtml(){
   return `<div class="card" style="margin-bottom:8px;"><div class="item-sub" style="margin:0 0 4px;">Se (shuru ki tarikh)</div><div style="display:flex;margin-bottom:8px;">${dmyPickHtml('mFrom',MONEY.from)}</div><div class="item-sub" style="margin:0 0 4px;">Tak (aakhri tarikh)</div><div style="display:flex;margin-bottom:10px;">${dmyPickHtml('mTo',MONEY.to)}</div><button class="primary-btn" data-act="mcustom" style="margin:0;">Dekhein</button></div>`;
 }
+/* ===== v6.6: Period dropdown, date fix, keyboard-safe modal ===== */
+function moneyPeriodHtml(all,withToday){
+  const r=MONEY.range, ui=MONEY.ui||'dates', cur=r==='custom'?(ui==='month'?'pickmonth':'custom'):r;
+  const opts=[...(withToday?[['today','Aaj']]:[]),['thism','Is Mahina (1 tarikh se aaj tak)'],['m1','Pichhle 1 Mahine'],['m6','Pichhle 6 Mahine'],['y1','Pichhla 1 Saal'],['all','Sab (shuru se aaj tak)'],['pickmonth','📅 Koi ek Mahina chunein…'],['custom','📅 Date se Date…']];
+  return `<div class="field" style="margin-bottom:8px;"><label>Period (kitne time ka hisaab)</label><select id="mPeriod">${opts.map(([k,l])=>`<option value="${k}" ${k===cur?'selected':''}>${l}</option>`).join('')}</select></div>${r==='custom'?(ui==='month'?moneyPickerHtml(all):moneyCustomHtml()):''}`;
+}
+function moneyPeriodSet(v){
+  MONEY.cat='';
+  if(v==='pickmonth'){ MONEY.range='custom'; MONEY.ui='month'; const t=todayStr(), y=+t.slice(0,4), m=+t.slice(5,7); MONEY.from=t.slice(0,8)+'01'; MONEY.to=t.slice(0,8)+String(new Date(y,m,0).getDate()).padStart(2,'0'); }
+  else if(v==='custom'){ MONEY.range='custom'; MONEY.ui='dates'; }
+  else MONEY.range=v;
+  render();
+}
+async function moneyFixDate(d,iso){
+  if(!isMoneyRole()) return false;
+  if(d.k==='amc'){ const pr=String(d.id).split('#'), c=STATE.customers.find(x=>x.id===pr[0]); if(!c) return false; const i=+pr[1]||0;
+    if(c.amcHistory&&c.amcHistory[i]){ const x=c.amcHistory[i], old=x.start; x.start=iso; if(!x.end||x.end<=iso) x.end=addMonths(iso,12*(Number(x.years)||1));
+      if(c.activationDate===old){ c.activationDate=iso; if(i===c.amcHistory.length-1&&(!c.expiryDate||c.expiryDate<=iso)) c.expiryDate=x.end; } }
+    else { c.activationDate=iso; if(!c.expiryDate||c.expiryDate<=iso) c.expiryDate=addMonths(iso,12); }
+    await saveKey(SKEY.CUSTOMERS,STATE.customers); return true; }
+  if(d.k==='bill'){ const b=(STATE.bills||[]).find(x=>x.id===d.id); if(!b) return false; b.date=iso; await saveKey(SKEY.BILLS,STATE.bills); return true; }
+  if(d.k==='job'){ const j=(STATE.jobs||[]).find(x=>x.id===d.id); if(!j) return false; const t=j.completedAt?new Date(j.completedAt):new Date(); const nd=new Date(iso+'T00:00:00'); nd.setHours(t.getHours(),t.getMinutes(),0,0); j.completedAt=nd.getTime(); await saveKey(SKEY.JOBS,STATE.jobs); return true; }
+  return false;
+}
+const fixBtn=r=>(isMoneyRole()&&rowOdd(r))?`<button class="mini-btn" data-act="fixdate" data-id="${esc(r.id)}" data-k="${r.k}" style="margin-top:5px;">📅 Date theek karein</button>`:'';
+(function(){ const vv=window.visualViewport; if(!vv) return;
+  const fit=()=>{ const o=document.querySelector('.modal-overlay'); if(!o) return; const kb=Math.max(0,window.innerHeight-vv.height-vv.offsetTop); o.style.paddingBottom=kb+'px'; const sh=o.querySelector('.modal-sheet'); if(sh) sh.style.maxHeight=Math.max(200,Math.round(vv.height*0.94))+'px'; };
+  vv.addEventListener('resize',fit); vv.addEventListener('scroll',fit);
+  document.addEventListener('focusin',e=>{ const t=e.target; if(t&&/INPUT|TEXTAREA|SELECT/.test(t.tagName)&&t.closest&&t.closest('.modal-sheet')) setTimeout(()=>{ fit(); try{ t.scrollIntoView({block:'center',behavior:'smooth'}); }catch(_){} },300); });
+})();
 /* ===== v6.4 helpers ===== */
 function jobsByDayHtml(list, tab, cardFn){
   const t=todayStr();
@@ -2230,7 +2258,7 @@ function render(){
 function renderSetup(){
   return `
   <div class="login-wrap">
-    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v6.5.1</p></div>
+    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v6.6</p></div>
     <div class="setup-note">Yeh app ab Firebase (Google ka free real-time database) use karti hai — pehle se tez aur reliable. Firebase Console se apna config copy karke neeche paste karein.</div>
     <div class="field"><label>Firebase Config (poora object paste karein)</label><textarea id="setupConfig" rows="8" placeholder='{"apiKey": "...", "authDomain": "...", "projectId": "...", ...}'>${setupUrlInput}</textarea></div>
     <button class="primary-btn" id="connectBtn">Connect Karein</button>
@@ -2290,7 +2318,7 @@ function renderLogin(){
   }
   return `
   <div class="login-wrap">
-    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v6.5.1</p></div>
+    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v6.6</p></div>
     <div class="role-grid">
       <button class="role-opt ${loginRole==='admin'?'active':''}" data-role="admin"><span class="ic">🗝️</span>Admin</button>
       <button class="role-opt ${loginRole==='subadmin'?'active':''}" data-role="subadmin"><span class="ic">🧑‍💼</span>Office</button>
@@ -3424,6 +3452,9 @@ function modalHtml(){
       <div class="field"><label>Notes (optional)</label><textarea id="f_jnotes" rows="2"></textarea></div>
       <button class="primary-btn" id="modalSave">Job Assign Karein</button>`;
     setTimeout(paintAmcNote,0); setTimeout(wireJobDateLeaveCheck,0);
+  } else if(activeModal.type==='fixDate'){
+    const d=activeModal.data;
+    inner=`<div class="modal-head"><h3>📅 Date theek karein</h3><button class="close-x" id="modalClose">x</button></div><div class="card"><div class="item-name">${esc(d.name||'Customer')}</div><div class="item-sub">${esc(d.title||'')} · ${rupee(d.amount)} · abhi ki date: <b>${fmtDate(d.date)}</b></div></div><div class="field"><label>Sahi tarikh (Din / Mahina / Saal)</label><div style="display:flex;">${dmyPickHtml('fx','')}</div></div><button class="primary-btn" id="modalSave">Save Karein</button>`;
   } else if(activeModal.type==='notifs'){
     inner=notifModalInner();
   } else if(activeModal.type==='loginLog'){
@@ -3609,6 +3640,7 @@ function modalHtml(){
 /* ============ Event binding ============ */
 function bindShellEvents(){
   const logoutBtn=document.getElementById('logoutBtn'); if(logoutBtn) logoutBtn.onclick=logout;
+  const mPeriod=document.getElementById('mPeriod'); if(mPeriod) mPeriod.onchange=()=>moneyPeriodSet(mPeriod.value);
   const bellBtn=document.getElementById('bellBtn'); if(bellBtn) bellBtn.onclick=()=>{ activeModal={type:'notifs',data:{}}; render(); };
   const globalSearchBtn=document.getElementById('globalSearchBtn'); if(globalSearchBtn) globalSearchBtn.onclick=()=>{ STATE.globalSearchQuery=''; activeModal={type:'globalSearch',data:{}}; render(); };
   const gsInput=document.getElementById('f_globalSearch');
@@ -3682,6 +3714,7 @@ function bindShellEvents(){
     else if(act==='wipetest'){ if(STATE.session.role!=='admin') return; activeModal={type:'wipeTest',data:{keepImported:true,leads:false,ops:false,text:''}}; render(); }
     else if(act==='jobresched'){ const j=STATE.jobs.find(x=>x.id===id); if(j&&STATE.session.role!=='technician'&&j.status!=='done'&&j.status!=='rejected'){ activeModal={type:'reschedJob',data:{id}}; render(); } }
     else if(act==='newjobfor'){ if(STATE.session.role==='technician') return; jobCustQuery=''; jobCustSelectedId=id; activeModal={type:'addJob'}; render(); }
+    else if(act==='fixdate'){ if(!isMoneyRole()) return; const rw=moneyRows().find(r=>String(r.id)===id&&r.k===el.dataset.k); if(!rw){ showToast('Entry nahi mili'); return; } activeModal={type:'fixDate',data:{id:rw.id,k:rw.k,name:rw.name,title:rw.title,amount:rw.amount,date:rw.date}}; render(); }
     else if(act==='nopen'){ notifOpen(id); }
     else if(act==='nreadall'){ notifReadAll(); render(); }
     else if(act==='nperm'){ notifPerm(); }
@@ -3690,11 +3723,11 @@ function bindShellEvents(){
     else if(act==='rembulk'){ STATE.remBulkOpen=!STATE.remBulkOpen; render(); }
     else if(act==='mtab'){ MONEY.tab=id; render(); }
     else if(act==='mrange'){ MONEY.range=id; MONEY.cat=''; render(); }
-    else if(act==='mcustom'){ const f=dmyVal('mFrom'), t=dmyVal('mTo'); if(f===null||t===null){ showToast('Din, Mahina aur Saal teeno chunein (sahi tarikh)'); return; } if(!f&&!t){ showToast('Date chunein'); return; } if(f&&t&&f>t){ showToast('Shuru ki date baad ki hai'); return; } MONEY.range='custom'; MONEY.from=f; MONEY.to=t; MONEY.cat=''; render(); }
+    else if(act==='mcustom'){ const f=dmyVal('mFrom'), t=dmyVal('mTo'); if(f===null||t===null){ showToast('Din, Mahina aur Saal teeno chunein (sahi tarikh)'); return; } if(!f&&!t){ showToast('Date chunein'); return; } if(f&&t&&f>t){ showToast('Shuru ki date baad ki hai'); return; } MONEY.range='custom'; MONEY.ui='dates'; MONEY.from=f; MONEY.to=t; MONEY.cat=''; render(); }
     else if(act==='mgroup'){ MONEY.group=id; render(); }
     else if(act==='mcat'){ MONEY.cat=(MONEY.cat===id?'':id); render(); }
     else if(act==='mmonth'){ MONEY.openMonth=(MONEY.openMonth===id?'':id); render(); }
-    else if(act==='mpick'){ const y=+val('mpYear'), m=+val('mpMonth'); if(!y||!m) return; MONEY.from=y+'-'+String(m).padStart(2,'0')+'-01'; MONEY.to=y+'-'+String(m).padStart(2,'0')+'-'+String(new Date(y,m,0).getDate()).padStart(2,'0'); MONEY.range='custom'; MONEY.cat=''; MONEY.openMonth=y+'-'+String(m).padStart(2,'0'); MONEY.group='month'; render(); }
+    else if(act==='mpick'){ const y=+val('mpYear'), m=+val('mpMonth'); if(!y||!m) return; MONEY.from=y+'-'+String(m).padStart(2,'0')+'-01'; MONEY.to=y+'-'+String(m).padStart(2,'0')+'-'+String(new Date(y,m,0).getDate()).padStart(2,'0'); MONEY.range='custom'; MONEY.ui='month'; MONEY.cat=''; MONEY.openMonth=y+'-'+String(m).padStart(2,'0'); MONEY.group='month'; render(); }
     else if(act==='mbq'){ MONEY.bq=val('mbq'); render(); }
     else if(act==='extraadd'){ if(isMoneyRole()){ activeModal={type:'extraJob',data:{id}}; render(); } }
     else if(act==='extranone'||act==='extrareject'){ await markExtra(id, act==='extranone'?'none':'rejected'); render(); }
@@ -3889,6 +3922,7 @@ function bindShellEvents(){
         activeModal=null; render();
       } else if(activeModal.type==='editCustomer'){
         const name=val('f_name'); if(!name){ showToast('Naam zaroori hai'); return; }
+        { const oc=STATE.customers.find(x=>x.id===activeModal.data.id), na=val('f_activationDate'); if(oc&&oc.amcHistory&&oc.activationDate&&na&&na!==oc.activationDate){ const hx=oc.amcHistory.find(h=>h.start===oc.activationDate); if(hx){ hx.start=na; if(!hx.end||hx.end<=na) hx.end=addMonths(na,12*(Number(hx.years)||1)); } } }
         await updateCustomer(activeModal.data.id, {name, type:val('f_custType'), phone:val('f_phone'), phone2:val('f_phone2'), email:val('f_email'), address:val('f_address'), landmark:val('f_landmark'), city:val('f_city'), state:val('f_state'), pincode:val('f_pincode'),
           amcName:val('f_amcName'), brand:val('f_brand'), model:val('f_model'), acType:val('f_acType'), installDate:val('f_installDate'), serialNo:val('f_serialNo'), underWarranty:val('f_warranty')==='yes', activationDate:val('f_activationDate'), expiryDate:val('f_expiryDate'), totalServices:Number(val('f_totalServices'))||0, source:val('f_source'), sourceType:val('f_sourceType'), amcAmount:Number(val('f_amcAmount'))||0, incentiveGiven:document.getElementById('f_incGiven').checked, incentiveTo:val('f_incTo'), incentiveAmount:Number(val('f_incAmount'))||0, incentivePaid:val('f_incPaid')==='yes',
           lastService:val('f_lastService'), intervalMonths:Number(val('f_interval'))||3, notes:val('f_notes')});
@@ -3912,6 +3946,10 @@ function bindShellEvents(){
         const mkBill=!!(document.getElementById('f_makeBill')&&document.getElementById('f_makeBill').checked), jid=activeModal.data.id;
         await completeJobWithAmount(jid, amount, rating, sigUrl, techSigUrl, travelAmt, val('f_payMode')); activeModal=null; render();
         if(mkBill){ try{ await generateInvoice(jid); showToast('🧾 Bill download ho gaya'); }catch(e){ console.error(e); showToast('Bill nahi ban paya — office se banwa lein'); } }
+      } else if(activeModal.type==='fixDate'){
+        const iso=dmyVal('fx'); if(!iso){ showToast('Din, Mahina aur Saal teeno chunein'); return; }
+        const okk=await moneyFixDate(activeModal.data,iso); if(!okk){ showToast('Entry nahi mili'); return; }
+        activeModal=null; showToast('Date theek ho gayi'); render();
       } else if(activeModal.type==='remNote'){
         const r=await saveRemark(activeModal.data.id,(getAllDueCustomers().find(x=>x.id===activeModal.data.id)||{}).dueDate,{out:val('f_remOut'),note:val('f_remNote'),next:val('f_remNext')});
         if(r){ if(r==='booked'){ jobCustQuery=''; jobCustSelectedId=activeModal.data.id; activeModal={type:'addJob'}; } else { activeModal=null; } render(); }
