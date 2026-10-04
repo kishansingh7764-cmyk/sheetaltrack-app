@@ -125,8 +125,8 @@ label{display:block;font-size:12.5px;color:var(--ink-soft);margin-bottom:5px;fon
 .photo-row{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;}
 .photo-thumb{width:56px;height:56px;border-radius:9px;object-fit:cover;border:1px solid var(--border);cursor:pointer;}
 .urlbox{word-break:break-all;font-size:11px;background:var(--bg);padding:9px 10px;border-radius:8px;color:var(--ink-soft);margin-top:6px;font-family:monospace;}
-.tabbar{display:flex;gap:4px;margin-bottom:14px;background:var(--surface);padding:4px;border-radius:11px;border:1px solid var(--border);overflow-x:auto;}
-.tabbtn{flex:1;padding:8px 10px;border:none;background:none;border-radius:8px;font-size:12px;font-weight:600;color:var(--ink-soft);white-space:nowrap;transition:all .15s;}
+.tabbar{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:14px;background:var(--surface);padding:4px;border-radius:11px;border:1px solid var(--border);overflow:visible;}
+.tabbtn{flex:1 1 auto;padding:8px 10px;border:none;background:none;border-radius:8px;font-size:12px;font-weight:600;color:var(--ink-soft);white-space:nowrap;text-align:center;transition:all .15s;}
 .tabbtn.active{background:var(--teal);color:#fff;}
 .section-sub{font-family:var(--font-display);font-size:12.5px;font-weight:600;color:var(--teal-deep);margin:16px 0 8px 0;padding-top:12px;border-top:1px solid var(--border);}
 </style>
@@ -596,7 +596,7 @@ function startSharingLocation(){
     if(pos.coords.accuracy<=100){ const P=[+latitude.toFixed(5),+longitude.toFixed(5)], lp=startSharingLocation.lp; if(!lp||kmBetween(lp,P)>=0.04){ startSharingLocation.lp=P; track(firestoreDB.collection('st_trail').doc(staffId+'_'+todayStr()).set({staffId,date:todayStr(),p:{[Math.floor(nowTs/1000)]:P}},{merge:true})); } }
     const t=todayStr();
     if(!STATE.attendance[staffId]) STATE.attendance[staffId]={};
-    if(!STATE.attendance[staffId][t]){ STATE.attendance[staffId][t]=true; saveKey(SKEY.ATTENDANCE, STATE.attendance); }
+    if(!STATE.attendance[staffId][t]){ STATE.attendance[staffId][t]=true; saveKey(SKEY.ATTENDANCE, STATE.attendance); notifSend(OFFICE_KEYS,'attendance','✅ Attendance lagi',(nStaff(staffId)||(STATE.session&&STATE.session.name)||'Staff')+' ne aaj location share ki',staffId+':'+t); }
     if(STATE.view==='location') bgRender();
   }, (err)=>{
     if(err.code===1){ STATE.locOK=false; showToast('Permission denied. Phone Settings → Chrome/Browser → Site Settings → Location mein "Allow" karein.'); }
@@ -1664,7 +1664,7 @@ function notifEnsure(){
 function notifAlert(fresh){
   try{ const f=fresh[0]; showToast('🔔 '+f.title+(fresh.length>1?' (+'+(fresh.length-1)+' aur)':'')); }catch(e){}
   try{ if(navigator.vibrate) navigator.vibrate([200,100,200]); }catch(e){}
-  try{ const AC=window.AudioContext||window.webkitAudioContext; if(AC){ const c=new AC(), o=c.createOscillator(), g=c.createGain(); o.connect(g); g.connect(c.destination); o.frequency.value=880; g.gain.value=0.08; o.start(); setTimeout(()=>{ try{o.stop(); c.close();}catch(e){} },180); } }catch(e){}
+  try{ playDing(); }catch(e){}
   try{ if(window.Notification&&Notification.permission==='granted'&&document.hidden){ const f=fresh[0]; new Notification(f.title,{body:f.body}); } }catch(e){}
 }
 function notifSend(toKeys,type,title,body,ref){
@@ -1717,7 +1717,7 @@ function notifModalInner(){
   const warn=(STATE.notifOK===false)?`<div class="card" style="border-left:4px solid #c0392b;"><div class="item-sub">⚠️ Notification abhi chal nahi rahe. ${isA?'Firebase Rules me ye add karke Publish karein:<br><code style="font-size:11px;">match /st_notif/{id} { allow read, write: if request.auth != null; }</code>':'Admin se kahein ki Firebase rule add kare.'}</div></div>`:'';
   const items=L.length?L.map(r=>{ const un=!(r.readBy&&r.readBy[me.staffId]);
     return `<div class="card" data-act="nopen" data-id="${r.id}" style="cursor:pointer;margin:6px 0;${un?'border-left:4px solid var(--teal);':'opacity:.78;'}"><div class="item-name" style="font-size:14px;">${esc(r.title)}</div><div class="item-sub" style="margin-top:2px;">${esc(r.body)}</div><div class="item-sub" style="margin-top:4px;font-size:11px;">${fmtT(r.ts)}${r.byName?' · '+esc(r.byName):''}</div></div>`; }).join(''):`<div class="item-sub" style="padding:14px 0;text-align:center;">Abhi koi notification nahi hai.</div>`;
-  return `<div class="modal-head"><h3>🔔 Notifications${u?' ('+u+' naye)':''}</h3><button class="close-x" id="modalClose">x</button></div>${warn}${perm}
+  return `<div class="modal-head"><h3>🔔 Notifications${u?' ('+u+' naye)':''}</h3><button class="close-x" id="modalClose">x</button></div>${warn}${perm}<button class="mini-btn" data-act="nsound" style="margin-bottom:8px;margin-left:4px;">🔊 Awaaz check</button>
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px;">${u?`<button class="mini-btn" data-act="nreadall">✔ Sab padha mark karein</button>`:''}${isA?`<button class="mini-btn" data-act="nlog">🔐 Login Log</button>`:''}</div>
     <div style="max-height:62vh;overflow-y:auto;">${items}</div>`;
 }
@@ -1895,7 +1895,7 @@ function amcDetailsHtml(c){
   if(!rows.length) return '';
   return `<div class="card"><div class="item-name" style="margin-bottom:6px;">📋 Details</div>${rows.map(r=>`<div class="row-between" style="padding:3px 0;"><div class="item-sub" style="margin:0;">${r[0]}</div><div class="item-sub" style="margin:0;font-weight:600;text-align:right;">${esc(r[1])}</div></div>`).join('')}</div>`;
 }
-async function convertLeadToOnetime(id){
+async function convertLeadToOnetime(id,opt){ opt=opt||{};
   const l=(STATE.leads||[]).find(x=>x.id===id); if(!l||l.convertedJobId) return;
   const mob=(l.mobile||'').replace(/\D/g,'').slice(-10), today=todayStr();
   let cust=mob&&STATE.customers.find(c=>(c.phone||'').replace(/\D/g,'').slice(-10)===mob);
@@ -1905,11 +1905,11 @@ async function convertLeadToOnetime(id){
   }
   cust.leadTelecaller=l.assignedName||cust.leadTelecaller||''; cust.leadCalledBy=l.calledBy||''; cust.leadId=l.id;
   STATE.customers=STATE.customers.filter(x=>x.id!==cust.id).concat(cust); await saveKey(SKEY.CUSTOMERS, STATE.customers);
-  const j={id:uid(), customerId:cust.id, title:'Service', tag:'', amcVisit:false, assignedTo:'', status:'pending', date:today, notes:'Telecaller lead se bani (One-time) — '+(l.calledBy||l.assignedName||''), amount:0, checklist:[], createdAt:Date.now(), history:[{s:'pending',t:Date.now(),by:(STATE.session&&STATE.session.name)||'',why:'Telecaller lead se One-time service'}]};
+  const j={id:uid(), customerId:cust.id, title:'Service', tag:'', amcVisit:false, assignedTo:opt.tech||'', status:'pending', date:opt.date||today, notes:'Telecaller lead se bani (One-time) — '+(l.calledBy||l.assignedName||''), amount:0, checklist:[], createdAt:Date.now(), history:[{s:'pending',t:Date.now(),by:(STATE.session&&STATE.session.name)||'',why:'Telecaller lead se One-time service'}]};
   STATE.jobs.push(j); await saveKey(SKEY.JOBS, STATE.jobs);
   l.convertedJobId=j.id; l.convertedType='onetime'; l.convertedBy=(STATE.session&&STATE.session.name)||''; l.convertedAt=Date.now();
   await saveKey(SKEY.LEADS, STATE.leads);
-  showToast('✅ One-time Job ban gayi — ab technician assign karein');
+  showToast(opt.tech?'✅ One-time Job ban gayi — '+nStaff(opt.tech)+' ko assign ho gayi':'✅ One-time Job ban gayi (technician baad me assign karein)'); notifSend(OFFICE_KEYS.concat(l.assignedTo?['staff:'+l.assignedTo]:[]),'lead_conv','📇 Lead se One-time job bani',(l.customer||'')+' · '+((STATE.session&&STATE.session.name)||''),l.id);
   STATE.customerDetailId=cust.id; STATE.view='customerProfile'; render();
 }
 async function reopenLead(id){
@@ -1967,7 +1967,7 @@ async function dismissLead(id){
   l.dismissReason=why.trim(); l.dismissed=true; l.dismissedBy=(STATE.session&&STATE.session.name)||''; l.dismissedAt=Date.now();
   await saveKey(SKEY.LEADS, STATE.leads); showToast('Lead band ho gayi (Band tab mein hai)'); render();
 }
-async function convertLeadToJob(id){
+async function convertLeadToJob(id,opt){ opt=opt||{};
   const l=(STATE.leads||[]).find(x=>x.id===id); if(!l||l.convertedJobId) return;
   const mob=(l.mobile||'').replace(/\D/g,'').slice(-10);
   let cust=mob&&STATE.customers.find(c=>(c.phone||'').replace(/\D/g,'').slice(-10)===mob);
@@ -1981,11 +1981,11 @@ async function convertLeadToJob(id){
   }
   cust.leadTelecaller=l.assignedName||cust.leadTelecaller||''; cust.leadCalledBy=l.calledBy||''; cust.leadId=l.id; if(!cust.installDate&&l.purchaseDate) cust.installDate=l.purchaseDate;
   STATE.customers=STATE.customers.filter(x=>x.id!==cust.id).concat(cust); await saveKey(SKEY.CUSTOMERS, STATE.customers);
-  const j={id:uid(), customerId:cust.id, title:'AMC Renewal Visit', tag:'AMC', amcVisit:false, assignedTo:'', status:'pending', date:today, notes:'Telecaller lead se bani — '+(l.calledBy||''), amount:0, checklist:[], createdAt:Date.now(), history:[{s:'pending',t:Date.now(),by:(STATE.session&&STATE.session.name)||'',why:'Telecaller lead se AMC'}]};
+  const j={id:uid(), customerId:cust.id, title:'AMC Renewal Visit', tag:'AMC', amcVisit:false, assignedTo:opt.tech||'', status:'pending', date:opt.date||today, notes:'Telecaller lead se bani — '+(l.calledBy||''), amount:0, checklist:[], createdAt:Date.now(), history:[{s:'pending',t:Date.now(),by:(STATE.session&&STATE.session.name)||'',why:'Telecaller lead se AMC'}]};
   STATE.jobs.push(j); await saveKey(SKEY.JOBS, STATE.jobs);
   l.convertedJobId=j.id; l.convertedBy=(STATE.session&&STATE.session.name)||''; l.convertedAt=Date.now();
   await saveKey(SKEY.LEADS, STATE.leads);
-  showToast('✅ AMC Customer aur Job ban gayi — ab technician assign karein');
+  showToast(opt.tech?'✅ AMC Customer aur Job ban gayi — '+nStaff(opt.tech)+' ko assign ho gayi':'✅ AMC Customer aur Job ban gayi (technician baad me assign karein)'); notifSend(OFFICE_KEYS.concat(l.assignedTo?['staff:'+l.assignedTo]:[]),'lead_conv','📇 Lead se AMC bana',(l.customer||'')+' · '+((STATE.session&&STATE.session.name)||''),l.id);
   STATE.customerDetailId=cust.id; STATE.view='customerProfile'; render();
 }
 async function addJob(data){
@@ -2262,7 +2262,7 @@ function render(){
 function renderSetup(){
   return `
   <div class="login-wrap">
-    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v6.7</p></div>
+    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v6.8</p></div>
     <div class="setup-note">Yeh app ab Firebase (Google ka free real-time database) use karti hai — pehle se tez aur reliable. Firebase Console se apna config copy karke neeche paste karein.</div>
     <div class="field"><label>Firebase Config (poora object paste karein)</label><textarea id="setupConfig" rows="8" placeholder='{"apiKey": "...", "authDomain": "...", "projectId": "...", ...}'>${setupUrlInput}</textarea></div>
     <button class="primary-btn" id="connectBtn">Connect Karein</button>
@@ -2322,7 +2322,7 @@ function renderLogin(){
   }
   return `
   <div class="login-wrap">
-    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v6.7</p></div>
+    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v6.8</p></div>
     <div class="role-grid">
       <button class="role-opt ${loginRole==='admin'?'active':''}" data-role="admin"><span class="ic">🗝️</span>Admin</button>
       <button class="role-opt ${loginRole==='subadmin'?'active':''}" data-role="subadmin"><span class="ic">🧑‍💼</span>Office</button>
@@ -2386,7 +2386,7 @@ function renderShell(){
   ${STATE.toast?`<div class="toast">${STATE.toast}</div>`:''}
   ${modalHtml()}
   ${lightboxHtml()}
-  <div class="bottomnav">${nav.map(n=>`<button class="navbtn ${STATE.view===n.v?'active':''}" data-view="${n.v}"><span class="ic">${n.ic}</span>${n.label}</button>`).join('')}</div>`;
+  ${bottomNavHtml(nav)}`;
 }
 
 /* ============ Dashboard ============ */
@@ -2609,14 +2609,7 @@ function renderCustomers(){
     </div>
     ${filterType==='amc'?`<div class="tabbar"><button class="tabbtn ${!STATE.custStatus?'active':''}" data-custstatus="">Sab AMC (${amcCnt.all})</button><button class="tabbtn ${STATE.custStatus==='active'?'active':''}" data-custstatus="active">✅ Chal rahi (${amcCnt.active})</button><button class="tabbtn ${STATE.custStatus==='expired'?'active':''}" data-custstatus="expired">⏳ Expired / Cancel (${amcCnt.exp})</button></div>`:''}
     <div id="custListWrap">${list.length===0?`<div class="empty-state"><span class="ic">👥</span><p>${q?'Koi match nahi mila.':'Abhi tak koi customer add nahi hua.<br>Neeche + button se add karein.'}</p></div>`:
-      list.map(c=>{
-        let pillClass='pill-grey', pillText='';
-        if(c.type==='amc' && c.expiryDate){ const d=daysUntil(c.expiryDate); pillClass=d<0?'pill-red':d<=15?'pill-amber':'pill-green'; pillText=d<0?Math.abs(d)+'d overdue':d+'d left'; }
-        else if(c.lastService){ const due=addMonths(c.lastService,c.intervalMonths); const d=daysUntil(due); pillClass=d<0?'pill-red':d<=7?'pill-amber':'pill-green'; pillText=d<0?Math.abs(d)+'d overdue':d+'d left'; }
-        return `<div class="card">
-        <div class="row-between" data-viewcust="${c.id}" style="cursor:pointer;"><div><div class="item-name">${c.name} <span class="pill ${customerTypePill(c.type)}" style="margin-left:4px;">${customerTypeLabel(c.type)}</span></div><div class="item-sub">${c.phone||'no phone'}${c.phone2?' / '+c.phone2:''}</div><div class="item-sub">${c.address||'no address'}${c.pincode?' - '+c.pincode:''}</div>${c.type==='amc'&&c.brand?`<div class="item-sub">${c.brand} ${c.model||''}</div>`:''}${c.installDate?`<div class="item-sub">🛠 Install: ${fmtDate(c.installDate)}${c.leadTelecaller?' · 📞 '+esc(c.leadTelecaller):''}</div>`:(c.leadTelecaller?`<div class="item-sub">📞 Telecaller: ${esc(c.leadTelecaller)}</div>`:'')}${amcStatusOf(c)==='lapsed'?`<div class="item-sub" style="color:#c0392b;font-weight:600;">🔴 Renewal nahi hui / Cancel</div>`:amcStatusOf(c)==='expired'?`<div class="item-sub" style="color:var(--amber);font-weight:600;">⏳ Expired — renewal baaki</div>`:''}${c.amcHistory&&c.amcHistory.length>1?`<div class="item-sub">🔁 ${c.amcHistory.length-1} baar renewal</div>`:''}</div>${pillText?`<span class="pill ${pillClass}">${pillText}</span>`:''}</div>
-        <div class="card-actions" style="margin-top:6px;">${c.phone?`<a class="mini-btn" style="text-decoration:none;" href="tel:${c.phone}">📞 Call</a>`:''}${c.phone?`<a class="mini-btn" style="text-decoration:none;" href="https://wa.me/${waNum(c.phone)}">💬 WhatsApp</a>`:''}</div>
-        <div class="card-actions"><button class="mini-btn primary" data-act="service" data-id="${c.id}">Service ho gaya</button>${STATE.session.role!=='technician'?`<button class="mini-btn" data-act="newjobfor" data-id="${c.id}">➕ Job Banao</button>`:''}<button class="mini-btn" data-act="editcust" data-id="${c.id}">Edit</button><button class="mini-btn" data-act="viewcust" data-id="${c.id}">Profile</button>${STATE.session.role==='admin'?`<button class="mini-btn danger" data-act="delcust" data-id="${c.id}">Delete</button>`:''}</div></div>`; }).join('')}</div>
+      list.map(custCardX).join('')}</div>
     <button class="fab" id="addCustBtn">+</button>
   `;
 }
@@ -2737,10 +2730,6 @@ function convertedLeadCard(l){
     ${(l.remarks&&l.remarks.length)?`<details style="margin-top:6px;"><summary class="item-sub" style="cursor:pointer;">📝 Remarks (${l.remarks.length})</summary>${l.remarks.map(rm=>`<div class="item-sub" style="padding:2px 0;">${esc(rm)}</div>`).join('')}</details>`:''}
     ${c.id?`<div class="card-actions"><button class="mini-btn primary" data-act="viewcust" data-id="${c.id}">👤 Customer Profile</button></div>`:''}${old?`<div class="card-actions"><button class="mini-btn danger" data-act="leadundone" data-id="${l.id}">↩️ Done Hatayein</button></div>`:''}</div>`;
 }
-function adminLeadCard(l){
-  const fu=l.followUpDate?`<span class="pill ${l.followUpDate<todayStr()?'pill-red':l.followUpDate===todayStr()?'pill-amber':'pill-sky'}">${l.followUpDate<todayStr()?'Late · ':l.followUpDate===todayStr()?'Aaj · ':''}${fmtDate(l.followUpDate)}</span>`:'';
-  return `<div class="card">${leadAmcChip(l)}${l.remarkNote?`<div class="item-sub" style="background:var(--amber-pale);border-radius:8px;padding:6px 9px;margin-bottom:8px;">ℹ️ ${esc(l.remarkNote)}</div>`:''}<div class="row-between"><div><div class="item-name">${esc(l.customer||'—')}</div><div class="item-sub">📞 ${esc(l.mobile||l.resTel||'')}${l.product?' · '+esc(l.product):''}</div></div><div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end;">${fu}<span class="pill pill-sky">${esc(l.assignedName||'')}</span></div></div><div class="item-sub">${esc([l.address1,l.address2,l.address3].filter(Boolean).join(', '))}${l.area?' · '+esc(l.area):''}</div>${l.purchaseDate?`<div class="item-sub">🛒 AC khareedi: ${fmtDate(l.purchaseDate)}</div>`:''}${l.called?`<div class="item-sub" style="opacity:.75;">Call: ${fmtT(l.calledAt)} by ${esc(l.calledBy||'')}</div>`:''}${l.dismissed?`<div class="item-sub" style="background:var(--amber-pale);border-radius:8px;padding:6px 9px;margin-top:6px;">🗂 Band: ${esc(l.dismissReason||'(reason nahi likha)')} — ${esc(l.dismissedBy||'')}${l.dismissedAt?' · '+fmtT(l.dismissedAt):''}</div>`:''}${(l.remarks&&l.remarks.length)?`<details style="margin-top:6px;"><summary class="item-sub" style="cursor:pointer;">📝 Remarks (${l.remarks.length})</summary>${l.remarks.map(rm=>`<div class="item-sub" style="padding:2px 0;">${esc(rm)}</div>`).join('')}</details>`:''}<div class="card-actions">${l.mobile?`<a class="mini-btn" style="text-decoration:none;" href="tel:${l.mobile}">📞 Call</a>`:''}${l.dismissed?`<button class="mini-btn primary" data-act="leadreopen" data-id="${l.id}">↩️ Wapas Kholein</button>`:`<button class="mini-btn primary" data-act="leadjob" data-id="${l.id}">✅ AMC Bana Do</button><button class="mini-btn" data-act="leadonetime" data-id="${l.id}">🔧 One-time Service</button><button class="mini-btn danger" data-act="leaddismiss" data-id="${l.id}">✖ Band Karo</button>`}</div>${(l.called&&l.calledBy)||l.dismissed?'':`<div class="card-actions" style="align-items:center;"><select id="ra_${l.id}" style="flex:1;min-width:130px;padding:8px 10px;">${leadOwners().map(t=>`<option value="${t.id}" ${t.id===l.assignedTo?'selected':''}>${esc(t.name)}${t.role==='subadmin'?' (Sub-admin)':''}</option>`).join('')}</select><button class="mini-btn" data-act="leadreassign" data-id="${l.id}">🔁 Telecaller Badlein</button></div>`}</div>`;
-}
 function renderLeads(){
   const html=renderLeadsInner();
   if(STATE.session.role!=='subadmin') return html;
@@ -2761,7 +2750,7 @@ function renderLeadsInner(){
     const doneToday=mine.filter(l=>l.called&&ymd(new Date(l.calledAt))===todayStr());
     return `<div class="row-between" style="margin-bottom:10px;"><div class="section-title" style="margin:0;">Meri Leads</div>${(staff.sheetUrls&&staff.sheetUrls.length)?`<button class="mini-btn" data-act="leadsheetpull" data-id="${staff.id}">🔄 Sheet se Layein</button>`:''}</div>
       <div class="stat-grid"><div class="stat-card"><div class="stat-num">${pending.length}</div><div class="stat-label">Baaki</div></div><div class="stat-card"><div class="stat-num" style="color:var(--green);">${doneToday.length}</div><div class="stat-label">Aaj call ki</div></div><div class="stat-card"><div class="stat-num" style="color:var(--amber);">${fuToday.length}</div><div class="stat-label">Aaj follow-up</div></div></div>
-      ${pending.length===0?`<div class="empty-state"><span class="ic">📇</span><p>Koi lead baaki nahi hai.</p></div>`:pending.slice(0,STATE.leadsShown||40).map(l=>`<div class="card">${leadAmcChip(l)}${l.followUpDate?`<div class="item-sub" style="background:var(--sky-pale);border-radius:8px;padding:6px 9px;margin-bottom:8px;">⏰ Follow-up: ${fmtDate(l.followUpDate)}${l.followUpDate<todayStr()?' (nikal gayi — abhi call karein)':' (aaj)'}</div>`:''}${l.preDone?`<div class="item-sub" style="background:var(--amber-pale);border-radius:8px;padding:6px 9px;margin-bottom:8px;">ℹ️ Sheet mein pehle se ✅ tha — shayad already AMC/deal ho chuki hai</div>`:''}<div class="row-between"><div class="item-name">${esc(l.customer||'—')}</div>${dueBadge(l)}</div><div class="item-sub">📞 ${esc(l.mobile||l.resTel||'')}${l.product?' · '+esc(l.product):''}</div><div class="item-sub">${esc([l.address1,l.address2,l.address3].filter(Boolean).join(', '))}${l.area?' · '+esc(l.area):''}</div>${l.purchaseDate?`<div class="item-sub">🛒 AC khareedi: ${fmtDate(l.purchaseDate)}</div>`:''}${(l.remarks&&l.remarks.length)?`<details style="margin-top:6px;"><summary class="item-sub" style="cursor:pointer;">📝 Purane remarks (${l.remarks.length})</summary>${l.remarks.map(rm=>`<div class="item-sub" style="padding:2px 0;">${esc(rm)}</div>`).join('')}</details>`:''}<div class="field" style="margin-top:8px;"><input id="remark_${l.id}" placeholder="Remark (jaise: RING, DND, NII, deal ho gaya)"></div><div class="card-actions">${l.mobile?`<a class="mini-btn" style="text-decoration:none;" href="tel:${l.mobile}">📞 Call</a>`:''}<button class="mini-btn primary" data-act="leadcall" data-id="${l.id}">✅ Call Ho Gayi</button></div><div class="card-actions" style="align-items:center;"><input type="date" id="fu_${l.id}" min="${todayStr()}" style="flex:1;min-width:130px;padding:8px 10px;"><button class="mini-btn" data-act="leadlater" data-id="${l.id}">⏰ Baad mein call</button></div></div>`).join('')}
+      ${pending.length===0?`<div class="empty-state"><span class="ic">📇</span><p>Koi lead baaki nahi hai.</p></div>`:pending.slice(0,STATE.leadsShown||40).map(teleLeadCard).join('')}
       ${pending.length>(STATE.leadsShown||40)?`<button class="ghost-btn" data-act="leadsmore" style="margin-top:10px;">Aur dikhayein (${pending.length-(STATE.leadsShown||40)} baaki)</button>`:''}
       ${later.length?`<details style="margin-top:10px;"><summary class="item-sub" style="cursor:pointer;font-weight:600;">⏰ Aage ke follow-ups (${later.length})</summary>${later.map(l=>`<div class="item-sub" style="padding:4px 0;">${fmtDate(l.followUpDate)} — ${esc(l.customer||'—')} · ${esc(l.mobile||'')}</div>`).join('')}</details>`:''}${doneToday.length?`<details style="margin-top:10px;"><summary class="item-sub" style="cursor:pointer;font-weight:600;">Aaj call ki hui (${doneToday.length})</summary>${doneToday.map(l=>`<div class="item-sub" style="padding:4px 0;">${esc(l.customer||'—')} — ${fmtT(l.calledAt)}</div>`).join('')}</details>`:''}`;
   }
@@ -2886,15 +2875,13 @@ function renderStaff(){ if(STATE.session.role!=='admin') return '<div class="emp
   const techs=STATE.staff.filter(s=>s.role==='technician'); const subs=STATE.staff.filter(s=>s.role==='subadmin'); const callers=STATE.staff.filter(s=>s.role==='telecaller');
   return `
     ${techs.length?travelAmountSummaryHtml():''}
+    <div class="item-sub" style="margin:0 0 8px;">Card par tap karein — poora kaam/history khulega. Naam par tap karein — profile.</div>
     <div class="section-title">Technicians (${techs.length})</div>
-    ${techs.length===0?`<div class="empty-state"><span class="ic">🔧</span><p>Koi technician add nahi hai.</p></div>`:
-      techs.map(t=>`<div class="card"><div class="row-between"><div data-viewstaff="${t.id}" style="cursor:pointer;"><div class="item-name" style="text-decoration:underline;color:var(--teal);">${t.name} ›</div><div class="item-sub">${t.phone||''}</div></div><button class="mini-btn danger" style="flex:none;padding:8px 12px;" data-act="delstaff" data-id="${t.id}">Remove</button></div></div>`).join('')}
+    ${techs.length===0?`<div class="empty-state"><span class="ic">🔧</span><p>Koi technician add nahi hai.</p></div>`:techs.map(t=>staffCardX(t,'delstaff')).join('')}
     <div class="section-title" style="margin-top:18px;">Office / Sub-admins (${subs.length})</div>
-    ${subs.length===0?`<div class="empty-state"><span class="ic">🧑‍💼</span><p>Koi sub-admin add nahi hai.</p></div>`:
-      subs.map(t=>`<div class="card"><div class="row-between"><div data-viewstaff="${t.id}" style="cursor:pointer;"><div class="item-name" style="text-decoration:underline;color:var(--teal);">${t.name} ›</div><div class="item-sub">${t.phone||''}</div></div><button class="mini-btn danger" style="flex:none;padding:8px 12px;" data-act="delstaff" data-id="${t.id}">Remove</button></div></div>`).join('')}
+    ${subs.length===0?`<div class="empty-state"><span class="ic">🧑‍💼</span><p>Koi sub-admin add nahi hai.</p></div>`:subs.map(t=>staffCardX(t,'delstaff')).join('')}
     <div class="section-title" style="margin-top:18px;">Telecallers (${callers.length})</div>
-    ${callers.length===0?`<div class="empty-state"><span class="ic">📇</span><p>Koi telecaller add nahi hai.</p></div>`:
-      callers.map(t=>{ const m=(STATE.leads||[]).filter(l=>l.assignedTo===t.id&&!l.dismissed); return `<div class="card"><div class="row-between"><div data-viewstaff="${t.id}" style="cursor:pointer;"><div class="item-name" style="text-decoration:underline;color:var(--teal);">${esc(t.name)} ›</div><div class="item-sub">${t.phone||''} · ${m.length} leads, ${m.filter(l=>l.called).length} call hui</div></div><button class="mini-btn danger" style="flex:none;padding:8px 12px;" data-act="deltelecaller" data-id="${t.id}">Remove</button></div></div>`; }).join('')}
+    ${callers.length===0?`<div class="empty-state"><span class="ic">📇</span><p>Koi telecaller add nahi hai.</p></div>`:callers.map(t=>staffCardX(t,'deltelecaller')).join('')}
     <button class="fab" id="addStaffBtn">+</button>
   `;
 }
@@ -2980,45 +2967,147 @@ function initLiveMap(){
 }
 
 /* ============ Technician: My Jobs ============ */
+/* ===== v6.8: awaaz, chhote expandable cards, Aur menu, technician tabs ===== */
+let AUDIO_CTX=null;
+function audioUnlock(){ try{ const AC=window.AudioContext||window.webkitAudioContext; if(!AC) return; if(!AUDIO_CTX) AUDIO_CTX=new AC(); if(AUDIO_CTX.state==='suspended') AUDIO_CTX.resume(); }catch(e){} }
+['click','touchstart','keydown'].forEach(ev=>document.addEventListener(ev,audioUnlock,{passive:true}));
+let DING_URL=null;
+function dingWavUrl(){
+  if(DING_URL) return DING_URL;
+  try{ const sr=22050, n=Math.floor(sr*0.55), buf=new ArrayBuffer(44+n*2), v=new DataView(buf), w=(o,s)=>{ for(let i=0;i<s.length;i++) v.setUint8(o+i,s.charCodeAt(i)); };
+    w(0,'RIFF'); v.setUint32(4,36+n*2,true); w(8,'WAVE'); w(12,'fmt '); v.setUint32(16,16,true); v.setUint16(20,1,true); v.setUint16(22,1,true); v.setUint32(24,sr,true); v.setUint32(28,sr*2,true); v.setUint16(32,2,true); v.setUint16(34,16,true); w(36,'data'); v.setUint32(40,n*2,true);
+    for(let i=0;i<n;i++){ const t=i/sr, f=t<0.25?880:1175, env=Math.exp(-6*(t<0.25?t:t-0.25)); v.setInt16(44+i*2,Math.round(Math.sin(2*Math.PI*f*t)*env*0.6*32767),true); }
+    DING_URL=URL.createObjectURL(new Blob([buf],{type:'audio/wav'})); }catch(e){ DING_URL=''; }
+  return DING_URL;
+}
+function playDing(){
+  let ok=false;
+  try{ audioUnlock(); const c=AUDIO_CTX; if(c&&c.state!=='closed'){ const now=c.currentTime; [[880,0],[1175,0.18]].forEach(([f,t])=>{ const o=c.createOscillator(), g=c.createGain(); o.type='sine'; o.frequency.value=f; o.connect(g); g.connect(c.destination); g.gain.setValueAtTime(0.0001,now+t); g.gain.exponentialRampToValueAtTime(0.4,now+t+0.02); g.gain.exponentialRampToValueAtTime(0.0001,now+t+0.35); o.start(now+t); o.stop(now+t+0.38); }); ok=true; } }catch(e){}
+  try{ const u=dingWavUrl(); if(u){ const a=new Audio(u); a.volume=1; const p=a.play(); if(p&&p.catch) p.catch(()=>{}); ok=true; } }catch(e){}
+  return ok;
+}
+function xCard(key,head,quick,more,style){
+  const open=!!(STATE.jobOpenMap&&STATE.jobOpenMap[key]);
+  return `<div class="card" data-jexp="${esc(key)}" style="cursor:pointer;${style||''}">${head}${quick?`<div class="card-actions" style="margin-top:8px;">${quick}</div>`:''}<div class="item-sub" style="text-align:right;color:var(--teal);font-weight:600;margin:4px 0 0;">${open?'▲ Kam dikhayein':'▼ Poora dekhein'}</div>${open?`<div style="margin-top:6px;border-top:1px solid var(--border);padding-top:8px;">${more}</div>`:''}</div>`;
+}
+function bottomNavHtml(nav){
+  const MAXN=5, btn=n=>`<button class="navbtn ${STATE.view===n.v?'active':''}" data-view="${n.v}"><span class="ic">${n.ic}</span>${n.label}</button>`;
+  if(nav.length<=MAXN) return `<div class="bottomnav">${nav.map(btn).join('')}</div>`;
+  const show=nav.slice(0,MAXN-1), more=nav.slice(MAXN-1);
+  return `<div class="bottomnav">${show.map(btn).join('')}<button class="navbtn ${more.some(n=>n.v===STATE.view)?'active':''}" data-more="1"><span class="ic">☰</span>Aur</button></div>`;
+}
+/* ----- Customers (AMC list) ----- */
+function custCardX(c){
+  let pillClass='pill-grey', pillText='';
+  if(c.type==='amc' && c.expiryDate){ const d=daysUntil(c.expiryDate); pillClass=d<0?'pill-red':d<=15?'pill-amber':'pill-green'; pillText=d<0?Math.abs(d)+'d overdue':d+'d left'; }
+  else if(c.lastService){ const due=addMonths(c.lastService,c.intervalMonths); const d=daysUntil(due); pillClass=d<0?'pill-red':d<=7?'pill-amber':'pill-green'; pillText=d<0?Math.abs(d)+'d overdue':d+'d left'; }
+  const head=`<div class="row-between" style="align-items:flex-start;gap:8px;"><div style="min-width:0;"><span data-viewcust="${c.id}" class="item-name" style="cursor:pointer;text-decoration:underline;color:var(--teal);">${esc(c.name)} ›</span> <span class="pill ${customerTypePill(c.type)}" style="margin-left:4px;">${customerTypeLabel(c.type)}</span><div class="item-sub">${esc(c.phone||'no phone')}${c.phone2?' / '+esc(c.phone2):''}</div>${amcStatusOf(c)==='lapsed'?`<div class="item-sub" style="color:#c0392b;font-weight:600;">🔴 Renewal nahi hui / Cancel</div>`:amcStatusOf(c)==='expired'?`<div class="item-sub" style="color:var(--amber);font-weight:600;">⏳ Expired — renewal baaki</div>`:''}</div>${pillText?`<span class="pill ${pillClass}" style="flex:none;">${pillText}</span>`:''}</div>`;
+  const quick=`${c.phone?`<a class="mini-btn" style="text-decoration:none;" href="tel:${esc(c.phone)}">📞 Call</a>`:''}${STATE.session.role!=='technician'?`<button class="mini-btn" data-act="newjobfor" data-id="${c.id}">➕ Job Banao</button>`:''}`;
+  const more=`<div class="item-sub">📍 ${esc(c.address||'no address')}${c.pincode?' - '+esc(c.pincode):''}</div>${c.type==='amc'&&c.brand?`<div class="item-sub">❄️ ${esc(c.brand)} ${esc(c.model||'')}</div>`:''}${c.installDate?`<div class="item-sub">🛠 Install: ${fmtDate(c.installDate)}${c.leadTelecaller?' · 📞 '+esc(c.leadTelecaller):''}</div>`:(c.leadTelecaller?`<div class="item-sub">📞 Telecaller: ${esc(c.leadTelecaller)}</div>`:'')}${c.amcHistory&&c.amcHistory.length>1?`<div class="item-sub">🔁 ${c.amcHistory.length-1} baar renewal</div>`:''}
+    <div class="card-actions" style="margin-top:8px;">${c.phone?`<a class="mini-btn" style="text-decoration:none;" href="https://wa.me/${waNum(c.phone)}">💬 WhatsApp</a>`:''}<button class="mini-btn primary" data-act="service" data-id="${c.id}">Service ho gaya</button><button class="mini-btn" data-act="editcust" data-id="${c.id}">Edit</button><button class="mini-btn" data-act="viewcust" data-id="${c.id}">Profile</button>${STATE.session.role==='admin'?`<button class="mini-btn danger" data-act="delcust" data-id="${c.id}">Delete</button>`:''}</div>`;
+  return xCard('cu:'+c.id,head,quick,more);
+}
+/* ----- Team / Attendance ----- */
+function staffSummaryHtml(t){
+  const td=todayStr(), mk=td.slice(0,7), mine=STATE.jobs.filter(j=>j.assignedTo===t.id), dOf=j=>j.completedAt?ymd(new Date(j.completedAt)):(j.date||'');
+  const attDays=Object.keys((STATE.attendance||{})[t.id]||{}), att=attDays.filter(d=>d.startsWith(mk)).length, present=attDays.includes(td);
+  const onLeave=isOnLeaveOn(t.id,td), loc=(STATE.locations||{})[t.id], live=loc&&(Date.now()-loc.ts)<10*60*1000;
+  let h=`<div class="item-sub">📞 ${esc(t.phone||'—')} · ${esc(roleLabel(t.role))}</div>`;
+  if(t.role==='technician'||t.role==='subadmin'){
+    const today=mine.filter(j=>j.date===td&&j.status!=='rejected').length, open=mine.filter(jobIsOpen).length, mDone=mine.filter(j=>j.status==='done'&&dOf(j).startsWith(mk)).length, canc=mine.filter(j=>j.status==='rejected').length;
+    if(t.role==='technician'||mine.length) h+=`<div class="item-sub">🛠 Aaj ki jobs: <b>${today}</b> · Baaki: <b>${open}</b> · Is mahine complete: <b>${mDone}</b> · Cancel: <b>${canc}</b></div>`;
+  }
+  if(t.role==='telecaller'){ const m=(STATE.leads||[]).filter(l=>l.assignedTo===t.id&&!l.dismissed); h+=`<div class="item-sub">📇 Leads: <b>${m.length}</b> · Call hui: <b>${m.filter(l=>l.called).length}</b></div>`; }
+  h+=`<div class="item-sub">📅 Is mahine attendance: <b>${att} din</b> · Aaj: <b>${onLeave?'🏖 Chhutti':present?'✅ Present':'— abhi nahi'}</b></div>`;
+  if(t.role==='technician') h+=`<div class="item-sub">📍 Location: <b>${live?'🟢 Live hai':(loc&&loc.ts?'Aakhri: '+fmtT(loc.ts):'—')}</b></div>`;
+  if(t.role==='technician'){ const rc=mine.slice().sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)).slice(0,5); if(rc.length) h+=`<div class="item-sub" style="margin-top:6px;font-weight:700;">Haal ki jobs</div>`+rc.map(j=>{ const c=STATE.customers.find(x=>x.id===j.customerId); return `<div class="item-sub" style="padding:3px 0;border-bottom:1px dashed var(--border);">${fmtDate(j.date)} · ${esc(j.title||'')} · ${esc(c?c.name:'')} · <b>${j.status==='done'?'Complete':j.status==='rejected'?'Cancel':j.status==='ongoing'?'Chal rahi':j.status==='onhold'?'Hold':'Pending'}</b></div>`; }).join(''); }
+  return h;
+}
+function staffCardX(t,delAct){
+  const head=`<div class="row-between" style="align-items:flex-start;gap:8px;"><div style="min-width:0;"><span data-viewstaff="${t.id}" class="item-name" style="cursor:pointer;text-decoration:underline;color:var(--teal);">${esc(t.name)} ›</span><div class="item-sub">${esc(t.phone||'')}</div></div><span class="pill pill-sky" style="flex:none;">${esc(roleLabel(t.role))}</span></div>`;
+  const quick=t.phone?`<a class="mini-btn" style="text-decoration:none;" href="tel:${esc(t.phone)}">📞 Call</a>`:'';
+  const more=staffSummaryHtml(t)+`<div class="card-actions" style="margin-top:8px;"><button class="mini-btn danger" data-act="${delAct}" data-id="${t.id}">Remove</button></div>`;
+  return xCard('st:'+t.id,head,quick,more);
+}
+function attCardX(t){
+  const td=todayStr(), mk=td.slice(0,7), rec=(STATE.attendance||{})[t.id]||{}, dates=Object.keys(rec).sort().reverse(), cnt=dates.filter(d=>d.startsWith(mk)).length;
+  const onLeave=isOnLeaveOn(t.id,td), present=dates.includes(td);
+  const head=`<div class="row-between" style="align-items:flex-start;gap:8px;"><div style="min-width:0;"><span data-viewstaff="${t.id}" class="item-name" style="cursor:pointer;text-decoration:underline;color:var(--teal);">${esc(t.name)} ›</span><div class="item-sub">${esc(roleLabel(t.role))} · Aaj: <b>${onLeave?'🏖 Chhutti':present?'✅ Present':'— abhi nahi'}</b></div></div><span class="pill pill-sky" style="flex:none;">${cnt} din</span></div>`;
+  const lv=(STATE.leaves||[]).filter(l=>l.staffId===t.id).sort((a,b)=>String(b.from).localeCompare(String(a.from))).slice(0,5);
+  const more=`<div class="item-sub">${dates.length?'Recent: '+dates.slice(0,8).map(fmtDate).join(', '):'Abhi tak location share nahi ki'}</div>${lv.length?`<div class="item-sub" style="margin-top:6px;font-weight:700;">Chhutti</div>`+lv.map(l=>`<div class="item-sub">🗓 ${fmtDate(l.from)}${l.to!==l.from?' → '+fmtDate(l.to):''} · ${l.status==='approved'?'✅ Manzoor':l.status==='rejected'?'✖ Nakaara':'⏳ Intezaar'}${l.reason?' · '+esc(l.reason):''}</div>`).join(''):''}`;
+  return xCard('at:'+t.id,head,'',more);
+}
+/* ----- Leads ----- */
+function adminLeadCard(l){
+  const fu=l.followUpDate?`<span class="pill ${l.followUpDate<todayStr()?'pill-red':l.followUpDate===todayStr()?'pill-amber':'pill-sky'}">${l.followUpDate<todayStr()?'Late · ':l.followUpDate===todayStr()?'Aaj · ':''}${fmtDate(l.followUpDate)}</span>`:'';
+  const head=`${leadAmcChip(l)}<div class="row-between" style="align-items:flex-start;gap:8px;"><div style="min-width:0;"><div class="item-name">${esc(l.customer||'—')}</div><div class="item-sub">📞 ${esc(l.mobile||l.resTel||'')}${l.product?' · '+esc(l.product):''}</div></div><div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end;flex:none;">${fu}<span class="pill pill-sky">${esc(l.assignedName||'')}</span></div></div>${l.remarkNote?`<div class="item-sub" style="background:var(--amber-pale);border-radius:8px;padding:5px 9px;margin-top:6px;">ℹ️ ${esc(l.remarkNote)}</div>`:''}`;
+  const quick=`${l.mobile?`<a class="mini-btn" style="text-decoration:none;" href="tel:${esc(l.mobile)}">📞 Call</a>`:''}${l.dismissed?`<button class="mini-btn primary" data-act="leadreopen" data-id="${l.id}">↩️ Wapas Kholein</button>`:`<button class="mini-btn primary" data-act="leadjob" data-id="${l.id}">✅ AMC Bana Do</button>`}`;
+  const more=`<div class="item-sub">📍 ${esc([l.address1,l.address2,l.address3].filter(Boolean).join(', '))}${l.area?' · '+esc(l.area):''}</div>${l.purchaseDate?`<div class="item-sub">🛒 AC khareedi: ${fmtDate(l.purchaseDate)}</div>`:''}${l.called?`<div class="item-sub" style="opacity:.75;">Call: ${fmtT(l.calledAt)} by ${esc(l.calledBy||'')}</div>`:''}${l.dismissed?`<div class="item-sub" style="background:var(--amber-pale);border-radius:8px;padding:6px 9px;margin-top:6px;">🗂 Band: ${esc(l.dismissReason||'(reason nahi likha)')} — ${esc(l.dismissedBy||'')}${l.dismissedAt?' · '+fmtT(l.dismissedAt):''}</div>`:''}${(l.remarks&&l.remarks.length)?`<div class="item-sub" style="margin-top:6px;font-weight:700;">📝 Remarks (${l.remarks.length})</div>${l.remarks.map(rm=>`<div class="item-sub" style="padding:2px 0;">${esc(rm)}</div>`).join('')}`:''}${l.dismissed?'':`<div class="card-actions" style="margin-top:8px;"><button class="mini-btn" data-act="leadonetime" data-id="${l.id}">🔧 One-time Service</button><button class="mini-btn danger" data-act="leaddismiss" data-id="${l.id}">✖ Band Karo</button></div>`}${(l.called&&l.calledBy)||l.dismissed?'':`<div class="card-actions" style="align-items:center;"><select id="ra_${l.id}" style="flex:1;min-width:130px;padding:8px 10px;">${leadOwners().map(t=>`<option value="${t.id}" ${t.id===l.assignedTo?'selected':''}>${esc(t.name)}${t.role==='subadmin'?' (Sub-admin)':''}</option>`).join('')}</select><button class="mini-btn" data-act="leadreassign" data-id="${l.id}">🔁 Telecaller Badlein</button></div>`}`;
+  return xCard('ld:'+l.id,head,quick,more);
+}
+function leadDueBadge(l){ if(!l.purchaseDate) return ''; const due=addMonths(l.purchaseDate,11), d=daysUntil(due); const txt=d<0?Math.abs(d)+'d overdue':d<=30?'in '+d+'d':fmtDate(due), cls=d<0?'pill-red':d<=30?'pill-amber':'pill-sky'; return `<span class="pill ${cls}">Free service: ${txt}</span>`; }
+function teleLeadCard(l){
+  const head=`${leadAmcChip(l)}${l.followUpDate?`<div class="item-sub" style="background:var(--sky-pale);border-radius:8px;padding:5px 9px;margin-bottom:6px;">⏰ Follow-up: ${fmtDate(l.followUpDate)}${l.followUpDate<todayStr()?' (nikal gayi — abhi call karein)':' (aaj)'}</div>`:''}<div class="row-between" style="align-items:flex-start;gap:8px;"><div style="min-width:0;"><div class="item-name">${esc(l.customer||'—')}</div><div class="item-sub">📞 ${esc(l.mobile||l.resTel||'')}${l.product?' · '+esc(l.product):''}</div></div>${leadDueBadge(l)}</div>${l.preDone?`<div class="item-sub" style="background:var(--amber-pale);border-radius:8px;padding:5px 9px;margin-top:6px;">ℹ️ Sheet mein pehle se ✅ tha — shayad already AMC/deal ho chuki hai</div>`:''}`;
+  const quick=`${l.mobile?`<a class="mini-btn" style="text-decoration:none;" href="tel:${esc(l.mobile)}">📞 Call</a>`:''}<button class="mini-btn primary" data-act="leadcall" data-id="${l.id}">✅ Call Ho Gayi</button>`;
+  const more=`<div class="item-sub">📍 ${esc([l.address1,l.address2,l.address3].filter(Boolean).join(', '))}${l.area?' · '+esc(l.area):''}</div>${l.purchaseDate?`<div class="item-sub">🛒 AC khareedi: ${fmtDate(l.purchaseDate)}</div>`:''}${(l.remarks&&l.remarks.length)?`<div class="item-sub" style="margin-top:6px;font-weight:700;">📝 Purane remarks (${l.remarks.length})</div>${l.remarks.map(rm=>`<div class="item-sub" style="padding:2px 0;">${esc(rm)}</div>`).join('')}`:''}<div class="field" style="margin-top:8px;"><input id="remark_${l.id}" placeholder="Remark likhein (jaise: RING, DND, NII, deal ho gaya)"></div><div class="card-actions" style="align-items:center;"><input type="date" id="fu_${l.id}" min="${todayStr()}" style="flex:1;min-width:130px;padding:8px 10px;"><button class="mini-btn" data-act="leadlater" data-id="${l.id}">⏰ Baad mein call</button></div>`;
+  return xCard('tl:'+l.id,head,quick,more);
+}
+/* ----- Technician My Jobs ----- */
+const MJ_TABS=[['today','📅 Aaj'],['next','🗓 Agle date'],['cancel','✖ Cancel'],['revisit','🔁 Revisit'],['done','✅ Complete']];
+function myJobsFor(all,tab){
+  const t=todayStr(), op=j=>j.status!=='done'&&j.status!=='rejected';
+  if(tab==='today') return all.filter(j=>op(j)&&(j.date||'')<=t);
+  if(tab==='next') return all.filter(j=>op(j)&&(j.date||'')>t);
+  if(tab==='cancel') return all.filter(j=>j.status==='rejected'||(j.cancelReq&&j.cancelReq.status==='pending'));
+  if(tab==='revisit') return all.filter(j=>(j.visitGap==='revisit'||j.visitGap==='repair')&&j.status!=='rejected');
+  return all.filter(j=>j.status==='done');
+}
+function myJobCard(j){
+  const cust=STATE.customers.find(c=>c.id===j.customerId), t=todayStr();
+  if(j.status==='done') return `<div class="card"><div class="row-between"><div class="item-name">${cust?esc(cust.name):'Customer'}</div><div class="item-name" style="color:var(--green);">${rupee(j.amount||0)}</div></div><div class="item-sub" style="margin-top:4px;">🚗 Travel: <b>${rupee(j.travelAmount||0)}</b>${j.completedAt?' · '+fmtDate(ymd(new Date(j.completedAt))):''}</div>${(j.extra&&j.extra.status==='confirmed')?`<div class="item-sub">🔧 Extra kaam: ${esc(j.extra.desc)}</div>`:''}</div>`;
+  if(j.status==='rejected') return `<div class="card"><div class="row-between"><div><div class="item-name">${cust?esc(cust.name):'Customer'}</div><div class="item-sub">${esc(j.title||'')}</div></div><span class="pill pill-red">Cancel</span></div><div class="item-sub" style="margin-top:4px;">📅 ${fmtDate(j.date)}</div></div>`;
+  const statusPill=s=>s==='ongoing'?'pill-sky':s==='onhold'?'pill-grey':'pill-amber', statusLabel=s=>s==='ongoing'?'Ongoing':s==='onhold'?'On Hold':'Pending';
+  const late=(j.date||'')<t, cr=j.cancelReq&&j.cancelReq.status==='pending';
+  const mapLink=cust&&cust.address?`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(cust.address)}`:'';
+  const nameHtml=cust?`<span data-viewcust="${cust.id}" style="cursor:pointer;text-decoration:underline;color:var(--teal);font-weight:700;font-size:15px;">${esc(cust.name)} ›</span>`:'<span class="item-sub">Customer —</span>';
+  const vg=j.visitGap==='revisit'?`<div class="item-sub" style="background:#fff4e0;border-radius:8px;padding:5px 9px;margin-top:6px;color:#8a5a0f;">🔁 Revisit — pichli service ${j.visitGapDays} din pehle hui thi</div>`:j.visitGap==='repair'?`<div class="item-sub" style="background:#fff4e0;border-radius:8px;padding:5px 9px;margin-top:6px;color:#8a5a0f;">🔧 Repair visit — pichli service ${j.visitGapDays} din pehle hui thi</div>`:'';
+  const head=`<div class="row-between" style="align-items:flex-start;gap:8px;"><div style="min-width:0;">${nameHtml}<div class="item-sub" style="margin-top:2px;">${esc(j.title||'Job')}${j.tag?` <span class="pill pill-sky">${esc(j.tag)}</span>`:''}</div></div><span class="pill ${statusPill(j.status)}" style="flex:none;">${statusLabel(j.status)}</span></div><div class="item-sub" style="margin-top:6px;">📅 ${fmtDate(j.date)}${late?' <span class="pill pill-red">Late</span>':''}${j.status==='onhold'&&j.holdReason?' · ⏸ '+esc(j.holdReason):''}</div>${vg}${cr?`<div class="item-sub" style="margin-top:6px;color:#a12a20;">⏳ Cancel request office ke paas hai</div>`:''}`;
+  const prim=j.status==='ongoing'?`<button class="mini-btn primary" data-act="completejob" data-id="${j.id}">Mark Done</button>`:`<button class="mini-btn primary" data-act="jobstatus" data-status="ongoing" data-id="${j.id}">${j.status==='onhold'?'▶ Resume':'Start'}</button>`;
+  const quick=`${mapLink?`<a class="mini-btn" style="text-decoration:none;" href="${mapLink}" target="_blank">🧭 Navigate</a>`:''}${cust&&cust.phone?`<a class="mini-btn" style="text-decoration:none;" data-calllog="${j.id}" href="tel:${esc(cust.phone)}">📞 Call</a>`:''}${prim}`;
+  const more=`${cust&&cust.phone?`<div class="item-sub">📞 ${esc(cust.phone)}</div>`:''}${cust&&cust.address?`<div class="item-sub">📍 ${esc(cust.address)}</div>`:''}${j.amount?`<div class="item-sub">💰 ${rupee(j.amount)}</div>`:''}
+    ${j.notes?`<div style="margin-top:8px;background:var(--amber-pale);border-left:3px solid var(--amber);border-radius:6px;padding:10px 12px;"><div style="font-size:11px;font-weight:700;color:#8A5A0F;">Note from office</div><div style="font-size:13.5px;color:#5C3D0F;margin-top:2px;">${esc(j.notes)}</div></div>`:''}
+    ${j.checklist&&j.checklist.length?`<div style="margin-top:8px;">${j.checklist.map((item,idx)=>`<label style="display:flex;align-items:center;gap:8px;padding:6px 0;font-size:13.5px;${item.done?'color:var(--ink-faint);text-decoration:line-through;':''}"><input type="checkbox" ${item.done?'checked':''} data-checklist="${j.id}:${idx}" style="width:17px;height:17px;">${esc(item.text)}</label>`).join('')}</div>`:''}
+    ${mediaHtml(j.id)}
+    <div class="card-actions" style="margin-top:8px;">${j.status==='ongoing'||j.status==='pending'?`<button class="mini-btn" data-act="holdjob" data-id="${j.id}">⏸ Hold</button>`:''}${(!cr)?`<button class="mini-btn danger" data-act="cancelreq" data-id="${j.id}">✖ Cancel Request</button>`:''}${j.status==='ongoing'?`<button class="mini-btn" data-act="recphoto" data-id="${j.id}">📷 Photo (Live)</button><button class="mini-btn" data-act="recvideo" data-id="${j.id}">🎥 Video (30s)</button>`:''}</div>`;
+  return xCard('mj:'+j.id,head,quick,more,cr?'border-left:4px solid #c0392b;':'');
+}
 function renderMyJobs(){
   const all=STATE.jobs.filter(j=>j.assignedTo===STATE.session.staffId);
-  const tab=STATE.myJobsTab||'pending';
-  const tabDefs=[{v:'pending',label:'🆕 New'},{v:'ongoing',label:'▶ Ongoing'},{v:'onhold',label:'⏸ Hold'},{v:'rejected',label:'✖ Cancel'},{v:'done',label:'✅ Done'}];
-  const myJobs=all.filter(j=>j.status===tab);
-  const statusPill=s=>s==='done'?'pill-green':s==='ongoing'?'pill-sky':s==='onhold'?'pill-grey':s==='rejected'?'pill-red':'pill-amber';
-  const statusLabel=s=>s==='done'?'Completed':s==='ongoing'?'Ongoing':s==='onhold'?'On Hold':s==='rejected'?'Rejected':'Pending';
-  return `
-    <div class="tabbar" style="flex-wrap:wrap;">${tabDefs.map(t=>`<button class="tabbtn ${tab===t.v?'active':''}" data-myjobtab="${t.v}">${t.label} (${all.filter(j=>j.status===t.v).length})</button>`).join('')}</div>
-    <div class="section-title">${tabDefs.find(t=>t.v===tab).label} (${myJobs.length})</div>
-    ${myJobs.length===0?`<div class="empty-state"><span class="ic">🧾</span><p>Yahan abhi koi job nahi hai.</p></div>`:
-      jobsByDayHtml(myJobs, tab, j=>{ const cust=STATE.customers.find(c=>c.id===j.customerId); const photos=STATE.photos[j.id]||[];
-        if(tab==='done') return `<div class="card"><div class="row-between"><div class="item-name">${cust?esc(cust.name):'Customer'}</div><div class="item-name" style="color:var(--green);">${rupee(j.amount||0)}</div></div><div class="item-sub" style="margin-top:4px;">🚗 Travel: <b>${rupee(j.travelAmount||0)}</b></div>${(j.extra&&j.extra.status==='confirmed')?`<div class="item-sub">🔧 Extra kaam: ${esc(j.extra.desc)}</div>`:''}</div>`;
-        const mapLink=cust&&cust.address?`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(cust.address)}`:'';
-        return `<div class="card">
-        <div class="row-between"><div style="flex:1;"><div class="item-name">${j.title}${j.tag?` <span class="pill pill-sky">${j.tag}</span>`:''}</div>
-          ${cust?`<div class="item-sub" data-viewcust="${cust.id}" style="cursor:pointer;text-decoration:underline;color:var(--teal);font-weight:600;margin-top:4px;">${cust.name} ›</div>`:''}
-          <div class="item-sub">${cust&&cust.phone?cust.phone:''}</div>
-        </div><span class="pill ${statusPill(j.status)}">${statusLabel(j.status)}</span></div>
-        <div class="item-sub" style="margin-top:8px;">📅 ${fmtDate(j.date)}${j.amount?' · '+rupee(j.amount):''}${j.status==='onhold'&&j.holdReason?' · ⏸ '+esc(j.holdReason):''}</div>
-        ${cust&&cust.address?`<div class="item-sub">📍 ${cust.address}</div>`:''}
-        ${j.notes?`<div style="margin-top:10px;background:var(--amber-pale);border-left:3px solid var(--amber);border-radius:6px;padding:10px 12px;"><div style="font-size:11px;font-weight:700;color:#8A5A0F;letter-spacing:.2px;">Note from office</div><div style="font-size:13.5px;color:#5C3D0F;margin-top:2px;">${j.notes}</div></div>`:''}
-        ${j.checklist&&j.checklist.length?`<div style="margin-top:10px;">${j.checklist.map((item,idx)=>`<label style="display:flex;align-items:center;gap:8px;padding:6px 0;font-size:13.5px;${item.done?'color:var(--ink-faint);text-decoration:line-through;':''}"><input type="checkbox" ${item.done?'checked':''} data-checklist="${j.id}:${idx}" style="width:17px;height:17px;">${item.text}</label>`).join('')}</div>`:''}
-        ${mediaHtml(j.id)}
-        <div class="card-actions">
-          ${mapLink?`<a class="mini-btn primary" style="text-decoration:none;" href="${mapLink}" target="_blank">🧭 Navigate</a>`:''}
-          ${cust&&cust.phone?`<a class="mini-btn" style="text-decoration:none;" data-calllog="${j.id}" href="tel:${cust.phone}">📞 Call</a>`:''}
-        </div>
-        <div class="card-actions">
-          ${j.status!=='ongoing'&&j.status!=='done'&&j.status!=='rejected'?`<button class="mini-btn" data-act="jobstatus" data-status="ongoing" data-id="${j.id}">${j.status==='onhold'?'▶ Resume':'Start'}</button>`:''}
-          ${j.status==='ongoing'||j.status==='pending'?`<button class="mini-btn" data-act="holdjob" data-id="${j.id}">⏸ Hold</button>`:''}
-          ${(j.status!=='done'&&j.status!=='rejected'&&!(j.cancelReq&&j.cancelReq.status==='pending'))?`<button class="mini-btn danger" data-act="cancelreq" data-id="${j.id}">✖ Cancel Request</button>`:''}
-          ${j.status==='ongoing'?`<button class="mini-btn primary" data-act="completejob" data-id="${j.id}">Mark Done</button>`:''}
-          ${(j.status==='ongoing'||j.status==='done')?`<button class="mini-btn" data-act="recphoto" data-id="${j.id}">📷 Photo (Live)</button><button class="mini-btn" data-act="recvideo" data-id="${j.id}">🎥 Video (30s)</button>`:''}
-        </div></div>`; })}
-  `;
+  let tab=STATE.myJobsTab; if(!MJ_TABS.some(t=>t[0]===tab)) tab='today';
+  const list=myJobsFor(all,tab);
+  if(tab==='today'||tab==='next') list.sort((a,b)=>String(a.date||'').localeCompare(String(b.date||''))||((a.createdAt||0)-(b.createdAt||0)));
+  else if(tab==='done') list.sort((a,b)=>(b.completedAt||0)-(a.completedAt||0));
+  else list.sort((a,b)=>String(b.date||'').localeCompare(String(a.date||'')));
+  const cur=MJ_TABS.find(t=>t[0]===tab);
+  return `<div class="tabbar">${MJ_TABS.map(t=>`<button class="tabbtn ${tab===t[0]?'active':''}" data-myjobtab="${t[0]}">${t[1]} (${myJobsFor(all,t[0]).length})</button>`).join('')}</div>
+    <div class="section-title">${cur[1]} (${list.length})</div>
+    ${list.length?`<div class="item-sub" style="margin:-4px 0 8px;">Job par tap karein — poori detail khulegi.</div>`:''}
+    ${list.length===0?`<div class="empty-state"><span class="ic">🧾</span><p>${tab==='today'?'Aaj ke liye koi job baaki nahi hai.':'Yahan abhi koi job nahi hai.'}</p></div>`:list.map(myJobCard).join('')}`;
 }
+/* ----- Lead -> assign once ----- */
+function leadAskAssign(id,kind){ const l=(STATE.leads||[]).find(x=>x.id===id); if(!l||l.convertedJobId) return; activeModal={type:'leadAssign',data:{id,kind}}; render(); }
+function paintJobDup(){
+  const box=document.getElementById('jobDupNote'); if(!box) return;
+  const open=(STATE.jobs||[]).filter(j=>j.customerId===jobCustSelectedId&&j.status!=='done'&&j.status!=='rejected');
+  if(!jobCustSelectedId||!open.length){ box.innerHTML=''; return; }
+  box.innerHTML=`<div class="item-sub" style="background:#fff4e0;border-radius:10px;padding:8px 10px;margin:-6px 0 12px;color:#8a5a0f;">⚠️ Is customer ki <b>${open.length}</b> job pehle se khuli hai:<br>${open.slice(0,3).map(j=>`${esc(j.title||'Job')} · ${fmtDate(j.date)} · 👷 ${esc(nStaff(j.assignedTo)||'Unassigned')}`).join('<br>')}<br>Nayi job banane ki zarurat ho tabhi banayein.</div>`;
+  const te=document.getElementById('f_tech'), de=document.getElementById('f_date'), pre=open.find(j=>j.assignedTo);
+  if(te&&pre&&!te.value&&!te.dataset.touched&&!isOnLeaveOn(pre.assignedTo,(de&&de.value)||todayStr())){ te.value=pre.assignedTo; }
+  if(te&&!te.dataset.wired){ te.dataset.wired='1'; te.addEventListener('change',()=>{ te.dataset.touched='1'; }); }
+}
+/* ----- Profile tabs (technician / sub-admin) ----- */
+function profTabsHtml(tabs,cur){ return `<div class="tabbar">${tabs.map(([k,l])=>`<button class="tabbtn ${cur===k?'active':''}" data-proftab="${k}">${l}</button>`).join('')}</div>`; }
 
-/* ============ Technician: Location share ============ */
 function renderLocationShare(){
   const loc=STATE.locations[STATE.session.staffId];
   return `
@@ -3040,11 +3129,10 @@ function renderMyAttendance(){
 
 /* ============ Admin/Office: everyone's attendance ============ */
 function renderAdminAttendance(){
-  const techs=STATE.staff.filter(s=>s.role!=='admin'); const thisMonth=todayStr().slice(0,7);
+  const techs=STATE.staff.filter(s=>s.role!=='admin');
   return `${leaveAdminHtml()}${travelSummaryHtml()}<div class="section-title">Team Attendance</div>
-    ${techs.length===0?`<div class="empty-state"><span class="ic">📅</span><p>Koi staff add nahi hai.</p></div>`:
-      techs.map(t=>{ const rec=STATE.attendance[t.id]||{}; const dates=Object.keys(rec).sort().reverse(); const thisMonthCount=dates.filter(d=>d.startsWith(thisMonth)).length;
-        return `<div class="card"><div class="row-between"><div class="item-name">${t.name}</div><span class="pill pill-sky">${thisMonthCount} din is mahine</span></div><div class="item-sub" style="margin-top:6px;">${dates.length?'Recent: '+dates.slice(0,5).map(fmtDate).join(', '):'Abhi tak location share nahi ki'}</div></div>`; }).join('')}`;
+    ${techs.length===0?`<div class="empty-state"><span class="ic">📅</span><p>Koi staff add nahi hai.</p></div>`:`<div class="item-sub" style="margin:-4px 0 8px;">Card par tap karein — poori history. Naam par tap karein — profile.</div>`+techs.map(attCardX).join('')}
+  `;
 }
 
 function settingsTabs(role){
@@ -3052,7 +3140,14 @@ function settingsTabs(role){
   const t=[['account','Account'],['biz','Business'],['team','Team PIN'],['data','Data'],['backup','Backup'],['mail','Email'],['adv','Advanced']], cur=STATE.setTab||'account';
   return `<div class="tabbar">${t.map(([k,l])=>`<button class="tabbtn ${cur===k?'active':''}" data-settab="${k}">${l}</button>`).join('')}</div>`;
 }
-function settingsBody(role,extra){ return (role==='subadmin'?(profilePhotoCardHtml(STATE.session.staffId)+leaveCardHtml()+kycCardHtml(STATE.session.staffId)+auditHtml(STATE.session.staffId)):'')+settingsBody0(role,extra); }
+function settingsBody(role,extra){
+  if(role!=='subadmin') return settingsBody0(role,extra);
+  const sid=STATE.session.staffId, me=STATE.staff.find(x=>x.id===sid)||{name:STATE.session.name}, tab=['access','leave','docs','activity'].includes(STATE.profTab)?STATE.profTab:'access';
+  const tl=(STATE.leads||[]).filter(l=>l.assignedTo===sid&&!l.dismissed).length, mk=todayStr().slice(0,7), att=Object.keys((STATE.attendance||{})[sid]||{}).filter(d=>d.startsWith(mk)).length;
+  const hd=`${profilePhotoCardHtml(sid)}<div class="card" style="text-align:center;padding:18px 14px;"><div class="item-name" style="font-size:18px;">${esc(me.name||'')}</div><div style="margin-top:6px;"><span class="pill pill-sky">🧑‍💼 Office / Sub-admin</span></div><div class="item-sub" style="margin-top:8px;">📞 ${esc(me.phone||'—')}${me.email?' · ✉️ '+esc(me.email):''}</div><div class="item-sub">📅 Is mahine attendance: <b>${att} din</b>${tl?' · 📇 Meri leads: <b>'+tl+'</b>':''}</div></div>`;
+  const tabs=profTabsHtml([['access','⚙️ Access'],['leave','🏖 Chhutti'],['docs','🪪 Documents'],['activity','🕘 Activity']],tab);
+  return hd+tabs+(tab==='access'?settingsBody0(role,extra):tab==='leave'?leaveCardHtml():tab==='docs'?kycCardHtml(sid):auditHtml(sid));
+}
 function settingsBody0(role,extra){
   const cur=STATE.setTab||'account';
   const acc={admin:['Sab kuch dekh aur badal sakte hain','Team, PIN, customers, jobs, attendance, map, kamai, backup'],subadmin:['Customers add/edit, jobs assign, attendance aur map dekh sakte hain','Delete, kamai ke total, team PIN aur data settings nahi dikhti']}[role];
@@ -3339,6 +3434,7 @@ async function saveVideo(jobId,blob,mime,dur){
   showToast('✅ Video save ho gaya'); render();
 }
 function renderTechProfile(){
+  const PT=['overview','leave','docs','info'].includes(STATE.profTab)?STATE.profTab:'overview';
   const s=STATE.staff.find(x=>x.id===STATE.session.staffId)||{id:STATE.session.staffId,name:STATE.session.name};
   const mine=STATE.jobs.filter(j=>j.assignedTo===s.id), done=mine.filter(j=>j.status==='done'), rated=done.filter(j=>j.rating>0);
   const avg=rated.length?rated.reduce((a,j)=>a+j.rating,0)/rated.length:0;
@@ -3358,18 +3454,22 @@ function renderTechProfile(){
       <div style="margin-top:12px;color:var(--amber);font-size:20px;letter-spacing:2px;">${avg?stars(avg):'☆☆☆☆☆'}</div>
       <div class="item-sub">${avg?avg.toFixed(1)+' rating · '+rated.length+' reviews':'Abhi koi rating nahi'}</div>
     </div>
-    <div class="stat-grid">
+    ${profTabsHtml([['overview','📊 Overview'],['leave','🏖 Chhutti'],['docs','🪪 Documents'],['info','ℹ️ Info']],PT)}
+    ${PT==='overview'?`    <div class="stat-grid">
       <div class="stat-card"><div class="stat-num">${done.length}</div><div class="stat-label">Jobs completed</div></div>
       <div class="stat-card"><div class="stat-num">${rate}%</div><div class="stat-label">Completion rate</div></div>
       <div class="stat-card"><div class="stat-num">${att}</div><div class="stat-label">Is mahine attendance (din)</div></div>
       <div class="stat-card"><div class="stat-num">${active}</div><div class="stat-label">Active jobs${hold?' · '+hold+' on hold':''}</div></div>
     </div>
     ${techMonthHtml(s.id)}
-    ${leaveCardHtml()}
-    ${kycCardHtml(s.id)}
-    <div class="card"><div class="section-title" style="margin:0 0 8px;">Contact</div>
+    ${revs.length?`<div class="section-title">Customer reviews</div>`+revs.map(j=>{ const c=STATE.customers.find(x=>x.id===j.customerId); return `<div class="card"><div class="row-between"><div class="item-name" style="font-size:13.5px;">${esc(c?c.name:'Customer')}</div><span style="color:var(--amber);">${stars(j.rating)}</span></div><div class="item-sub">${esc(j.title)} · ${fmtDate(dOf(j))}</div></div>`; }).join(''):''}`:''}
+    ${PT==='leave'?`    ${leaveCardHtml()}
+`:''}
+    ${PT==='docs'?`    ${kycCardHtml(s.id)}
+`:''}
+    ${PT==='info'?`    <div class="card"><div class="section-title" style="margin:0 0 8px;">Contact</div>
       <div class="item-sub">📞 ${esc(s.phone||'—')}</div><div class="item-sub">✉️ ${esc(s.email||'—')}</div><div class="item-sub">🗓 Team mein: ${s.joinedAt?fmtDate(ymd(new Date(s.joinedAt))):'—'}</div></div>
-    ${revs.length?`<div class="section-title">Customer reviews</div>`+revs.map(j=>{ const c=STATE.customers.find(x=>x.id===j.customerId); return `<div class="card"><div class="row-between"><div class="item-name" style="font-size:13.5px;">${esc(c?c.name:'Customer')}</div><span style="color:var(--amber);">${stars(j.rating)}</span></div><div class="item-sub">${esc(j.title)} · ${fmtDate(dOf(j))}</div></div>`; }).join(''):''}
+`:''}
   `;
 }
 
@@ -3498,6 +3598,7 @@ function modalHtml(){
       <div class="field"><label>Customer (naam ya number type karein)</label><input id="f_custSearch" placeholder="Naam ya number type karein…" value="${selectedCust?selectedCust.name:jobCustQuery}"></div>
       <div id="custSuggest"></div>
       <div id="amcVisitNote"></div>
+      <div id="jobDupNote"></div>
       <div class="field"><label>Job Title</label><input id="f_title" placeholder="e.g. AC Servicing, Gas Refill" value="${selectedCust&&selectedCust.type==='amc'?'AMC Service':''}"></div>
       <div class="field"><label>Tag (optional)</label><input id="f_tag" placeholder="e.g. Urgent, Repair, Installation" value="${selectedCust&&selectedCust.type==='amc'?'AMC':''}"></div>
       <div class="field"><label>Amount / Estimate (₹) (optional)</label><input id="f_jobAmount" type="number" min="0" placeholder="e.g. 500"></div>
@@ -3507,6 +3608,12 @@ function modalHtml(){
       <div class="field"><label>Notes (optional)</label><textarea id="f_jnotes" rows="2"></textarea></div>
       <button class="primary-btn" id="modalSave">Job Assign Karein</button>`;
     setTimeout(paintAmcNote,0); setTimeout(wireJobDateLeaveCheck,0);
+  } else if(activeModal.type==='navMore'){
+    const items=navItemsFor(STATE.session.role).slice(4);
+    inner=`<div class="modal-head"><h3>☰ Aur Menu</h3><button class="close-x" id="modalClose">×</button></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">${items.map(n=>`<button class="ghost-btn" data-act="gonav" data-id="${n.v}" style="padding:16px 8px;font-size:14px;"><div style="font-size:24px;">${n.ic}</div>${n.label}</button>`).join('')}</div>`;
+  } else if(activeModal.type==='leadAssign'){
+    const d=activeModal.data, l=(STATE.leads||[]).find(x=>x.id===d.id)||{};
+    inner=`<div class="modal-head"><h3>${d.kind==='amc'?'✅ AMC Bana Do':'🔧 One-time Service'}</h3><button class="close-x" id="modalClose">×</button></div><div class="card"><div class="item-name">${esc(l.customer||'')}</div><div class="item-sub">📞 ${esc(l.mobile||'')}</div></div><div class="field"><label>Technician abhi chunein (job me dobara nahi poochhenge)</label><select id="f_ltech"><option value="">-- Baad me / Unassigned --</option>${techOptionsHtml(todayStr(),'')}</select></div><div class="field"><label>Job ki Date</label>${dmyPickHtml('la',todayStr())}</div><button class="primary-btn" id="modalSave">Job Banao</button>`;
   } else if(activeModal.type==='fixDate'){
     const d=activeModal.data;
     inner=`<div class="modal-head"><h3>📅 Date theek karein</h3><button class="close-x" id="modalClose">x</button></div><div class="card"><div class="item-name">${esc(d.name||'Customer')}</div><div class="item-sub">${esc(d.title||'')} · ${rupee(d.amount)} · abhi ki date: <b>${fmtDate(d.date)}</b></div></div><div class="field"><label>Sahi tarikh (Din / Mahina / Saal)</label><div style="display:flex;">${dmyPickHtml('fx','')}</div></div><button class="primary-btn" id="modalSave">Save Karein</button>`;
@@ -3695,7 +3802,8 @@ function modalHtml(){
 /* ============ Event binding ============ */
 function bindShellEvents(){
   const logoutBtn=document.getElementById('logoutBtn'); if(logoutBtn) logoutBtn.onclick=logout;
-  document.querySelectorAll('[data-jexp]').forEach(el=>el.onclick=e=>{ if(e.target.closest('select,button,a,input,textarea,[data-viewcust],[data-lightbox],[data-video],details,.photo-thumb')) return; const id=el.dataset.jexp; STATE.jobOpenMap=STATE.jobOpenMap||{}; STATE.jobOpenMap[id]=!STATE.jobOpenMap[id]; render(); });
+  document.querySelectorAll('[data-proftab]').forEach(el=>el.onclick=()=>{ STATE.profTab=el.dataset.proftab; render(); });
+  document.querySelectorAll('[data-jexp]').forEach(el=>el.onclick=e=>{ if(e.target.closest('select,button,a,input,textarea,label,[data-viewstaff],[data-viewcust],[data-lightbox],[data-video],details,.photo-thumb')) return; const id=el.dataset.jexp; STATE.jobOpenMap=STATE.jobOpenMap||{}; STATE.jobOpenMap[id]=!STATE.jobOpenMap[id]; render(); });
   const jtf=document.getElementById('jobTechFilter'); if(jtf) jtf.onchange=()=>{ STATE.jobTech=jtf.value; render(); };
   const mPeriod=document.getElementById('mPeriod'); if(mPeriod) mPeriod.onchange=()=>moneyPeriodSet(mPeriod.value);
   const bellBtn=document.getElementById('bellBtn'); if(bellBtn) bellBtn.onclick=()=>{ activeModal={type:'notifs',data:{}}; render(); };
@@ -3706,7 +3814,7 @@ function bindShellEvents(){
     const gsBox=document.getElementById('globalSearchResults'); if(gsBox) wireGlobalSearchResultClicks(gsBox);
     gsInput.oninput=(e)=>{ STATE.globalSearchQuery=e.target.value; const box=document.getElementById('globalSearchResults'); if(box){ box.innerHTML=globalSearchResultsHtml(STATE.globalSearchQuery); wireGlobalSearchResultClicks(box); } };
   }
-  document.querySelectorAll('.navbtn').forEach(b=>b.onclick=()=>{ STATE.view=b.dataset.view; STATE.jobStatusFilter=''; STATE.jobPeriod=''; render(); });
+  document.querySelectorAll('.navbtn').forEach(b=>b.onclick=()=>{ if(b.dataset.more){ activeModal={type:'navMore',data:{}}; render(); return; } STATE.view=b.dataset.view; STATE.jobStatusFilter=''; STATE.jobPeriod=''; render(); });
   document.querySelectorAll('[data-navto]').forEach(el=>el.onclick=()=>{ STATE.view=el.dataset.navto; render(); });
   document.querySelectorAll('[data-typefilter]').forEach(el=>el.onclick=()=>{ STATE.custTypeFilter=el.dataset.typefilter; render(); });
   document.querySelectorAll('[data-custstatus]').forEach(el=>el.onclick=()=>{ STATE.custStatus=el.dataset.custstatus; render(); });
@@ -3763,7 +3871,7 @@ function bindShellEvents(){
     if(act==='service'){ await markServiced(id); render(); }
     else if(act==='editcust'){ const c=STATE.customers.find(x=>x.id===id); activeModal={type:'editCustomer', data:{...c, id}}; render(); }
     else if(act==='viewcust'){ openCustomerProfile(id); }
-    else if(act==='leadreassign'){ const sel=document.getElementById('ra_'+id), l=(STATE.leads||[]).find(x=>x.id===id), t=sel&&STATE.staff.find(x=>x.id===sel.value); if(l&&t&&t.id!==l.assignedTo){ l.assignedTo=t.id; l.assignedName=t.name; await saveKey(SKEY.LEADS, STATE.leads); showToast('Lead '+t.name+' ko de di'); render(); } }
+    else if(act==='leadreassign'){ const sel=document.getElementById('ra_'+id), l=(STATE.leads||[]).find(x=>x.id===id), t=sel&&STATE.staff.find(x=>x.id===sel.value); if(l&&t&&t.id!==l.assignedTo){ l.assignedTo=t.id; l.assignedName=t.name; await saveKey(SKEY.LEADS, STATE.leads); notifSend(['staff:'+t.id],'lead_assign','📇 Nayi lead aapko mili',(l.customer||'')+' · '+((STATE.session&&STATE.session.name)||''),l.id); showToast('Lead '+t.name+' ko de di'); render(); } }
     else if(act==='deltelecaller'){ await removeTelecaller(id); }
     else if(act==='zerotc'){ await zeroTelecallerData(id); }
     else if(act==='leadmode'){ STATE.subLeadMode=el.dataset.mode; STATE.leadsShown=40; render(); }
@@ -3776,6 +3884,8 @@ function bindShellEvents(){
     else if(act==='jobsmore'){ STATE.jobsShown=(STATE.jobsShown||60)+60; render(); }
     else if(act==='nopen'){ notifOpen(id); }
     else if(act==='nreadall'){ notifReadAll(); render(); }
+    else if(act==='nsound'){ const ok=playDing(); showToast(ok?'🔊 Awaaz chali? Na sunayi de to phone ka volume / silent mode dekhein':'Is browser me awaaz support nahi'); }
+    else if(act==='gonav'){ STATE.view=id; activeModal=null; STATE.jobStatusFilter=''; STATE.jobPeriod=''; render(); }
     else if(act==='nperm'){ notifPerm(); }
     else if(act==='nlog'){ if(STATE.session.role!=='admin') return; activeModal={type:'loginLog',data:{}}; loadLoginLog(); render(); }
     else if(act==='remnote'){ if(isMoneyRole()){ activeModal={type:'remNote',data:{id}}; render(); } }
@@ -3798,14 +3908,14 @@ function bindShellEvents(){
     else if(act==='leadundone'){ await undoLeadDone(id); }
     else if(act==='leadmarkdone'){ await markLeadAmcDone(id); }
     else if(act==='leadalldone'){ await markAllAlreadyDone(); }
-    else if(act==='leadonetime'){ await convertLeadToOnetime(id); }
+    else if(act==='leadonetime'){ leadAskAssign(id,'onetime'); }
     else if(act==='leadreopen'){ await reopenLead(id); }
     else if(act==='leadmonth'){ STATE.leadTab='amcdone'; STATE.leadMonth=el.dataset.month; STATE.leadsShown=40; render(); setTimeout(()=>{ const a=document.getElementById('leadTabs'); if(a&&a.scrollIntoView) a.scrollIntoView({behavior:'smooth',block:'start'}); },50); }
     else if(act==='leadmonthclear'){ STATE.leadMonth=''; STATE.leadsShown=40; render(); }
     else if(act==='leadtab'){ STATE.leadMonth=''; STATE.leadTab=el.dataset.tab; STATE.leadsShown=40; render(); }
     else if(act==='leadlater'){ const rBox=document.getElementById('remark_'+id), dBox=document.getElementById('fu_'+id); await markLeadLater(id, rBox?rBox.value:'', dBox?dBox.value:''); }
     else if(act==='leadcall'){ const rBox=document.getElementById('remark_'+id); await markLeadCalled(id, rBox?rBox.value:''); }
-    else if(act==='leadjob'){ await convertLeadToJob(id); }
+    else if(act==='leadjob'){ leadAskAssign(id,'amc'); }
     else if(act==='leaddismiss'){ await dismissLead(id); }
     else if(act==='leadimport'){ activeModal={type:'leadImport',data:{}}; render(); }
     else if(act==='leadsheeturl'){ activeModal={type:'sheetUrl',data:{staffId:id}}; render(); }
@@ -3997,6 +4107,12 @@ function bindShellEvents(){
         if(!jobCustSelectedId){ showToast('Customer list se select karein'); return; }
         await addJob({title, tag:val('f_tag'), amount:val('f_jobAmount'), checklist:val('f_checklist'), customerId:jobCustSelectedId, assignedTo:val('f_tech'), date:val('f_date'), notes:val('f_jnotes'), amcVisit:!!(document.getElementById('f_amcVisit')&&document.getElementById('f_amcVisit').checked)});
         activeModal=null; jobCustQuery=''; jobCustSelectedId=''; render();
+      } else if(activeModal.type==='leadAssign'){
+        const d=activeModal.data, tech=val('f_ltech'), date=dmyVal('la');
+        if(!date){ showToast('Sahi date chunein'); return; }
+        if(tech&&isOnLeaveOn(tech,date)){ showToast('⚠️ Ye technician us din chhutti par hai — dusra chunein'); return; }
+        activeModal=null; render();
+        if(d.kind==='amc') await convertLeadToJob(d.id,{tech,date}); else await convertLeadToOnetime(d.id,{tech,date});
       } else if(activeModal.type==='resetPin'){
         const pin=val('f_resetpin'); if(!pin || pin.length<4){ showToast('PIN kam se kam 4 digit ka rakhein'); return; }
         await resetStaffPin(activeModal.data.id, pin); activeModal=null; render();
@@ -4065,6 +4181,7 @@ function techOptionsHtml(dateStr, selectedId){
 }
 function paintAmcNote(){
   const box=document.getElementById('amcVisitNote'); if(!box) return;
+  try{ paintJobDup(); }catch(e){}
   const c=STATE.customers.find(x=>x.id===jobCustSelectedId);
   if(!c||c.type!=='amc'){ box.innerHTML=''; return; }
   const done=c.servicesDone||0, tot=c.totalServices||0, next=Math.min(done+1,tot||done+1), full=tot&&done>=tot;
