@@ -46,13 +46,14 @@ label{display:block;font-size:12.5px;color:var(--ink-soft);margin-bottom:5px;fon
 .field{margin-bottom:14px;}
 .hidden{display:none !important;}
 #app{display:flex;flex-direction:column;min-height:100vh;max-width:520px;margin:0 auto;background:var(--bg);}
-.topbar{background:linear-gradient(135deg,var(--teal-deep),var(--teal) 130%);color:#fff;padding:16px 18px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:20;box-shadow:0 2px 10px rgba(10,46,56,.18);}
-.brand{display:flex;align-items:center;gap:10px;}
+.topbar{gap:6px;background:linear-gradient(135deg,var(--teal-deep),var(--teal) 130%);color:#fff;padding:14px 12px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:20;box-shadow:0 2px 10px rgba(10,46,56,.18);}
+.brand{display:flex;align-items:center;gap:10px;min-width:0;flex:1;}
+.topbar .mini-btn{margin-right:0!important;padding:7px 8px!important;width:auto!important;min-width:0!important;flex:none!important;font-size:15px;}
 .brand-mark{width:34px;height:34px;border-radius:10px;background:linear-gradient(155deg,var(--frost),var(--teal) 120%);display:flex;align-items:center;justify-content:center;font-size:17px;flex-shrink:0;box-shadow:0 0 0 1px rgba(255,255,255,.12) inset;}
-.brand-text{line-height:1.15;}
+.brand-text{line-height:1.15;min-width:0;overflow:hidden;}
 .brand-text .name{font-family:var(--font-display);font-weight:700;font-size:16.5px;letter-spacing:.1px;}
-.brand-text .who{font-size:11.5px;color:#A9D4DA;margin-top:1px;}
-.logout-btn{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.25);color:#fff;padding:7px 13px;border-radius:8px;font-size:12.5px;font-weight:600;}
+.brand-text .who{font-size:11.5px;color:#A9D4DA;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.logout-btn{flex:none;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.25);color:#fff;padding:7px 11px;border-radius:8px;font-size:12.5px;font-weight:600;}
 .content{flex:1;padding:16px 16px 92px 16px;}
 .sticky-back{position:sticky;top:56px;z-index:15;background:var(--bg);padding:10px 0;margin-bottom:8px;}
 .bottomnav{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:520px;background:var(--surface);border-top:1px solid var(--border);display:flex;z-index:20;padding:6px 4px calc(env(safe-area-inset-bottom,0px) + 4px) 4px;overflow-x:auto;box-shadow:0 -2px 10px rgba(13,42,48,.04);}
@@ -1302,7 +1303,7 @@ function moneyTotalsHtml(isAdmin){
   const drill=MONEY.cat?`<div class="section-sub" style="margin-top:12px;">${MCAT_L[MONEY.cat]} — list</div><div class="card">${R.filter(r=>r.cat===MONEY.cat&&r.amount).sort((x,y)=>String(y.date).localeCompare(String(x.date))).slice(0,150).map(r=>moneyRowLine(r,isAdmin)).join('')||'<div class="item-sub">Koi entry nahi.</div>'}</div>`:'';
   return `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;">${chips.map(([k,l])=>`<button class="mini-btn ${MONEY.range===k?'primary':''}" data-act="mrange" data-id="${k}" style="flex:none;">${l}</button>`).join('')}</div>
     ${moneyPickerHtml(all)}
-    ${MONEY.range==='custom'?`<div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;"><input type="date" id="mFrom" value="${MONEY.from||''}"><input type="date" id="mTo" value="${MONEY.to||''}"><button class="mini-btn primary" data-act="mcustom" style="flex:none;">Dekhein</button></div>`:''}
+    ${MONEY.range==='custom'?moneyCustomHtml():''}
     <div class="item-sub">📆 ${lbl}</div>
     <div class="card" style="background:var(--sky-pale);"><div class="item-sub" style="margin:0;">Kul Kamai (sirf bill ka amount)</div><div class="item-name" style="font-size:26px;">${rupee(T.all)}</div>
       <div class="item-sub" style="margin:4px 0 0;">💵 Cash <b>${rupee(T.cash)}</b> · 📲 Online <b>${rupee(T.online)}</b> · 🏦 Cheque <b>${rupee(T.cheque)}</b>${T.nomode?' · Mode nahi likha <b>'+rupee(T.nomode)+'</b>':''}</div></div>
@@ -1374,7 +1375,7 @@ function renderMoney(){
   const isAdmin=STATE.session.role==='admin'; if(!isAdmin&&MONEY.tab==='due') MONEY.tab='totals';
   const pend=(STATE.jobs||[]).filter(j=>j.status==='done'&&!j.extra&&(Number(j.amount)||0)>0&&(j.completedAt||0)>=Date.now()-30*864e5&&!(j.tag==='AMC'&&j.amcVisit===false)).length;
   const tabs=[['totals','💰 Kamai'],['incentive','🎯 Incentive'],['extra','🔧 Extra Kaam'+(pend?' ('+pend+')':'')]].concat(isAdmin?[['due','⏳ Due']]:[]).concat([['bills','🧾 Bills']]);
-  const rangeBar=(MONEY.tab==='incentive')?(()=>{ const chips=[['thism','Is Mahina'],['m1','1 Mahina'],['m6','6 Mahine'],['y1','1 Saal'],['all','Sab'],['custom','Date se Date']]; return `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;">${chips.map(([k,l])=>`<button class="mini-btn ${MONEY.range===k?'primary':''}" data-act="mrange" data-id="${k}" style="flex:none;">${l}</button>`).join('')}</div>${MONEY.range==='custom'?`<div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;"><input type="date" id="mFrom" value="${MONEY.from||''}"><input type="date" id="mTo" value="${MONEY.to||''}"><button class="mini-btn primary" data-act="mcustom" style="flex:none;">Dekhein</button></div>`:''}`; })():'';
+  const rangeBar=(MONEY.tab==='incentive')?(()=>{ const chips=[['thism','Is Mahina'],['m1','1 Mahina'],['m6','6 Mahine'],['y1','1 Saal'],['all','Sab'],['custom','Date se Date']]; return `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;">${chips.map(([k,l])=>`<button class="mini-btn ${MONEY.range===k?'primary':''}" data-act="mrange" data-id="${k}" style="flex:none;">${l}</button>`).join('')}</div>${MONEY.range==='custom'?moneyCustomHtml():''}`; })():'';
   let body='';
   if(MONEY.tab==='totals') body=moneyTotalsHtml(isAdmin);
   else if(MONEY.tab==='incentive') body=rangeBar+`<div class="section-title">🆕 Telecaller — Naya AMC (month-wise)</div>`+teleIncentiveHtml()+`<div class="section-title" style="margin-top:18px;">👷 Technician — Extra Kaam (5%)</div>`+techIncentiveHtml();
@@ -1382,7 +1383,7 @@ function renderMoney(){
   else if(MONEY.tab==='due'&&isAdmin) body=dueTabHtml();
   else body=billsTabHtml(isAdmin);
   return `<div class="section-title">💰 Kamai & Incentive</div>
-    <div style="display:flex;gap:6px;overflow-x:auto;margin-bottom:10px;">${tabs.map(([k,l])=>`<button class="mini-btn ${MONEY.tab===k?'primary':''}" data-act="mtab" data-id="${k}" style="flex:none;white-space:nowrap;">${l}</button>`).join('')}</div>${body}`;
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">${tabs.map(([k,l])=>`<button class="mini-btn ${MONEY.tab===k?'primary':''}" data-act="mtab" data-id="${k}" style="flex:none;white-space:nowrap;">${l}</button>`).join('')}</div>${body}`;
 }
 
 /* ---- actions ---- */
@@ -1750,6 +1751,27 @@ function loginLogInner(){
   return head+`<div class="item-sub" style="margin-bottom:6px;">Aakhri ${rows.length} login. 🆕 = us staff ka pehle se alag phone/browser.</div><div style="max-height:66vh;overflow-y:auto;">`+rows.map(r=>`<div class="card" style="margin:6px 0;"><div class="row-between"><div class="item-name" style="font-size:14px;">${esc(r.name||'?')} <span class="item-sub">· ${esc(roleLabel(r.role))}</span></div>${flag[r.ts+'|'+r.staffId]?'<span class="pill pill-amber">🆕 Naya device</span>':''}</div><div class="item-sub">${fmtT(r.ts)}${auditWhere(r)}${r.devId?' · ID '+esc(r.devId):''}</div></div>`).join('')+`</div>`;
 }
 
+/* ===== v6.5.1: dd/mm/yyyy date picker (browser ke mm/dd/yyyy box ki jagah) ===== */
+const MON_L=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function dmyPickHtml(pre,iso){
+  const ok=/^\d{4}-\d{2}-\d{2}$/.test(iso||''), y0=ok?+iso.slice(0,4):0, m0=ok?+iso.slice(5,7):0, d0=ok?+iso.slice(8,10):0, cy=new Date().getFullYear();
+  let lo=1995; if(ok&&y0<lo) lo=y0; let hi=cy+1; if(ok&&y0>hi) hi=y0;
+  const o=(v,l,sel)=>`<option value="${v}" ${sel?'selected':''}>${l}</option>`;
+  let d='',m='',y=''; d+=o('','Din',!d0); for(let i=1;i<=31;i++) d+=o(i,i,i===d0);
+  m+=o('','Mahina',!m0); MON_L.forEach((n,i)=>{ m+=o(i+1,n,i+1===m0); });
+  y+=o('','Saal',!y0); for(let i=hi;i>=lo;i--) y+=o(i,i,i===y0);
+  return `<div style="display:flex;gap:6px;flex:1;min-width:0;"><select id="${pre}D" style="flex:1;min-width:0;padding:8px 4px;">${d}</select><select id="${pre}M" style="flex:1.2;min-width:0;padding:8px 4px;">${m}</select><select id="${pre}Y" style="flex:1.3;min-width:0;padding:8px 4px;">${y}</select></div>`;
+}
+function dmyVal(pre){
+  const g=id=>{ const e=document.getElementById(pre+id); return e?e.value:''; }, D=g('D'), M=g('M'), Y=g('Y');
+  if(!D&&!M&&!Y) return '';
+  if(!D||!M||!Y) return null;
+  const dt=new Date(+Y,+M-1,+D); if(dt.getFullYear()!==+Y||dt.getMonth()!==+M-1||dt.getDate()!==+D) return null;
+  return Y+'-'+String(M).padStart(2,'0')+'-'+String(D).padStart(2,'0');
+}
+function moneyCustomHtml(){
+  return `<div class="card" style="margin-bottom:8px;"><div class="item-sub" style="margin:0 0 4px;">Se (shuru ki tarikh)</div><div style="display:flex;margin-bottom:8px;">${dmyPickHtml('mFrom',MONEY.from)}</div><div class="item-sub" style="margin:0 0 4px;">Tak (aakhri tarikh)</div><div style="display:flex;margin-bottom:10px;">${dmyPickHtml('mTo',MONEY.to)}</div><button class="primary-btn" data-act="mcustom" style="margin:0;">Dekhein</button></div>`;
+}
 /* ===== v6.4 helpers ===== */
 function jobsByDayHtml(list, tab, cardFn){
   const t=todayStr();
@@ -2208,7 +2230,7 @@ function render(){
 function renderSetup(){
   return `
   <div class="login-wrap">
-    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v6.5</p></div>
+    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v6.5.1</p></div>
     <div class="setup-note">Yeh app ab Firebase (Google ka free real-time database) use karti hai — pehle se tez aur reliable. Firebase Console se apna config copy karke neeche paste karein.</div>
     <div class="field"><label>Firebase Config (poora object paste karein)</label><textarea id="setupConfig" rows="8" placeholder='{"apiKey": "...", "authDomain": "...", "projectId": "...", ...}'>${setupUrlInput}</textarea></div>
     <button class="primary-btn" id="connectBtn">Connect Karein</button>
@@ -2268,7 +2290,7 @@ function renderLogin(){
   }
   return `
   <div class="login-wrap">
-    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v6.5</p></div>
+    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v6.5.1</p></div>
     <div class="role-grid">
       <button class="role-opt ${loginRole==='admin'?'active':''}" data-role="admin"><span class="ic">🗝️</span>Admin</button>
       <button class="role-opt ${loginRole==='subadmin'?'active':''}" data-role="subadmin"><span class="ic">🧑‍💼</span>Office</button>
@@ -3668,7 +3690,7 @@ function bindShellEvents(){
     else if(act==='rembulk'){ STATE.remBulkOpen=!STATE.remBulkOpen; render(); }
     else if(act==='mtab'){ MONEY.tab=id; render(); }
     else if(act==='mrange'){ MONEY.range=id; MONEY.cat=''; render(); }
-    else if(act==='mcustom'){ const f=val('mFrom'), t=val('mTo'); if(!f&&!t){ showToast('Date chunein'); return; } if(f&&t&&f>t){ showToast('Shuru ki date baad ki hai'); return; } MONEY.range='custom'; MONEY.from=f; MONEY.to=t; MONEY.cat=''; render(); }
+    else if(act==='mcustom'){ const f=dmyVal('mFrom'), t=dmyVal('mTo'); if(f===null||t===null){ showToast('Din, Mahina aur Saal teeno chunein (sahi tarikh)'); return; } if(!f&&!t){ showToast('Date chunein'); return; } if(f&&t&&f>t){ showToast('Shuru ki date baad ki hai'); return; } MONEY.range='custom'; MONEY.from=f; MONEY.to=t; MONEY.cat=''; render(); }
     else if(act==='mgroup'){ MONEY.group=id; render(); }
     else if(act==='mcat'){ MONEY.cat=(MONEY.cat===id?'':id); render(); }
     else if(act==='mmonth'){ MONEY.openMonth=(MONEY.openMonth===id?'':id); render(); }
