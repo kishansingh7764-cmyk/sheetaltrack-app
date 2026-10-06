@@ -603,6 +603,7 @@ function backupCenterHtml(){
       <div class="card-actions"><button class="mini-btn primary" data-act="bkcust">👥 Customers ki Excel</button><button class="mini-btn primary" data-act="bkstaff">🧑‍🔧 Staff ki Excel</button></div>
       <div class="item-sub" style="margin-top:8px;">Customers file: Customers sheet + Jobs (customer-wise) sheet. Staff file: Staff, Attendance, Chhutti, Travel (aur chaho toh KYC + Bank).</div></div>
     ${(()=>{ const dg=dupCustomerGroups(); return `<div class="card"><div class="item-name" style="margin-bottom:6px;">🔗 Duplicate Jodo (ek number = ek profile)</div><div class="item-sub" style="margin-bottom:8px;">${dg.length?'<b>'+dg.length+'</b> number par ek se zyada profile hain: '+dg.slice(0,5).map(a=>esc(a[0].name)).join(', ')+(dg.length>5?'…':'')+'. Jodne par jobs, bills aur AMC detail ek profile mein aa jayengi.':'Koi duplicate profile nahi hai. ✅'}</div>${dg.length?'<div class="card-actions"><button class="mini-btn primary" data-act="mergedups">Duplicate Jodo</button></div>':''}</div>`; })()}
+    ${(()=>{ const ng=nameMergeGroups(); return `<div class="card"><div class="item-name" style="margin-bottom:6px;">🔗 Naam se Jodo (bina number / alag profile)</div><div class="item-sub" style="margin-bottom:8px;">${ng.length?'<b>'+ng.length+'</b> naam par ek se zyada profile hain (jaise AMC bina number ka + One-time). Preview mein dekhkar tick karke jodein.':'Same naam ke alag-alag profile nahi mile. ✅'}</div>${ng.length?'<div class="card-actions"><button class="mini-btn primary" data-act="namemerge">Preview dekhein</button></div>':''}</div>`; })()}
     <div class="card"><div class="item-name" style="margin-bottom:6px;">💾 Poora Backup (restore ke liye)</div>
       <div class="item-sub" style="margin-bottom:8px;">Ek file mein sab kuch. Kabhi data bigde toh isi file se wapas aa sakta hai (Data tab mein Restore).</div>
       <div class="card-actions"><button class="mini-btn primary" data-act="bkfull">Poora Backup Download</button></div></div>
@@ -746,6 +747,7 @@ async function deleteCustomer(id){
   STATE.customers=STATE.customers.filter(x=>x.id!==id); await saveKey(SKEY.CUSTOMERS, STATE.customers); showToast('Customer delete ho gaya');
 }
 /* Ek number = ek profile: same phone wale customers ke group */
+const phoneOk=p=>{ const d=String(p||'').replace(/\D/g,''); return d===''||d.length===10||(d.length===11&&d[0]==='0')||(d.length===12&&d.slice(0,2)==='91'); };
 function dupCustomerGroups(){
   const cs=(STATE.customers||[]).filter(c=>!c.deleted);
   const parent=new Map(cs.map(c=>[c.id,c.id])); const find=x=>{ while(parent.get(x)!==x){ parent.set(x,parent.get(parent.get(x))); x=parent.get(x); } return x; };
@@ -758,28 +760,63 @@ function dupPickPrimary(arr){
   const score=c=>((c.type||'amc')==='amc'?1000:0)+(Number(c.servicesDone)||0)*5+((c.amcHistory||[]).length*20)+(c.activationDate?10:0)+(Number(c.amcAmount)>0?10:0)+(STATE.jobs||[]).filter(j=>j.customerId===c.id).length;
   return arr.slice().sort((a,b)=>score(b)-score(a)||(a.createdAt||0)-(b.createdAt||0))[0];
 }
-async function mergeDuplicateCustomers(){
-  const groups=dupCustomerGroups(); if(!groups.length){ showToast('Koi duplicate customer nahi mila'); return; }
-  let removed=0;
-  groups.forEach(arr=>{
-    const p=dupPickPrimary(arr), ids=new Set();
-    arr.forEach(d=>{
-      if(d.id===p.id) return; ids.add(d.id);
-      Object.keys(d).forEach(k=>{ if(['id','createdAt','deleted','amcHistory','serviceLog','servicesDone','notes','type'].indexOf(k)>-1) return; const v=d[k]; if((p[k]===undefined||p[k]===''||p[k]===null||p[k]===0)&&v!==undefined&&v!==''&&v!==null) p[k]=v; });
-      if(d.notes&&String(p.notes||'').indexOf(d.notes)<0) p.notes=(p.notes?p.notes+'\n':'')+d.notes;
-      if(!(p.amcHistory&&p.amcHistory.length)&&d.amcHistory&&d.amcHistory.length) p.amcHistory=d.amcHistory;
-      if(!(p.serviceLog&&p.serviceLog.length)&&d.serviceLog&&d.serviceLog.length){ p.serviceLog=d.serviceLog; p.servicesDone=Math.max(Number(p.servicesDone)||0,Number(d.servicesDone)||0); }
-      if((p.type||'amc')!=='amc'&&(d.type||'amc')==='amc') p.type='amc';
-    });
-    (STATE.jobs||[]).forEach(j=>{ if(ids.has(j.customerId)) j.customerId=p.id; });
-    (STATE.bills||[]).forEach(b=>{ if(ids.has(b.customerId)) b.customerId=p.id; });
-    (STATE.leads||[]).forEach(l=>{ if(ids.has(l.doneCustId)) l.doneCustId=p.id; });
-    STATE.customers=STATE.customers.filter(c=>!ids.has(c.id)); removed+=ids.size;
+function mergeCustGroupInMemory(arr,primaryId){
+  const p=(primaryId&&arr.find(x=>x.id===primaryId))||dupPickPrimary(arr), ids=new Set();
+  arr.forEach(d=>{
+    if(d.id===p.id) return; ids.add(d.id);
+    Object.keys(d).forEach(k=>{ if(['id','createdAt','deleted','amcHistory','serviceLog','servicesDone','notes','type'].indexOf(k)>-1) return; const v=d[k]; if((p[k]===undefined||p[k]===''||p[k]===null||p[k]===0)&&v!==undefined&&v!==''&&v!==null) p[k]=v; });
+    { const dp=ph10(d.phone), pp=ph10(p.phone), p2=ph10(p.phone2); if(dp.length===10&&dp!==pp&&dp!==p2&&!p.phone2) p.phone2=d.phone; }
+    if(d.notes&&String(p.notes||'').indexOf(d.notes)<0) p.notes=(p.notes?p.notes+'\n':'')+d.notes;
+    if(!(p.amcHistory&&p.amcHistory.length)&&d.amcHistory&&d.amcHistory.length) p.amcHistory=d.amcHistory;
+    if(!(p.serviceLog&&p.serviceLog.length)&&d.serviceLog&&d.serviceLog.length){ p.serviceLog=d.serviceLog; p.servicesDone=Math.max(Number(p.servicesDone)||0,Number(d.servicesDone)||0); }
+    if((p.type||'amc')!=='amc'&&(d.type||'amc')==='amc') p.type='amc';
   });
+  (STATE.jobs||[]).forEach(j=>{ if(ids.has(j.customerId)) j.customerId=p.id; });
+  (STATE.bills||[]).forEach(b=>{ if(ids.has(b.customerId)) b.customerId=p.id; });
+  (STATE.leads||[]).forEach(l=>{ if(ids.has(l.doneCustId)) l.doneCustId=p.id; });
+  STATE.customers=STATE.customers.filter(c=>!ids.has(c.id));
+  return {p,removed:ids.size};
+}
+async function saveAfterMerge(){
   await saveKey(SKEY.CUSTOMERS, STATE.customers); await saveKey(SKEY.JOBS, STATE.jobs);
   try{ await saveKey(SKEY.BILLS, STATE.bills); }catch(e){}
   try{ await saveKey(SKEY.LEADS, STATE.leads); }catch(e){}
+}
+async function mergeDuplicateCustomers(){
+  const groups=dupCustomerGroups(); if(!groups.length){ showToast('Koi duplicate customer nahi mila'); return; }
+  let removed=0; groups.forEach(arr=>{ removed+=mergeCustGroupInMemory(arr).removed; });
+  await saveAfterMerge();
   showToast(removed+' duplicate profile jud gaye (Recycle Bin mein safe)'); render();
+}
+/* ===== Naam + Area se pehchan (jinke paas number nahi / alag profile) ===== */
+function nameKey(n){ return String(n||'').toLowerCase().replace(/[^a-z0-9\u0900-\u097f]/g,''); }
+function addrTokens(c){ return String(c.address||'').toLowerCase().split(/[^a-z0-9\u0900-\u097f]+/).filter(t=>t.length>=3&&!/^(road|marg|nagar|flat|room|near|opp|building|bldg|society|east|west|mira|thane|mumbai|the)$/.test(t)); }
+function addrOverlap(a,b){ const A=addrTokens(a), B=new Set(addrTokens(b)); if(!A.length||!B.size) return null; return A.some(t=>B.has(t)); }
+function samePersonCandidates(c,list){
+  const k=nameKey(c.name); if(k.length<3) return [];
+  const mine=ph10(c.phone);
+  return (list||STATE.customers||[]).filter(o=>{ if(o.id===c.id||o.deleted||nameKey(o.name)!==k) return false;
+    const op=ph10(o.phone); if(op.length===10&&mine.length===10&&op!==mine&&ph10(o.phone2)!==mine&&ph10(c.phone2)!==op) return false; /* dono ke alag-alag number = alag log */
+    const ov=addrOverlap(c,o); if(ov===false&&op.length===10&&mine.length===10) return false; return true; });
+}
+function nameMergeGroups(){
+  const cs=(STATE.customers||[]).filter(c=>!c.deleted), by=new Map();
+  cs.forEach(c=>{ const k=nameKey(c.name); if(k.length<3) return; if(!by.has(k)) by.set(k,[]); by.get(k).push(c); });
+  const out=[];
+  by.forEach(arr=>{ if(arr.length<2) return;
+    const phones=new Set(); arr.forEach(c=>[ph10(c.phone),ph10(c.phone2)].forEach(p=>{ if(p.length===10) phones.add(p); }));
+    const withPh=arr.filter(c=>ph10(c.phone).length===10||ph10(c.phone2).length===10);
+    /* alag-alag number wale log = alag; isliye sirf wahi group jahan 1 se zyada alag number na ho, ya kam se kam ek profile bina number ka ho */
+    if(phones.size>2) return; if(withPh.length>1&&phones.size>1&&!arr.some(c=>ph10(c.phone).length!==10)) return;
+    let strong=true; for(let i=0;i<arr.length;i++) for(let j=i+1;j<arr.length;j++){ if(addrOverlap(arr[i],arr[j])===false) strong=false; }
+    out.push({key:nameKey(arr[0].name),arr,strong}); });
+  return out.sort((a,b)=>(b.strong?1:0)-(a.strong?1:0)||a.arr[0].name.localeCompare(b.arr[0].name));
+}
+async function mergeNameGroups(keys){
+  const gs=nameMergeGroups().filter(g=>keys.indexOf(g.key)>-1); let removed=0;
+  gs.forEach(g=>{ removed+=mergeCustGroupInMemory(g.arr).removed; });
+  if(!removed){ showToast('Kuch jodne ko nahi mila'); return; }
+  await saveAfterMerge(); showToast(removed+' profile jud gaye (Recycle Bin mein safe)');
 }
 async function markServiced(id){
   const c=STATE.customers.find(x=>x.id===id); if(!c) return;
@@ -2452,7 +2489,7 @@ function render(){
 function renderSetup(){
   return `
   <div class="login-wrap">
-    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v7.3</p></div>
+    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v7.4</p></div>
     <div class="setup-note">Yeh app ab Firebase (Google ka free real-time database) use karti hai — pehle se tez aur reliable. Firebase Console se apna config copy karke neeche paste karein.</div>
     <div class="field"><label>Firebase Config (poora object paste karein)</label><textarea id="setupConfig" rows="8" placeholder='{"apiKey": "...", "authDomain": "...", "projectId": "...", ...}'>${setupUrlInput}</textarea></div>
     <button class="primary-btn" id="connectBtn">Connect Karein</button>
@@ -2520,7 +2557,7 @@ function renderLogin(){
   }
   return `
   <div class="login-wrap">
-    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v7.3</p></div>
+    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v7.4</p></div>
     <div class="role-grid">
       <button class="role-opt ${loginRole==='admin'?'active':''}" data-role="admin"><span class="ic">🗝️</span>Admin</button>
       <button class="role-opt ${loginRole==='subadmin'?'active':''}" data-role="subadmin"><span class="ic">🧑‍💼</span>Office</button>
@@ -3819,6 +3856,9 @@ function modalHtml(){
     const d=activeModal.data, l=(STATE.leads||[]).find(x=>x.id===d.id)||{};
     inner=`<div class="modal-head"><h3>${d.kind==='amc'?'✅ AMC Bana Do':'🔧 One-time Service'}</h3><button class="close-x" id="modalClose">×</button></div><div class="card"><div class="item-name">${esc(l.customer||'')}</div><div class="item-sub">📞 ${esc(l.mobile||'')}</div></div>${d.kind==='amc'?`<div class="field"><label>Ye AMC kab ki hai?</label><select id="f_laWhen"><option value="new">Nayi AMC — technician ko job dena hai</option><option value="past">Purani date ki — AMC ho chuki hai (sirf record, job nahi banegi)</option></select></div>`:''}<div id="laNew"><div class="field"><label>Technician abhi chunein (job me dobara nahi poochhenge)</label><select id="f_ltech"><option value="">-- Baad me / Unassigned --</option>${techOptionsHtml(todayStr(),'')}</select></div><div class="field"><label>Job ki Date</label>${dmyPickHtml('la',todayStr())}</div></div>${d.kind==='amc'?`<div id="laPast" style="display:none;"><div class="field"><label>AMC kis date se shuru hui?</label>${dmyPickHtml('pa','')}</div><div style="display:flex;gap:8px;"><div class="field" style="flex:1;"><label>Kitne saal</label><select id="f_paYears"><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option></select></div><div class="field" style="flex:1;"><label>Kul services</label><input id="f_paTotal" type="number" min="1" max="60" value="4" inputmode="numeric"></div></div><div style="display:flex;gap:8px;"><div class="field" style="flex:1;"><label>Amount (₹)</label><input id="f_paAmt" type="number" min="0" inputmode="numeric" placeholder="jaise 3500"></div><div class="field" style="flex:1;"><label>Payment</label><select id="f_paMode"><option value="cash">Cash</option><option value="online">Online</option><option value="cheque">Cheque</option><option value="">Pata nahi</option></select></div></div><div class="field"><label>Ab tak kitni service ho chuki?</label><select id="f_paDone">${[0,1,2,3,4,5,6,7,8,9,10,11,12].map(n=>`<option value="${n}">${n}</option>`).join('')}</select></div><div id="paRows"></div><div class="item-sub" id="paLeft" style="margin-bottom:8px;"></div><div class="field"><label>Details / Note (optional)</label><textarea id="f_paNote" rows="2" placeholder="AC, brand, koi khas baat"></textarea></div></div>`:''}<button class="primary-btn" id="modalSave">Job Banao</button>`;
     setTimeout(wireLeadAssign,0);
+  } else if(activeModal.type==='nameMerge'){
+    const gs=nameMergeGroups().slice(0,150), tl=c=>({amc:'AMC',onetime:'One-time',enquiry:'Enquiry',quotation:'Quotation'}[c.type||'amc']||'');
+    inner=`<div class="modal-head"><h3>🔗 Naam se Jodo</h3><button class="close-x" id="modalClose">×</button></div><div class="item-sub" style="margin-bottom:8px;">Tick wale profile ek mein jud jayenge (AMC wala profile mukhya rahega). ⚠️ wale galat ho sakte hain (address alag) — default mein tick nahi. Pehle Poora Backup le lein.</div><div class="card-actions" style="margin-bottom:8px;"><button class="mini-btn" id="nmAll">Sab strong tick</button><button class="mini-btn" id="nmNone">Sab hatayein</button></div>${gs.length?gs.map(g=>`<label class="card" style="display:block;padding:10px;margin-bottom:8px;cursor:pointer;"><div style="display:flex;gap:8px;align-items:flex-start;"><input type="checkbox" class="nmchk" data-nmkey="${esc(g.key)}" data-strong="${g.strong?1:0}" ${g.strong?'checked':''} style="margin-top:3px;"><div style="min-width:0;"><div class="item-name" style="font-size:14px;">${g.strong?'':'⚠️ '}${esc(g.arr[0].name)}</div>${g.arr.map(c=>`<div class="item-sub">• ${tl(c)}${c.phone?' · '+esc(c.phone):' · <b>bina number</b>'}${c.address?' · '+esc(c.address):''}</div>`).join('')}</div></div></label>`).join(''):'<div class="item-sub">Kuch nahi mila.</div>'}<button class="primary-btn" id="modalSave">Tick wale Jodo</button>`;
   } else if(activeModal.type==='fixAmt'){
     const d=activeModal.data;
     inner=`<div class="modal-head"><h3>💰 Amount theek karein</h3><button class="close-x" id="modalClose">x</button></div><div class="card"><div class="item-name">${esc(d.name||'Customer')}</div><div class="item-sub">${esc(d.title||'')} · ${fmtDate(d.date)} · abhi ka amount: <b>${rupee(d.amount)}</b></div></div><div class="field"><label>Sahi amount (₹)</label><input id="f_fxamt" type="number" inputmode="numeric" min="1" placeholder="jaise 3500"></div><button class="primary-btn" id="modalSave">Save Karein</button>`;
@@ -4157,6 +4197,7 @@ function bindShellEvents(){
     else if(act==='bkstaff'){ await staffExcel(); }
     else if(act==='bkfull'){ await exportData(); }
     else if(act==='bkbin'){ await loadBin(); }
+    else if(act==='namemerge'){ if(STATE.session.role!=='admin') return; activeModal={type:'nameMerge',data:{}}; render(); }
     else if(act==='mergedups'){ if(STATE.session.role!=='admin') return; if(confirm('Same number wale profile ek mein jud jayenge (jobs, bills sab usi mein). Purane duplicate Recycle Bin mein rahenge. Karein?')) await mergeDuplicateCustomers(); }
     else if(act==='bkrestore'){ restoreRec(el.dataset.kind,id); }
     else if(act==='gobackup'){ STATE.setTab='backup'; STATE.view='settings'; render(); }
@@ -4246,6 +4287,7 @@ function bindShellEvents(){
   if(overlay){
     overlay.onclick=(e)=>{ if(e.target===overlay){ activeModal=null; render(); } };
     const closeX=document.getElementById('modalClose'); if(closeX) closeX.onclick=()=>{ activeModal=null; render(); };
+    { const na=document.getElementById('nmAll'), nn=document.getElementById('nmNone'); if(na) na.onclick=()=>document.querySelectorAll('.nmchk').forEach(e=>{ e.checked=e.dataset.strong==='1'; }); if(nn) nn.onclick=()=>document.querySelectorAll('.nmchk').forEach(e=>{ e.checked=false; }); }
     if(document.getElementById('recBtn')) initRecorder();
     if(document.getElementById('holdBtn')) initHold();
     if(document.getElementById('leadImportBtn')) initLeadImport();
@@ -4302,20 +4344,31 @@ function bindShellEvents(){
       try{
       if(activeModal.type==='addCustomer'){
         const name=val('f_name'); if(!name){ showToast('Naam zaroori hai'); resetBtn(); return; }
+        if(!phoneOk(val('f_phone'))||!phoneOk(val('f_phone2'))){ showToast('Mobile number 10 digit ka hona chahiye'); resetBtn(); return; }
         const dup=dupCustomerByPhone(val('f_phone'),val('f_phone2'));
         if(dup){ alert('⚠️ Is number ka customer pehle se app mein hai:\n'+dup.name+' ('+({amc:'AMC',onetime:'One-time',enquiry:'Enquiry',quotation:'Quotation'}[dup.type||'amc']||'')+((dup.type||'amc')==='amc'?' · '+amcStatusLabel(dup):'')+')\n\nEk number ka ek hi profile rahega. Purana profile khol raha hoon — naya kaam (repairing/extra) usi mein Job se jodein.'); activeModal=null; resetBtn(); await openCustomerProfile(dup.id); return; }
+        { const probe={id:'__new',name,phone:val('f_phone'),phone2:val('f_phone2'),address:val('f_address')};
+          const same=samePersonCandidates(probe).filter(o=>ph10(o.phone).length!==10).sort((a,b)=>((b.type||'amc')==='amc'?1:0)-((a.type||'amc')==='amc'?1:0))[0];
+          if(same&&ph10(probe.phone).length===10&&confirm('🔗 "'+same.name+'" naam ka profile pehle se hai ('+({amc:'AMC',onetime:'One-time',enquiry:'Enquiry',quotation:'Quotation'}[same.type||'amc']||'')+(same.address?' · '+same.address:'')+') jisme number nahi hai.\n\nOK = ye number usi profile mein jod do (naya customer nahi banega).\nCancel = naya alag customer banao')){
+            await updateCustomer(same.id,{phone:probe.phone,phone2:probe.phone2||same.phone2||'',address:same.address||probe.address,email:val('f_email')||same.email||''}); activeModal=null; await openCustomerProfile(same.id); return; } }
         await addCustomer({name, type:val('f_custType'), phone:val('f_phone'), phone2:val('f_phone2'), email:val('f_email'), address:val('f_address'), landmark:val('f_landmark'), city:val('f_city'), state:val('f_state'), pincode:val('f_pincode'),
           amcName:val('f_amcName'), brand:val('f_brand'), model:val('f_model'), acType:val('f_acType'), installDate:val('f_installDate'), serialNo:val('f_serialNo'), underWarranty:val('f_warranty')==='yes', activationDate:val('f_activationDate'), expiryDate:val('f_expiryDate'), totalServices:val('f_totalServices'), source:val('f_source'), sourceType:val('f_sourceType'), amcAmount:val('f_amcAmount'), incentiveGiven:document.getElementById('f_incGiven').checked, incentiveTo:val('f_incTo'), incentiveAmount:val('f_incAmount'), incentivePaid:val('f_incPaid')==='yes',
           lastService:val('f_lastService'), intervalMonths:val('f_interval'), notes:val('f_notes')});
         activeModal=null; render();
       } else if(activeModal.type==='editCustomer'){
         const name=val('f_name'); if(!name){ showToast('Naam zaroori hai'); return; }
+        if(!phoneOk(val('f_phone'))||!phoneOk(val('f_phone2'))){ showToast('Mobile number 10 digit ka hona chahiye (abhi kam/zyada digit hain)'); resetBtn(); return; }
         { const a1=ph10(val('f_phone')), a2=ph10(val('f_phone2')); const other=(STATE.customers||[]).find(x=>x.id!==activeModal.data.id&&!x.deleted&&[ph10(x.phone),ph10(x.phone2)].some(p=>p.length===10&&(p===a1||p===a2))); if(other){ showToast('Ye number "'+other.name+'" ke profile mein pehle se hai — ek number ka ek hi profile'); resetBtn(); return; } }
         { const oc=STATE.customers.find(x=>x.id===activeModal.data.id), na=val('f_activationDate'); if(oc&&oc.amcHistory&&oc.activationDate&&na&&na!==oc.activationDate){ const hx=oc.amcHistory.find(h=>h.start===oc.activationDate); if(hx){ hx.start=na; if(!hx.end||hx.end<=na) hx.end=addMonths(na,12*(Number(hx.years)||1)); } } }
         await updateCustomer(activeModal.data.id, {name, type:val('f_custType'), phone:val('f_phone'), phone2:val('f_phone2'), email:val('f_email'), address:val('f_address'), landmark:val('f_landmark'), city:val('f_city'), state:val('f_state'), pincode:val('f_pincode'),
           amcName:val('f_amcName'), brand:val('f_brand'), model:val('f_model'), acType:val('f_acType'), installDate:val('f_installDate'), serialNo:val('f_serialNo'), underWarranty:val('f_warranty')==='yes', activationDate:val('f_activationDate'), expiryDate:val('f_expiryDate'), totalServices:Number(val('f_totalServices'))||0, source:val('f_source'), sourceType:val('f_sourceType'), amcAmount:Number(val('f_amcAmount'))||0, incentiveGiven:document.getElementById('f_incGiven').checked, incentiveTo:val('f_incTo'), incentiveAmount:Number(val('f_incAmount'))||0, incentivePaid:val('f_incPaid')==='yes',
           lastService:val('f_lastService'), intervalMonths:Number(val('f_interval'))||3, notes:val('f_notes')});
-        activeModal=null; render();
+        { const me=STATE.customers.find(x=>x.id===activeModal.data.id); activeModal=null;
+          const cand=me?samePersonCandidates(me).filter(o=>!(ph10(o.phone).length===10&&ph10(me.phone).length===10&&ph10(o.phone)!==ph10(me.phone))):[];
+          if(me&&cand.length){ const o=cand.slice().sort((a,b)=>((b.type||'amc')==='amc'?1:0)-((a.type||'amc')==='amc'?1:0))[0];
+            if(confirm('🔗 "'+o.name+'" naam ka ek aur profile mila ('+({amc:'AMC',onetime:'One-time',enquiry:'Enquiry',quotation:'Quotation'}[o.type||'amc']||'')+(o.address?' · '+o.address:'')+(ph10(o.phone).length===10?' · '+o.phone:' · bina number')+').\n\nKya ye wahi customer hai? OK = dono ek profile mein jud jayein (kaam, bills, AMC sab ek jagah).')){
+              const r=mergeCustGroupInMemory([me].concat(cand.length>1?cand:[o]).filter((x,i,a)=>a.indexOf(x)===i)); await saveAfterMerge(); showToast('Profile jud gaye ✅'); STATE.customerDetailId=r.p.id; } } }
+        render();
       } else if(activeModal.type==='addStaff'){
         const name=val('f_name'), pin=val('f_pin');
         if(!name){ showToast('Naam zaroori hai'); return; }
@@ -4343,6 +4396,11 @@ function bindShellEvents(){
         const mkBill=!!(document.getElementById('f_makeBill')&&document.getElementById('f_makeBill').checked), jid=activeModal.data.id;
         await completeJobWithAmount(jid, amount, rating, sigUrl, techSigUrl, travelAmt, val('f_payMode')); activeModal=null; render();
         if(mkBill){ try{ await generateInvoice(jid); showToast('🧾 Bill download ho gaya'); }catch(e){ console.error(e); showToast('Bill nahi ban paya — office se banwa lein'); } }
+      } else if(activeModal.type==='nameMerge'){
+        const keys=[...document.querySelectorAll('.nmchk:checked')].map(e=>e.dataset.nmkey);
+        if(!keys.length){ showToast('Kam se kam ek tick karein'); resetBtn(); return; }
+        if(!confirm(keys.length+' naam ke profile jodne hain? Purane Recycle Bin mein safe rahenge.')){ resetBtn(); return; }
+        activeModal=null; await mergeNameGroups(keys); render();
       } else if(activeModal.type==='fixAmt'){
         const a=Number(val('f_fxamt')); if(!(a>0)){ showToast('Sahi amount daalein'); return; }
         const okk=await moneyFixAmount(activeModal.data,a); if(!okk){ showToast('Entry nahi mili'); return; }
