@@ -46,14 +46,22 @@ label{display:block;font-size:12.5px;color:var(--ink-soft);margin-bottom:5px;fon
 .field{margin-bottom:14px;}
 .hidden{display:none !important;}
 #app{display:flex;flex-direction:column;min-height:100vh;max-width:520px;margin:0 auto;background:var(--bg);}
-.topbar{gap:6px;background:linear-gradient(135deg,var(--teal-deep),var(--teal) 130%);color:#fff;padding:14px 12px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:20;box-shadow:0 2px 10px rgba(10,46,56,.18);}
+.topbar{gap:6px;background:linear-gradient(135deg,var(--teal-deep),var(--teal) 130%);color:#fff;padding:6px 10px;min-height:44px;box-sizing:border-box;transition:transform .22s ease;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:20;box-shadow:0 2px 10px rgba(10,46,56,.18);}
 .brand{display:flex;align-items:center;gap:10px;min-width:0;flex:1;}
 .topbar .mini-btn{margin-right:0!important;padding:7px 8px!important;width:auto!important;min-width:0!important;flex:none!important;font-size:15px;}
 .brand-mark{width:34px;height:34px;border-radius:10px;background:linear-gradient(155deg,var(--frost),var(--teal) 120%);display:flex;align-items:center;justify-content:center;font-size:17px;flex-shrink:0;box-shadow:0 0 0 1px rgba(255,255,255,.12) inset;}
 .brand-text{line-height:1.15;min-width:0;overflow:hidden;}
-.brand-text .name{font-family:var(--font-display);font-weight:700;font-size:16.5px;letter-spacing:.1px;}
-.brand-text .who{font-size:11.5px;color:#A9D4DA;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.logout-btn{flex:none;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.25);color:#fff;padding:7px 11px;border-radius:8px;font-size:12.5px;font-weight:600;}
+.brand-text .name{font-family:var(--font-display);font-weight:700;font-size:14.5px;letter-spacing:.1px;}
+.topbar .brand-mark{width:28px!important;height:28px!important;font-size:14px!important;border-radius:8px;}
+.topbar .brand{gap:8px;}
+.topbar.tb-hide{transform:translateY(-105%);}
+.stk,.stk.searchbar,.stk.tabbar{position:sticky!important;z-index:14;background:var(--bg);padding-top:6px;padding-bottom:6px;margin-top:0!important;margin-bottom:6px!important;transition:top .22s ease;}
+.stk.tabbar{background:var(--surface);}
+#scrollFab{position:fixed;left:max(10px,calc(50% - 250px + 10px));bottom:84px;z-index:19;display:none;flex-direction:column;gap:8px;}
+#scrollFab button{width:34px;height:34px;border-radius:50%;border:1px solid var(--border);background:var(--surface);color:var(--teal-deep);font-size:15px;line-height:1;box-shadow:0 2px 8px rgba(10,46,56,.22);opacity:.92;padding:0;}
+#scrollFab button.off{display:none;}
+.brand-text .who{font-size:10.5px;color:#A9D4DA;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.logout-btn{flex:none;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.25);color:#fff;padding:5px 9px;border-radius:8px;font-size:12px;font-weight:600;}
 .content{flex:1;padding:16px 16px 92px 16px;}
 .sticky-back{position:sticky;top:56px;z-index:15;background:var(--bg);padding:10px 0;margin-bottom:8px;}
 .bottomnav{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:520px;background:var(--surface);border-top:1px solid var(--border);display:flex;z-index:20;padding:6px 4px calc(env(safe-area-inset-bottom,0px) + 4px) 4px;overflow-x:auto;box-shadow:0 -2px 10px rgba(13,42,48,.04);}
@@ -2456,6 +2464,36 @@ function syncNavHistory(){
     exitArmed=true; keep(); showToast('App band karne ke liye dobara Back dabayein'); setTimeout(()=>{ exitArmed=false; },2500);
   });
 }
+/* ===== Scroll UX: patla header (neeche scroll par chhupe), zaroori tabs/search chipke, chhote Up/Down buttons ===== */
+function applyStickyBars(){
+  const c=document.querySelector('#app .content'); if(!c) return;
+  let off=0, n=0; const kids=[...c.children].slice(0,12);
+  kids.forEach(el=>{
+    if(n>=3) return;
+    const isBar=el.classList.contains('tabbar')||el.classList.contains('searchbar');
+    if(!isBar) return;
+    if(el.querySelector('[data-navto="amccal"]')||el.querySelector('[data-navto="customers"]')) return;
+    el.classList.add('stk'); el.dataset.stkoff=off; el.style.top='calc(var(--stk,44px) + '+off+'px)';
+    off+=el.offsetHeight+6; n++;
+  });
+}
+let scrollUxReady=false, lastScrollY=0;
+function scrollUxInit(){
+  if(scrollUxReady) return; scrollUxReady=true;
+  const fab=document.createElement('div'); fab.id='scrollFab'; fab.innerHTML='<button id="sfUp" title="Upar" aria-label="Sabse upar">▲</button><button id="sfDn" title="Neeche" aria-label="Sabse neeche">▼</button>'; document.body.appendChild(fab);
+  fab.querySelector('#sfUp').onclick=()=>window.scrollTo({top:0,behavior:'smooth'});
+  fab.querySelector('#sfDn').onclick=()=>window.scrollTo({top:document.documentElement.scrollHeight,behavior:'smooth'});
+  const upd=()=>{
+    const y=window.scrollY||0, H=document.documentElement.scrollHeight, vh=window.innerHeight, tb=document.querySelector('.topbar');
+    if(tb){ if(y>lastScrollY+8&&y>90){ tb.classList.add('tb-hide'); scrollUxInit.hidden=true; document.documentElement.style.setProperty('--stk','0px'); } else if(y<lastScrollY-8||y<=40){ tb.classList.remove('tb-hide'); scrollUxInit.hidden=false; document.documentElement.style.setProperty('--stk',(tb.offsetHeight||44)+'px'); } }
+    lastScrollY=y;
+    const show=!!STATE.session&&!activeModal&&!STATE.lightboxSrc&&!STATE.lightboxVid&&H>vh*1.6;
+    fab.style.display=show?'flex':'none';
+    fab.querySelector('#sfUp').classList.toggle('off',y<260);
+    fab.querySelector('#sfDn').classList.toggle('off',y+vh>H-160);
+  };
+  window.addEventListener('scroll',upd,{passive:true}); window.addEventListener('resize',upd); scrollUxInit.upd=upd;
+}
 function render(){
   const isCam=activeModal&&(activeModal.type==='recVideo'||activeModal.type==='recPhoto');
   if(REC.stream&&isCam) return;
@@ -2483,13 +2521,14 @@ function render(){
     render._v=nv;
     if(target>0||_pv!==nv){ const go=()=>{ try{ window.scrollTo(0,target); }catch(e){} }; go(); requestAnimationFrame(()=>{ go(); setTimeout(go,60); }); } }
   if(STATE.view==='leads') setTimeout(autoPullOwn,50); syncNavHistory(); saveSessionLocal();
+  try{ scrollUxInit(); applyStickyBars(); const tb=document.querySelector('.topbar'); if(tb){ if(scrollUxInit.hidden&&(window.scrollY||0)>90) tb.classList.add('tb-hide'); document.documentElement.style.setProperty('--stk',(tb.classList.contains('tb-hide')?0:(tb.offsetHeight||44))+'px'); } if(scrollUxInit.upd) setTimeout(scrollUxInit.upd,80); }catch(e){}
 }
 
 /* ============ Setup screen ============ */
 function renderSetup(){
   return `
   <div class="login-wrap">
-    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v7.4</p></div>
+    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v7.5</p></div>
     <div class="setup-note">Yeh app ab Firebase (Google ka free real-time database) use karti hai — pehle se tez aur reliable. Firebase Console se apna config copy karke neeche paste karein.</div>
     <div class="field"><label>Firebase Config (poora object paste karein)</label><textarea id="setupConfig" rows="8" placeholder='{"apiKey": "...", "authDomain": "...", "projectId": "...", ...}'>${setupUrlInput}</textarea></div>
     <button class="primary-btn" id="connectBtn">Connect Karein</button>
@@ -2557,7 +2596,7 @@ function renderLogin(){
   }
   return `
   <div class="login-wrap">
-    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v7.4</p></div>
+    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v7.5</p></div>
     <div class="role-grid">
       <button class="role-opt ${loginRole==='admin'?'active':''}" data-role="admin"><span class="ic">🗝️</span>Admin</button>
       <button class="role-opt ${loginRole==='subadmin'?'active':''}" data-role="subadmin"><span class="ic">🧑‍💼</span>Office</button>
@@ -3195,7 +3234,7 @@ function initLiveMap(){
   if(techs.length===0) return;
   const first=STATE.locations[techs[0].id];
   liveMapInstance=L.map('liveMapBox').setView([first.lat, first.lng], 12);
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', { attribution:'© OpenStreetMap © CARTO', subdomains:'abcd', maxZoom:19 }).addTo(liveMapInstance);
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution:'© OpenStreetMap', maxZoom:19 }).addTo(liveMapInstance);
   const bounds=[];
   techs.forEach(t=>{
     const loc=STATE.locations[t.id];
@@ -3508,8 +3547,9 @@ function travelAmountSummaryHtml(){
   const grand=rows.reduce((s,r)=>s+r.tot,0);
   const now=new Date(), monthOpts=Array.from({length:6}).map((_,i)=>{ const d=new Date(now.getFullYear(),now.getMonth()-i,1), v=ymd(d).slice(0,7); return `<option value="${v}" ${v===mk?'selected':''}>${d.toLocaleString('en-IN',{month:'long',year:'numeric'})}</option>`; }).join('');
   return `<div class="card"><div class="row-between" style="margin-bottom:8px;"><div class="item-name">🚗 Travel Amount (har Technician)</div><select id="travelAmtMonthSel" style="width:auto;padding:5px 8px;font-size:12px;">${monthOpts}</select></div>
-    ${rows.length?rows.map(r=>{ const open=STATE.travelAmtOpen===r.t.id; return `<div class="row-between" data-act="traveltoggle" data-id="${r.t.id}" style="cursor:pointer;padding:6px 0;"><div class="item-sub"><b>${esc(r.t.name)}</b> ${open?'▾':'▸'}</div><div class="item-sub">${rupee(r.tot)} <span style="opacity:.7">(${r.n} entries)</span></div></div>`
+    ${rows.length?(STATE.travelAll?rows:rows.filter((r,i)=>r.tot>0&&i<3)).map(r=>{ const open=STATE.travelAmtOpen===r.t.id; return `<div class="row-between" data-act="traveltoggle" data-id="${r.t.id}" style="cursor:pointer;padding:6px 0;"><div class="item-sub"><b>${esc(r.t.name)}</b> ${open?'▾':'▸'}</div><div class="item-sub">${rupee(r.tot)} <span style="opacity:.7">(${r.n} entries)</span></div></div>`
       +(open?`<div style="margin:2px 0 8px;padding:8px 10px;background:var(--bg);border-radius:10px;">${r.detail.length?r.detail.map(d=>`<div class="row-between" style="padding:3px 0;"><div class="item-sub">${esc(d.label)}<br><span style="opacity:.7">${fmtDate(d.date)}</span></div><div class="item-sub"><b>${rupee(d.amt)}</b></div></div>`).join(''):`<div class="item-sub">Is mahine koi travel amount nahi dala.</div>`}</div>`:''); }).join(''):`<div class="item-sub">Koi technician nahi</div>`}
+    ${rows.length&&(STATE.travelAll||rows.filter(r=>r.tot>0).length>3||rows.some(r=>r.tot<=0))?`<div style="text-align:center;margin-top:6px;"><button class="mini-btn" data-act="travelall" style="flex:none;padding:5px 14px;font-size:12px;">${STATE.travelAll?'▴ Kam dikhao':'▾ Poora dikhao ('+rows.length+' technician)'}</button></div>`:''}
     <div class="row-between" style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border);"><div class="item-sub"><b>Total</b></div><div class="item-sub"><b>${rupee(grand)}</b></div></div>
     <div class="item-sub" style="opacity:.7;margin-top:6px;">Job complete karte waqt ya "Travel Add" se dala gaya amount, dono jud kar dikh rahe hain.</div>
   </div>`;
@@ -4210,6 +4250,7 @@ function bindShellEvents(){
     else if(act==='leaveok'||act==='leaveno'){ const l=(STATE.leaves||[]).find(x=>x.id===id); if(l&&(STATE.session.role==='admin'||(STATE.session.role==='subadmin'&&l.role==='technician'))){ l.status=act==='leaveok'?'approved':'rejected'; l.decidedBy=STATE.session.name; l.decidedAt=Date.now(); await saveKey('st_leave',STATE.leaves); render(); } }
     else if(act==='toggleholiday'){ if(STATE.session.role==='admin') toggleHoliday(el.dataset.day); }
     else if(act==='removeprofilephoto'){ await removeProfilePhoto(id); }
+    else if(act==='travelall'){ STATE.travelAll=!STATE.travelAll; render(); }
     else if(act==='traveltoggle'){ STATE.travelAmtOpen=(STATE.travelAmtOpen===id)?null:id; render(); }
     else if(act==='showvisitlist'){ const k=el.dataset.kind; STATE.dashVisitOpen=(STATE.dashVisitOpen===k)?null:k; render(); }
     else if(act==='recvideo'){ activeModal={type:'recVideo',data:{jobId:id}}; render(); }
@@ -4358,16 +4399,22 @@ function bindShellEvents(){
       } else if(activeModal.type==='editCustomer'){
         const name=val('f_name'); if(!name){ showToast('Naam zaroori hai'); return; }
         if(!phoneOk(val('f_phone'))||!phoneOk(val('f_phone2'))){ showToast('Mobile number 10 digit ka hona chahiye (abhi kam/zyada digit hain)'); resetBtn(); return; }
-        { const a1=ph10(val('f_phone')), a2=ph10(val('f_phone2')); const other=(STATE.customers||[]).find(x=>x.id!==activeModal.data.id&&!x.deleted&&[ph10(x.phone),ph10(x.phone2)].some(p=>p.length===10&&(p===a1||p===a2))); if(other){ showToast('Ye number "'+other.name+'" ke profile mein pehle se hai — ek number ka ek hi profile'); resetBtn(); return; } }
+        let mergeWith=null;
+        { const a1=ph10(val('f_phone')), a2=ph10(val('f_phone2')); const other=(STATE.customers||[]).find(x=>x.id!==activeModal.data.id&&!x.deleted&&[ph10(x.phone),ph10(x.phone2)].some(p=>p.length===10&&(p===a1||p===a2)));
+          if(other){ const tl={amc:'AMC',onetime:'One-time',enquiry:'Enquiry',quotation:'Quotation'}[other.type||'amc']||'';
+            if(!confirm('🔗 Ye number "'+other.name+'" ke profile mein pehle se hai ('+tl+(other.address?' · '+other.address:'')+').\n\nKya ye wahi customer hai?\nOK = dono profile ek mein jud jayein (kaam, bills, AMC sab ek jagah)\nCancel = kuch nahi badlega')){ resetBtn(); return; }
+            mergeWith=other; } }
         { const oc=STATE.customers.find(x=>x.id===activeModal.data.id), na=val('f_activationDate'); if(oc&&oc.amcHistory&&oc.activationDate&&na&&na!==oc.activationDate){ const hx=oc.amcHistory.find(h=>h.start===oc.activationDate); if(hx){ hx.start=na; if(!hx.end||hx.end<=na) hx.end=addMonths(na,12*(Number(hx.years)||1)); } } }
         await updateCustomer(activeModal.data.id, {name, type:val('f_custType'), phone:val('f_phone'), phone2:val('f_phone2'), email:val('f_email'), address:val('f_address'), landmark:val('f_landmark'), city:val('f_city'), state:val('f_state'), pincode:val('f_pincode'),
           amcName:val('f_amcName'), brand:val('f_brand'), model:val('f_model'), acType:val('f_acType'), installDate:val('f_installDate'), serialNo:val('f_serialNo'), underWarranty:val('f_warranty')==='yes', activationDate:val('f_activationDate'), expiryDate:val('f_expiryDate'), totalServices:Number(val('f_totalServices'))||0, source:val('f_source'), sourceType:val('f_sourceType'), amcAmount:Number(val('f_amcAmount'))||0, incentiveGiven:document.getElementById('f_incGiven').checked, incentiveTo:val('f_incTo'), incentiveAmount:Number(val('f_incAmount'))||0, incentivePaid:val('f_incPaid')==='yes',
           lastService:val('f_lastService'), intervalMonths:Number(val('f_interval'))||3, notes:val('f_notes')});
         { const me=STATE.customers.find(x=>x.id===activeModal.data.id); activeModal=null;
+          if(me&&mergeWith&&STATE.customers.indexOf(mergeWith)>-1){ const r=mergeCustGroupInMemory([me,mergeWith]); await saveAfterMerge(); showToast('Profile jud gaye ✅'); STATE.customerDetailId=r.p.id; mergeWith=null; }
+          else {
           const cand=me?samePersonCandidates(me).filter(o=>!(ph10(o.phone).length===10&&ph10(me.phone).length===10&&ph10(o.phone)!==ph10(me.phone))):[];
           if(me&&cand.length){ const o=cand.slice().sort((a,b)=>((b.type||'amc')==='amc'?1:0)-((a.type||'amc')==='amc'?1:0))[0];
             if(confirm('🔗 "'+o.name+'" naam ka ek aur profile mila ('+({amc:'AMC',onetime:'One-time',enquiry:'Enquiry',quotation:'Quotation'}[o.type||'amc']||'')+(o.address?' · '+o.address:'')+(ph10(o.phone).length===10?' · '+o.phone:' · bina number')+').\n\nKya ye wahi customer hai? OK = dono ek profile mein jud jayein (kaam, bills, AMC sab ek jagah).')){
-              const r=mergeCustGroupInMemory([me].concat(cand.length>1?cand:[o]).filter((x,i,a)=>a.indexOf(x)===i)); await saveAfterMerge(); showToast('Profile jud gaye ✅'); STATE.customerDetailId=r.p.id; } } }
+              const r=mergeCustGroupInMemory([me].concat(cand.length>1?cand:[o]).filter((x,i,a)=>a.indexOf(x)===i)); await saveAfterMerge(); showToast('Profile jud gaye ✅'); STATE.customerDetailId=r.p.id; } } } }
         render();
       } else if(activeModal.type==='addStaff'){
         const name=val('f_name'), pin=val('f_pin');
