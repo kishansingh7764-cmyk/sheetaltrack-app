@@ -602,6 +602,7 @@ function backupCenterHtml(){
       <div class="item-sub" style="margin-bottom:8px;">Har cheez alag column mein, Hindi-English heading ke saath. Customers aur Staff ki alag-alag file.</div>
       <div class="card-actions"><button class="mini-btn primary" data-act="bkcust">👥 Customers ki Excel</button><button class="mini-btn primary" data-act="bkstaff">🧑‍🔧 Staff ki Excel</button></div>
       <div class="item-sub" style="margin-top:8px;">Customers file: Customers sheet + Jobs (customer-wise) sheet. Staff file: Staff, Attendance, Chhutti, Travel (aur chaho toh KYC + Bank).</div></div>
+    ${(()=>{ const dg=dupCustomerGroups(); return `<div class="card"><div class="item-name" style="margin-bottom:6px;">🔗 Duplicate Jodo (ek number = ek profile)</div><div class="item-sub" style="margin-bottom:8px;">${dg.length?'<b>'+dg.length+'</b> number par ek se zyada profile hain: '+dg.slice(0,5).map(a=>esc(a[0].name)).join(', ')+(dg.length>5?'…':'')+'. Jodne par jobs, bills aur AMC detail ek profile mein aa jayengi.':'Koi duplicate profile nahi hai. ✅'}</div>${dg.length?'<div class="card-actions"><button class="mini-btn primary" data-act="mergedups">Duplicate Jodo</button></div>':''}</div>`; })()}
     <div class="card"><div class="item-name" style="margin-bottom:6px;">💾 Poora Backup (restore ke liye)</div>
       <div class="item-sub" style="margin-bottom:8px;">Ek file mein sab kuch. Kabhi data bigde toh isi file se wapas aa sakta hai (Data tab mein Restore).</div>
       <div class="card-actions"><button class="mini-btn primary" data-act="bkfull">Poora Backup Download</button></div></div>
@@ -744,6 +745,42 @@ async function updateCustomer(id, data){
 async function deleteCustomer(id){
   STATE.customers=STATE.customers.filter(x=>x.id!==id); await saveKey(SKEY.CUSTOMERS, STATE.customers); showToast('Customer delete ho gaya');
 }
+/* Ek number = ek profile: same phone wale customers ke group */
+function dupCustomerGroups(){
+  const cs=(STATE.customers||[]).filter(c=>!c.deleted);
+  const parent=new Map(cs.map(c=>[c.id,c.id])); const find=x=>{ while(parent.get(x)!==x){ parent.set(x,parent.get(parent.get(x))); x=parent.get(x); } return x; };
+  const byPh=new Map();
+  cs.forEach(c=>[ph10(c.phone),ph10(c.phone2)].forEach(p=>{ if(p.length!==10) return; if(byPh.has(p)){ parent.set(find(c.id),find(byPh.get(p))); } else byPh.set(p,c.id); }));
+  const g=new Map(); cs.forEach(c=>{ const r=find(c.id); if(!g.has(r)) g.set(r,[]); g.get(r).push(c); });
+  return [...g.values()].filter(a=>a.length>1);
+}
+function dupPickPrimary(arr){
+  const score=c=>((c.type||'amc')==='amc'?1000:0)+(Number(c.servicesDone)||0)*5+((c.amcHistory||[]).length*20)+(c.activationDate?10:0)+(Number(c.amcAmount)>0?10:0)+(STATE.jobs||[]).filter(j=>j.customerId===c.id).length;
+  return arr.slice().sort((a,b)=>score(b)-score(a)||(a.createdAt||0)-(b.createdAt||0))[0];
+}
+async function mergeDuplicateCustomers(){
+  const groups=dupCustomerGroups(); if(!groups.length){ showToast('Koi duplicate customer nahi mila'); return; }
+  let removed=0;
+  groups.forEach(arr=>{
+    const p=dupPickPrimary(arr), ids=new Set();
+    arr.forEach(d=>{
+      if(d.id===p.id) return; ids.add(d.id);
+      Object.keys(d).forEach(k=>{ if(['id','createdAt','deleted','amcHistory','serviceLog','servicesDone','notes','type'].indexOf(k)>-1) return; const v=d[k]; if((p[k]===undefined||p[k]===''||p[k]===null||p[k]===0)&&v!==undefined&&v!==''&&v!==null) p[k]=v; });
+      if(d.notes&&String(p.notes||'').indexOf(d.notes)<0) p.notes=(p.notes?p.notes+'\n':'')+d.notes;
+      if(!(p.amcHistory&&p.amcHistory.length)&&d.amcHistory&&d.amcHistory.length) p.amcHistory=d.amcHistory;
+      if(!(p.serviceLog&&p.serviceLog.length)&&d.serviceLog&&d.serviceLog.length){ p.serviceLog=d.serviceLog; p.servicesDone=Math.max(Number(p.servicesDone)||0,Number(d.servicesDone)||0); }
+      if((p.type||'amc')!=='amc'&&(d.type||'amc')==='amc') p.type='amc';
+    });
+    (STATE.jobs||[]).forEach(j=>{ if(ids.has(j.customerId)) j.customerId=p.id; });
+    (STATE.bills||[]).forEach(b=>{ if(ids.has(b.customerId)) b.customerId=p.id; });
+    (STATE.leads||[]).forEach(l=>{ if(ids.has(l.doneCustId)) l.doneCustId=p.id; });
+    STATE.customers=STATE.customers.filter(c=>!ids.has(c.id)); removed+=ids.size;
+  });
+  await saveKey(SKEY.CUSTOMERS, STATE.customers); await saveKey(SKEY.JOBS, STATE.jobs);
+  try{ await saveKey(SKEY.BILLS, STATE.bills); }catch(e){}
+  try{ await saveKey(SKEY.LEADS, STATE.leads); }catch(e){}
+  showToast(removed+' duplicate profile jud gaye (Recycle Bin mein safe)'); render();
+}
 async function markServiced(id){
   const c=STATE.customers.find(x=>x.id===id); if(!c) return;
   c.lastService=todayStr(); await saveKey(SKEY.CUSTOMERS, STATE.customers); showToast('Service date update ho gayi');
@@ -848,7 +885,7 @@ async function processCustomerRows(rows){
   const colEmail=findCol(headers,['email','e-mail']);
   const colNotes=findCol(headers,['notes','description']);
   if(colName===-1){ showToast('Customer naam wala column nahi mila'); return; }
-  let added=0, skipped=0;
+  let added=0, skipped=0, dupSkipped=0;
   for(let i=headerRowIdx+1;i<rows.length;i++){
     const cols=rows[i];
     const name=(cols[colName]||'').trim();
@@ -869,6 +906,7 @@ async function processCustomerRows(rows){
     if(!expiryDate && totalServices) expiryDate=addMonths(activationDate,12);
     const productVal=colProduct>-1?(cols[colProduct]||''):'';
     const isAmcLike = colBrand>-1 || colProduct>-1 || colEndDate>-1 || colYear>-1;
+    if(dupCustomerByPhone(phone,phone2)){ dupSkipped++; continue; }
     STATE.customers.push({id:uid(), name, type:isAmcLike?'amc':'onetime', phone, phone2, email:colEmail>-1?(cols[colEmail]||''):'', address, landmark:'', city:'', state:'', pincode:'',
       lastService:activationDate, intervalMonths:3,
       amcName:isAmcLike?name+' AMC':'', brand:colBrand>-1?(cols[colBrand]||''):productVal, model:colModel>-1?(cols[colModel]||''):'', serialNo:colSerial>-1?(cols[colSerial]||''):'',
@@ -877,9 +915,9 @@ async function processCustomerRows(rows){
       leadStatus:'new', notes:colNotes>-1?(cols[colNotes]||''):''});
     added++;
   }
-  if(added===0){ showToast('Koi valid customer row nahi mila'); return; }
+  if(added===0){ showToast(dupSkipped?('Sab '+dupSkipped+' number pehle se app mein hain — naya kuch nahi jura'):'Koi valid customer row nahi mila'); return; }
   await saveKey(SKEY.CUSTOMERS, STATE.customers);
-  showToast(added+' customers import ho gaye'+(skipped?' ('+skipped+' khaali rows skip hui)':'')); render();
+  showToast(added+' customers import ho gaye'+(skipped?' ('+skipped+' khaali rows skip hui)':'')+(dupSkipped?' · '+dupSkipped+' same number wale pehle se hain, skip':'')); render();
 }
 async function importCustomersCsv(file){
   try{
@@ -1319,6 +1357,7 @@ function classifyWork(t){
   return 'onetime';
 }
 const isMoneyRole=()=>STATE.session&&(STATE.session.role==='admin'||STATE.session.role==='subadmin');
+const isAdminOnly=()=>!!(STATE.session&&STATE.session.role==='admin');
 function fmtDMY(s){ const m=String(s||'').match(/^(\d{4})-(\d{2})-(\d{2})/); return m?m[3]+'/'+m[2]+'/'+m[1]:''; }
 function monthLabel(k){ if(k.length===4) return k; const [y,m]=k.split('-').map(Number); return ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][m-1]+' '+y; }
 
@@ -1483,7 +1522,7 @@ function billsTabHtml(isAdmin){
     ${L.length>80?`<div class="item-sub">Pehli 80 dikha rahe hain — search karein.</div>`:''}${undo}`;
 }
 function renderMoney(){
-  if(!isMoneyRole()) return '<div class="empty-state"><p>Sirf Admin / Office ke liye</p></div>';
+  if(!isAdminOnly()) return '<div class="empty-state"><p>Kamai sirf Admin ke liye hai</p></div>';
   const isAdmin=STATE.session.role==='admin'; if(!isAdmin&&MONEY.tab==='due') MONEY.tab='totals';
   const pend=(STATE.jobs||[]).filter(j=>j.status==='done'&&!j.extra&&(Number(j.amount)||0)>0&&(j.completedAt||0)>=Date.now()-30*864e5&&!(j.tag==='AMC'&&j.amcVisit===false)).length;
   const tabs=[['totals','💰 Kamai'],['incentive','🎯 Incentive'],['extra','🔧 Extra Kaam'+(pend?' ('+pend+')':'')]].concat(isAdmin?[['due','⏳ Due']]:[]).concat([['bills','🧾 Bills']]);
@@ -1501,7 +1540,7 @@ function renderMoney(){
 /* ---- actions ---- */
 async function saveExtra(id,desc,amt,note){
   const j=STATE.jobs.find(x=>x.id===id); if(!j) return false;
-  if(!isMoneyRole()){ showToast('Ye option sirf Admin / Office ke liye hai'); return false; }
+  if(!isAdminOnly()){ showToast('Ye option sirf Admin ke liye hai'); return false; }
   desc=String(desc||'').trim(); amt=Number(amt)||0;
   if(!desc){ showToast('Extra kaam ka naam likhein'); return false; }
   if(amt<=0){ showToast('Extra kaam ka amount daalein'); return false; }
@@ -1511,7 +1550,7 @@ async function saveExtra(id,desc,amt,note){
   await saveKey(SKEY.JOBS, STATE.jobs); showToast('✅ Extra kaam confirm ho gaya'); return true;
 }
 async function markExtra(id,status){
-  const j=STATE.jobs.find(x=>x.id===id); if(!j||!isMoneyRole()) return;
+  const j=STATE.jobs.find(x=>x.id===id); if(!j||!isAdminOnly()) return;
   j.extra={status,by:(STATE.session&&STATE.session.name)||'',at:Date.now()};
   j.history=(j.history||[]).concat({s:'extra',t:Date.now(),by:j.extra.by,why:status==='none'?'Extra kaam nahi':'Extra kaam reject'});
   await saveKey(SKEY.JOBS, STATE.jobs); showToast(status==='none'?'Theek hai — extra kaam nahi':'Reject ho gaya');
@@ -1984,7 +2023,7 @@ function amcHistoryHtml(c){
   const chip=x=>x.status==='renewed'?`<span class="pill pill-green">🟢 Renewed${x.renewedOn?' · '+fmtDate(x.renewedOn):''}</span>`:x.status==='lapsed'?`<span class="pill pill-red">🔴 Renewal nahi hui / Cancel</span>`:x.status==='expired'?`<span class="pill pill-amber">⏳ Expired — renewal baaki</span>`:`<span class="pill pill-sky">✅ Chal rahi</span>`;
   const rows=h.slice().reverse().map((x,ri)=>{ const idx=h.length-ri; return `<div style="padding:8px 0;border-top:1px solid var(--border);"><div class="row-between"><div class="item-sub" style="margin:0;font-weight:700;">Contract ${idx}: ${x.start?fmtDate(x.start):'—'} → ${x.end?fmtDate(x.end):'—'}</div>${chip(x)}</div>
     <div class="item-sub">${x.amount?'₹'+x.amount:''}${x.units?' · '+x.units+' AC':''}${x.years>1?' · '+x.years+' saal':''}${x.tech?' · 👷 '+esc(x.tech):''}${x.teli&&!/^old/i.test(x.teli)?' · 📞 '+esc(x.teli):''}</div>
-    <div class="item-sub">🔧 Services (${x.services.length}): ${x.services.length?x.services.map((dt,i)=>(i+1)+') '+fmtDate(dt)).join(' · '):'—'}</div>
+    <div class="item-sub">🔧 Services (${x.services.length}): ${x.svcDetails&&x.svcDetails.length?x.svcDetails.map((s,i)=>(i+1)+') '+fmtDate(s.date)+(s.tech?' — 👷 '+esc(s.tech):'')+(s.note?' — '+esc(s.note):'')).join('<br>'):(x.services.length?x.services.map((dt,i)=>(i+1)+') '+fmtDate(dt)).join(' · '):'—')}</div>${x.pastEntry?`<div class="item-sub">🗂 Purani AMC record (lead se) — koi job nahi bani</div>`:''}
     ${x.renewalNote?`<div class="item-sub">🔁 Renewal note: ${esc(x.renewalNote)}</div>`:''}${x.desc?`<div class="item-sub">📝 ${esc(x.desc)}</div>`:''}</div>`; }).join('');
   return `<div class="card"><div class="item-name" style="margin-bottom:2px;">📜 AMC History</div><div class="item-sub">${h.length} contract · ${ren} baar renewal hui${h[0].start?' · pehli AMC: '+fmtDate(h[0].start):''}</div>${rows}</div>`;
 }
@@ -2048,7 +2087,7 @@ async function convertLeadToOnetime(id,opt){ opt=opt||{};
   l.convertedJobId=j.id; l.convertedType='onetime'; l.convertedBy=(STATE.session&&STATE.session.name)||''; l.convertedAt=Date.now();
   await saveKey(SKEY.LEADS, STATE.leads);
   showToast(opt.tech?'✅ One-time Job ban gayi — '+nStaff(opt.tech)+' ko assign ho gayi':'✅ One-time Job ban gayi (technician baad me assign karein)'); notifSend(OFFICE_KEYS.concat(l.assignedTo?['staff:'+l.assignedTo]:[]),'lead_conv','📇 Lead se One-time job bani',(l.customer||'')+' · '+((STATE.session&&STATE.session.name)||''),l.id);
-  STATE.customerDetailId=cust.id; STATE.view='customerProfile'; render();
+  STATE.customerDetailId=cust.id; STATE.backView=(STATE.view!=='customerProfile'?STATE.view:STATE.backView); STATE.view='customerProfile'; render();
 }
 async function reopenLead(id){
   const l=(STATE.leads||[]).find(x=>x.id===id); if(!l) return;
@@ -2124,7 +2163,7 @@ async function convertLeadToJob(id,opt){ opt=opt||{};
   l.convertedJobId=j.id; l.convertedBy=(STATE.session&&STATE.session.name)||''; l.convertedAt=Date.now();
   await saveKey(SKEY.LEADS, STATE.leads);
   showToast(opt.tech?'✅ AMC Customer aur Job ban gayi — '+nStaff(opt.tech)+' ko assign ho gayi':'✅ AMC Customer aur Job ban gayi (technician baad me assign karein)'); notifSend(OFFICE_KEYS.concat(l.assignedTo?['staff:'+l.assignedTo]:[]),'lead_conv','📇 Lead se AMC bana',(l.customer||'')+' · '+((STATE.session&&STATE.session.name)||''),l.id);
-  STATE.customerDetailId=cust.id; STATE.view='customerProfile'; render();
+  STATE.customerDetailId=cust.id; STATE.backView=(STATE.view!=='customerProfile'?STATE.view:STATE.backView); STATE.view='customerProfile'; render();
 }
 async function addJob(data){
   const checklistItems=(data.checklist||'').split(',').map(s=>s.trim()).filter(Boolean).map(text=>({text, done:false}));
@@ -2370,9 +2409,11 @@ function syncNavHistory(){
   window.addEventListener('popstate',()=>{
     if(!STATE.session){ return; }
     const keep=()=>{ try{ history.pushState({st:'app'},''); }catch(e){} };
+    if(STATE.lightboxSrc||STATE.lightboxVid){ STATE.lightboxSrc=null; STATE.lightboxVid=null; keep(); render(); return; }
     if(activeModal){ activeModal=null; keep(); render(); return; }
     const home=homeViewFor(STATE.session.role);
     if(STATE.view==='customerProfile'){ STATE.view=STATE.backView&&STATE.backView!=='customerProfile'?STATE.backView:'customers'; keep(); render(); return; }
+    if(STATE.view==='staffProfile'){ STATE.view=STATE.session.role==='admin'?'staff':home; keep(); render(); return; }
     if(STATE.view!==home){ STATE.view=home; keep(); render(); return; }
     if(exitArmed){ exitArmed=false; try{ history.back(); }catch(e){} return; }
     exitArmed=true; keep(); showToast('App band karne ke liye dobara Back dabayein'); setTimeout(()=>{ exitArmed=false; },2500);
@@ -2395,14 +2436,23 @@ function render(){
   ensureLazyListeners();
   if(STATE.session.role==='technician' && STATE.permScreen){ app.innerHTML=renderPermScreen(); bindPermScreen(); return; }
   if(STATE.session.role==='technician' && STATE.locOK!==true){ app.innerHTML=renderLocationGate(); bindLocationGate(); return; }
-  notifEnsure(); app.innerHTML=renderShell(); bindShellEvents(); if(STATE.view==='leads') setTimeout(autoPullOwn,50); syncNavHistory(); saveSessionLocal();
+  notifEnsure();
+  /* scroll yaad rakho: profile se wapas aane par list wahin khule jahan chhodi thi */
+  const _y=window.scrollY||document.documentElement.scrollTop||0, _pv=render._v, _mem=(render._mem=render._mem||{});
+  app.innerHTML=renderShell(); bindShellEvents();
+  { const nv=STATE.view; let target=0;
+    if(_pv===nv) target=_y;
+    else { if(_pv) _mem[_pv]=_y; if(_pv==='customerProfile'&&nv!=='customerProfile'&&_mem[nv]!==undefined) target=_mem[nv]; if(nv!=='customerProfile'&&_pv!=='customerProfile') delete _mem[nv]; }
+    render._v=nv;
+    if(target>0||_pv!==nv){ const go=()=>{ try{ window.scrollTo(0,target); }catch(e){} }; go(); requestAnimationFrame(()=>{ go(); setTimeout(go,60); }); } }
+  if(STATE.view==='leads') setTimeout(autoPullOwn,50); syncNavHistory(); saveSessionLocal();
 }
 
 /* ============ Setup screen ============ */
 function renderSetup(){
   return `
   <div class="login-wrap">
-    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v7.2</p></div>
+    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v7.3</p></div>
     <div class="setup-note">Yeh app ab Firebase (Google ka free real-time database) use karti hai — pehle se tez aur reliable. Firebase Console se apna config copy karke neeche paste karein.</div>
     <div class="field"><label>Firebase Config (poora object paste karein)</label><textarea id="setupConfig" rows="8" placeholder='{"apiKey": "...", "authDomain": "...", "projectId": "...", ...}'>${setupUrlInput}</textarea></div>
     <button class="primary-btn" id="connectBtn">Connect Karein</button>
@@ -2470,7 +2520,7 @@ function renderLogin(){
   }
   return `
   <div class="login-wrap">
-    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v7.2</p></div>
+    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v7.3</p></div>
     <div class="role-grid">
       <button class="role-opt ${loginRole==='admin'?'active':''}" data-role="admin"><span class="ic">🗝️</span>Admin</button>
       <button class="role-opt ${loginRole==='subadmin'?'active':''}" data-role="subadmin"><span class="ic">🧑‍💼</span>Office</button>
@@ -2506,7 +2556,7 @@ function bindLoginEvents(){
 /* ============ App shell ============ */
 function navItemsFor(role){
   if(role==='admin') return [{v:'dashboard',ic:'🏠',label:'Home'},{v:'customers',ic:'🛡️',label:'AMC'},{v:'jobs',ic:'🧾',label:'Jobs'},{v:'money',ic:'💰',label:'Kamai'},{v:'leads',ic:'📇',label:'Leads'},{v:'staff',ic:'🧑‍🔧',label:'Team'},{v:'attendance',ic:'📅',label:'Attend.'},{v:'map',ic:'📍',label:'Map'},{v:'settings',ic:'⚙️',label:'Settings'}];
-  if(role==='subadmin') return [{v:'dashboard',ic:'🏠',label:'Home'},{v:'customers',ic:'🛡️',label:'AMC'},{v:'jobs',ic:'🧾',label:'Jobs'},{v:'money',ic:'💰',label:'Kamai'},{v:'leads',ic:'📇',label:'Leads'},{v:'attendance',ic:'📅',label:'Attend.'},{v:'map',ic:'📍',label:'Map'},{v:'settings',ic:'⚙️',label:'Settings'}];
+  if(role==='subadmin') return [{v:'dashboard',ic:'🏠',label:'Home'},{v:'customers',ic:'🛡️',label:'AMC'},{v:'jobs',ic:'🧾',label:'Jobs'},{v:'leads',ic:'📇',label:'Leads'},{v:'attendance',ic:'📅',label:'Attend.'},{v:'map',ic:'📍',label:'Map'},{v:'settings',ic:'⚙️',label:'Settings'}];
   if(role==='telecaller') return [{v:'leads',ic:'📇',label:'Leads'},{v:'attendance',ic:'📅',label:'Attend.'},{v:'settings',ic:'⚙️',label:'Profile'}];
   return [{v:'techhome',ic:'🏠',label:'Home'},{v:'myjobs',ic:'🛠️',label:'My Jobs'},{v:'attendance',ic:'📅',label:'Attend.'},{v:'settings',ic:'⚙️',label:'Profile'}];
 }
@@ -2514,6 +2564,7 @@ function roleLabel(r){ return r==='admin'?'Admin':r==='subadmin'?'Office':r==='t
 
 function renderShell(){
   const nav=navItemsFor(STATE.session.role);
+  if(STATE.view==='money'&&STATE.session.role!=='admin') STATE.view=homeViewFor(STATE.session.role);
   let body='';
   if(STATE.view==='dashboard') body=renderDashboard();
   else if(STATE.view==='customers') body=renderCustomers();
@@ -2658,7 +2709,7 @@ function renderDashboard(){
 function amcTimelineHtml(c){
   const tot=c.totalServices||0; if(!tot) return '';
   const log=(c.serviceLog||[]).sort((a,b)=>(a.visitNo||0)-(b.visitNo||0));
-  const rows=[]; for(let n=1;n<=tot;n++){ const e=log.find(x=>x.visitNo===n); rows.push(e?`<div class="row-between" style="padding:4px 0;"><div class="item-sub">✅ Service ${n}</div><div class="item-sub">${fmtDate(new Date(e.date).toISOString().slice(0,10))}${e.by?' · '+esc(e.by):''}${e.manual?' · (manual)':''}${e.manual&&STATE.session.role!=='technician'?` <button class="mini-btn danger" style="padding:1px 7px;font-size:11px;" data-act="amcsvcdel" data-id="${c.id}" data-visit="${n}">✕</button>`:''}</div></div>`:`<div class="row-between" style="padding:4px 0;opacity:.6;"><div class="item-sub">○ Service ${n}</div><div class="item-sub">Baaki hai</div></div>`); }
+  const rows=[]; for(let n=1;n<=tot;n++){ const e=log.find(x=>x.visitNo===n); rows.push(e?`<div class="row-between" style="padding:4px 0;"><div class="item-sub">✅ Service ${n}</div><div class="item-sub">${fmtDate(new Date(e.date).toISOString().slice(0,10))}${e.by?' · '+esc(e.by):''}${e.note?' · 📝 '+esc(e.note):''}${e.manual?' · (manual)':''}${e.manual&&STATE.session.role!=='technician'?` <button class="mini-btn danger" style="padding:1px 7px;font-size:11px;" data-act="amcsvcdel" data-id="${c.id}" data-visit="${n}">✕</button>`:''}</div></div>`:`<div class="row-between" style="padding:4px 0;opacity:.6;"><div class="item-sub">○ Service ${n}</div><div class="item-sub">Baaki hai</div></div>`); }
   return `<details style="margin-bottom:8px;"><summary class="item-sub" style="cursor:pointer;font-weight:600;">📅 4 service kab-kab (poori list)</summary>${rows.join('')}</details>`;
 }
 function sourceLabel(t){ return {online:'🌐 Online',telecaller:'📞 Telecaller',offline:'🚶 Offline / Walk-in',reference:'🤝 Reference',other:'Anya'}[t]||'🚶 Offline / Walk-in'; }
@@ -2828,7 +2879,7 @@ function renderCustomerProfile(){
       <div class="item-sub">${c.address||''}${c.landmark?', '+c.landmark:''}${c.city?', '+c.city:''}${c.state?', '+c.state:''}${c.pincode?' - '+c.pincode:''}</div>
       <div class="card-actions" style="margin-top:10px;">${c.phone?`<a class="mini-btn primary" style="text-decoration:none;" href="tel:${c.phone}">📞 Call</a>`:''}${c.phone?`<a class="mini-btn" style="text-decoration:none;" href="https://wa.me/${waNum(c.phone)}">💬 WhatsApp</a>`:''}${STATE.session.role==='technician'?'':`<button class="mini-btn" data-act="editcust" data-id="${c.id}">✏️ Details Badlein</button><button class="mini-btn primary" data-act="newjobfor" data-id="${c.id}">➕ Job Banao</button>${c.type==='amc'?`<button class="mini-btn" data-act="renewamc" data-id="${c.id}">🔁 Renewal Karein</button>`:''}`}</div>
     </div>
-    ${STATE.session.role==='technician'?'':amcDetailsHtml(c)+amcHistoryHtml(c)+billHistoryHtml(c)}
+    ${STATE.session.role==='technician'?'':amcDetailsHtml(c)+amcHistoryHtml(c)+(STATE.session.role==='admin'?billHistoryHtml(c):'')}
     ${c.type==='amc'?`<div class="card">
       <div class="section-title" style="margin:0 0 8px 0;">AMC Contract</div>
       <div class="item-sub">${c.brand||''} ${c.model||''} ${c.serialNo?'· SN: '+c.serialNo:''}</div>
@@ -2841,7 +2892,7 @@ function renderCustomerProfile(){
     </div>`:''}
     <div class="stat-grid">
       <div class="stat-card"><div class="stat-num">${customerJobs.length}</div><div class="stat-label">Total Services/Jobs</div></div>
-      ${STATE.session.role==='technician'?'':`<div class="stat-card"><div class="stat-num" style="color:var(--green)">${rupee(totalEarned)}</div><div class="stat-label">Total Earned</div></div>`}
+      ${STATE.session.role==='admin'?`<div class="stat-card"><div class="stat-num" style="color:var(--green)">${rupee(totalEarned)}</div><div class="stat-label">Total Earned</div></div>`:''}
     </div>
     <div class="section-title">Service History</div>
     ${customerJobs.length===0?`<div class="empty-state"><span class="ic">🧾</span><p>Koi service history nahi hai.</p></div>`:
@@ -3766,7 +3817,8 @@ function modalHtml(){
     inner=`<div class="modal-head"><h3>☰ Aur Menu</h3><button class="close-x" id="modalClose">×</button></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">${items.map(n=>`<button class="ghost-btn" data-act="gonav" data-id="${n.v}" style="padding:16px 8px;font-size:14px;"><div style="font-size:24px;">${n.ic}</div>${n.label}</button>`).join('')}</div>`;
   } else if(activeModal.type==='leadAssign'){
     const d=activeModal.data, l=(STATE.leads||[]).find(x=>x.id===d.id)||{};
-    inner=`<div class="modal-head"><h3>${d.kind==='amc'?'✅ AMC Bana Do':'🔧 One-time Service'}</h3><button class="close-x" id="modalClose">×</button></div><div class="card"><div class="item-name">${esc(l.customer||'')}</div><div class="item-sub">📞 ${esc(l.mobile||'')}</div></div><div class="field"><label>Technician abhi chunein (job me dobara nahi poochhenge)</label><select id="f_ltech"><option value="">-- Baad me / Unassigned --</option>${techOptionsHtml(todayStr(),'')}</select></div><div class="field"><label>Job ki Date</label>${dmyPickHtml('la',todayStr())}</div><button class="primary-btn" id="modalSave">Job Banao</button>`;
+    inner=`<div class="modal-head"><h3>${d.kind==='amc'?'✅ AMC Bana Do':'🔧 One-time Service'}</h3><button class="close-x" id="modalClose">×</button></div><div class="card"><div class="item-name">${esc(l.customer||'')}</div><div class="item-sub">📞 ${esc(l.mobile||'')}</div></div>${d.kind==='amc'?`<div class="field"><label>Ye AMC kab ki hai?</label><select id="f_laWhen"><option value="new">Nayi AMC — technician ko job dena hai</option><option value="past">Purani date ki — AMC ho chuki hai (sirf record, job nahi banegi)</option></select></div>`:''}<div id="laNew"><div class="field"><label>Technician abhi chunein (job me dobara nahi poochhenge)</label><select id="f_ltech"><option value="">-- Baad me / Unassigned --</option>${techOptionsHtml(todayStr(),'')}</select></div><div class="field"><label>Job ki Date</label>${dmyPickHtml('la',todayStr())}</div></div>${d.kind==='amc'?`<div id="laPast" style="display:none;"><div class="field"><label>AMC kis date se shuru hui?</label>${dmyPickHtml('pa','')}</div><div style="display:flex;gap:8px;"><div class="field" style="flex:1;"><label>Kitne saal</label><select id="f_paYears"><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option></select></div><div class="field" style="flex:1;"><label>Kul services</label><input id="f_paTotal" type="number" min="1" max="60" value="4" inputmode="numeric"></div></div><div style="display:flex;gap:8px;"><div class="field" style="flex:1;"><label>Amount (₹)</label><input id="f_paAmt" type="number" min="0" inputmode="numeric" placeholder="jaise 3500"></div><div class="field" style="flex:1;"><label>Payment</label><select id="f_paMode"><option value="cash">Cash</option><option value="online">Online</option><option value="cheque">Cheque</option><option value="">Pata nahi</option></select></div></div><div class="field"><label>Ab tak kitni service ho chuki?</label><select id="f_paDone">${[0,1,2,3,4,5,6,7,8,9,10,11,12].map(n=>`<option value="${n}">${n}</option>`).join('')}</select></div><div id="paRows"></div><div class="item-sub" id="paLeft" style="margin-bottom:8px;"></div><div class="field"><label>Details / Note (optional)</label><textarea id="f_paNote" rows="2" placeholder="AC, brand, koi khas baat"></textarea></div></div>`:''}<button class="primary-btn" id="modalSave">Job Banao</button>`;
+    setTimeout(wireLeadAssign,0);
   } else if(activeModal.type==='fixAmt'){
     const d=activeModal.data;
     inner=`<div class="modal-head"><h3>💰 Amount theek karein</h3><button class="close-x" id="modalClose">x</button></div><div class="card"><div class="item-name">${esc(d.name||'Customer')}</div><div class="item-sub">${esc(d.title||'')} · ${fmtDate(d.date)} · abhi ka amount: <b>${rupee(d.amount)}</b></div></div><div class="field"><label>Sahi amount (₹)</label><input id="f_fxamt" type="number" inputmode="numeric" min="1" placeholder="jaise 3500"></div><button class="primary-btn" id="modalSave">Save Karein</button>`;
@@ -4105,6 +4157,7 @@ function bindShellEvents(){
     else if(act==='bkstaff'){ await staffExcel(); }
     else if(act==='bkfull'){ await exportData(); }
     else if(act==='bkbin'){ await loadBin(); }
+    else if(act==='mergedups'){ if(STATE.session.role!=='admin') return; if(confirm('Same number wale profile ek mein jud jayenge (jobs, bills sab usi mein). Purane duplicate Recycle Bin mein rahenge. Karein?')) await mergeDuplicateCustomers(); }
     else if(act==='bkrestore'){ restoreRec(el.dataset.kind,id); }
     else if(act==='gobackup'){ STATE.setTab='backup'; STATE.view='settings'; render(); }
     else if(act==='traveladd'){ activeModal={type:'travelAdd',data:{}}; render(); }
@@ -4250,13 +4303,14 @@ function bindShellEvents(){
       if(activeModal.type==='addCustomer'){
         const name=val('f_name'); if(!name){ showToast('Naam zaroori hai'); resetBtn(); return; }
         const dup=dupCustomerByPhone(val('f_phone'),val('f_phone2'));
-        if(dup&&!confirm('⚠️ Is number ka customer pehle se app mein hai:\n'+dup.name+' ('+({amc:'AMC',onetime:'One-time',enquiry:'Enquiry',quotation:'Quotation'}[dup.type||'amc']||'')+((dup.type||'amc')==='amc'?' · '+amcStatusLabel(dup):'')+')\n\nPhir bhi naya customer banana hai?')){ resetBtn(); return; }
+        if(dup){ alert('⚠️ Is number ka customer pehle se app mein hai:\n'+dup.name+' ('+({amc:'AMC',onetime:'One-time',enquiry:'Enquiry',quotation:'Quotation'}[dup.type||'amc']||'')+((dup.type||'amc')==='amc'?' · '+amcStatusLabel(dup):'')+')\n\nEk number ka ek hi profile rahega. Purana profile khol raha hoon — naya kaam (repairing/extra) usi mein Job se jodein.'); activeModal=null; resetBtn(); await openCustomerProfile(dup.id); return; }
         await addCustomer({name, type:val('f_custType'), phone:val('f_phone'), phone2:val('f_phone2'), email:val('f_email'), address:val('f_address'), landmark:val('f_landmark'), city:val('f_city'), state:val('f_state'), pincode:val('f_pincode'),
           amcName:val('f_amcName'), brand:val('f_brand'), model:val('f_model'), acType:val('f_acType'), installDate:val('f_installDate'), serialNo:val('f_serialNo'), underWarranty:val('f_warranty')==='yes', activationDate:val('f_activationDate'), expiryDate:val('f_expiryDate'), totalServices:val('f_totalServices'), source:val('f_source'), sourceType:val('f_sourceType'), amcAmount:val('f_amcAmount'), incentiveGiven:document.getElementById('f_incGiven').checked, incentiveTo:val('f_incTo'), incentiveAmount:val('f_incAmount'), incentivePaid:val('f_incPaid')==='yes',
           lastService:val('f_lastService'), intervalMonths:val('f_interval'), notes:val('f_notes')});
         activeModal=null; render();
       } else if(activeModal.type==='editCustomer'){
         const name=val('f_name'); if(!name){ showToast('Naam zaroori hai'); return; }
+        { const a1=ph10(val('f_phone')), a2=ph10(val('f_phone2')); const other=(STATE.customers||[]).find(x=>x.id!==activeModal.data.id&&!x.deleted&&[ph10(x.phone),ph10(x.phone2)].some(p=>p.length===10&&(p===a1||p===a2))); if(other){ showToast('Ye number "'+other.name+'" ke profile mein pehle se hai — ek number ka ek hi profile'); resetBtn(); return; } }
         { const oc=STATE.customers.find(x=>x.id===activeModal.data.id), na=val('f_activationDate'); if(oc&&oc.amcHistory&&oc.activationDate&&na&&na!==oc.activationDate){ const hx=oc.amcHistory.find(h=>h.start===oc.activationDate); if(hx){ hx.start=na; if(!hx.end||hx.end<=na) hx.end=addMonths(na,12*(Number(hx.years)||1)); } } }
         await updateCustomer(activeModal.data.id, {name, type:val('f_custType'), phone:val('f_phone'), phone2:val('f_phone2'), email:val('f_email'), address:val('f_address'), landmark:val('f_landmark'), city:val('f_city'), state:val('f_state'), pincode:val('f_pincode'),
           amcName:val('f_amcName'), brand:val('f_brand'), model:val('f_model'), acType:val('f_acType'), installDate:val('f_installDate'), serialNo:val('f_serialNo'), underWarranty:val('f_warranty')==='yes', activationDate:val('f_activationDate'), expiryDate:val('f_expiryDate'), totalServices:Number(val('f_totalServices'))||0, source:val('f_source'), sourceType:val('f_sourceType'), amcAmount:Number(val('f_amcAmount'))||0, incentiveGiven:document.getElementById('f_incGiven').checked, incentiveTo:val('f_incTo'), incentiveAmount:Number(val('f_incAmount'))||0, incentivePaid:val('f_incPaid')==='yes',
@@ -4271,10 +4325,12 @@ function bindShellEvents(){
       } else if(activeModal.type==='addJob'){
         const title=val('f_title'); if(!title){ showToast('Job title zaroori hai'); return; }
         if(!jobCustSelectedId){ showToast('Customer list se select karein'); return; }
-        await addJob({title, tag:val('f_tag'), amount:val('f_jobAmount'), checklist:val('f_checklist'), customerId:jobCustSelectedId, assignedTo:val('f_tech'), date:val('f_date'), notes:val('f_jnotes'), amcVisit:!!(document.getElementById('f_amcVisit')&&document.getElementById('f_amcVisit').checked)});
+        { const kindEl=document.getElementById('f_amcKind'); const isRepair=!!(kindEl&&kindEl.value==='repair'); let tg=val('f_tag'); if(isRepair&&(!tg||tg.trim().toUpperCase()==='AMC')) tg='Repair';
+        await addJob({title, tag:tg, amount:val('f_jobAmount'), checklist:val('f_checklist'), customerId:jobCustSelectedId, assignedTo:val('f_tech'), date:val('f_date'), notes:val('f_jnotes'), amcVisit:kindEl?!isRepair:false}); }
         activeModal=null; jobCustQuery=''; jobCustSelectedId=''; render();
       } else if(activeModal.type==='leadAssign'){
         const d=activeModal.data, tech=val('f_ltech'), date=dmyVal('la');
+        if(d.kind==='amc'&&val('f_laWhen')==='past'){ const pf=readPastAmcForm(); if(pf.err){ showToast(pf.err); resetBtn(); return; } activeModal=null; render(); await convertLeadToPastAmc(d.id,pf); return; }
         if(!date){ showToast('Sahi date chunein'); return; }
         if(tech&&isOnLeaveOn(tech,date)){ showToast('⚠️ Ye technician us din chhutti par hai — dusra chunein'); return; }
         activeModal=null; render();
@@ -4349,13 +4405,77 @@ function isOnLeaveOn(staffId, dateStr){
 function techOptionsHtml(dateStr, selectedId){
   return STATE.staff.filter(s=>s.role==='technician').map(t=>{ const off=isOnLeaveOn(t.id,dateStr||todayStr()); return `<option value="${t.id}" ${off?'disabled':''} ${selectedId===t.id?'selected':''}>${esc(t.name)}${off?' — 🚫 Chhutti par':''}</option>`; }).join('');
 }
+function techNameOptHtml(){
+  return '<option value="">-- Technician --</option>'+STATE.staff.filter(s=>s.role==='technician').map(t=>`<option value="${t.id}">${esc(t.name)}</option>`).join('')+'<option value="__other">Dusra (naam likhein)</option>';
+}
+function wireLeadAssign(){
+  const w=document.getElementById('f_laWhen'); if(!w) return;
+  const paint=()=>{
+    const past=w.value==='past', nw=document.getElementById('laNew'), pa=document.getElementById('laPast'), btn=document.getElementById('modalSave');
+    if(nw) nw.style.display=past?'none':''; if(pa) pa.style.display=past?'':'none'; if(btn) btn.textContent=past?'AMC Record Save Karo':'Job Banao';
+  };
+  w.onchange=paint; paint();
+  const done=document.getElementById('f_paDone'), tot=document.getElementById('f_paTotal'), rows=document.getElementById('paRows'), left=document.getElementById('paLeft');
+  const upd=()=>{
+    const n=Number(done.value)||0, t=Number(tot.value)||0;
+    for(let i=0;i<n;i++){ if(!document.getElementById('paRow'+i)){ const dv=document.createElement('div'); dv.id='paRow'+i; dv.className='card'; dv.style.cssText='padding:10px;margin-bottom:8px;'; dv.innerHTML=`<div class="item-sub" style="font-weight:700;margin-bottom:6px;">Service ${i+1}</div><div class="field" style="margin-bottom:6px;"><label>Date</label>${dmyPickHtml('ps'+i,'')}</div><div class="field" style="margin-bottom:6px;"><label>Technician</label><select id="f_psT${i}">${techNameOptHtml()}</select><input id="f_psO${i}" placeholder="Technician ka naam" style="display:none;margin-top:6px;"></div><div class="field" style="margin-bottom:0;"><label>Note (optional)</label><input id="f_psN${i}" placeholder="kya kaam hua"></div>`; rows.appendChild(dv); const sel=dv.querySelector('#f_psT'+i); sel.onchange=()=>{ dv.querySelector('#f_psO'+i).style.display=sel.value==='__other'?'':'none'; }; } }
+    for(let i=n;i<60;i++){ const e=document.getElementById('paRow'+i); if(!e) break; e.remove(); }
+    left.innerHTML=t?(n>t?'⚠️ Ho chuki services kul se zyada hain':'📋 Kul <b>'+t+'</b> · ho chuki <b>'+n+'</b> · baaki <b>'+(t-n)+'</b>'):'';
+  };
+  done.onchange=upd; tot.oninput=upd; upd();
+}
+/* Purani date ki AMC (lead se): job/technician assign nahi — sirf record */
+function readPastAmcForm(){
+  const start=dmyVal('pa'); if(!start){ return {err:'AMC ki shuruaat ki sahi date (din/mahina/saal) chunein'}; }
+  if(start>todayStr()){ return {err:'Purani AMC ki date aaj se pehle ki honi chahiye'}; }
+  const years=Number(val('f_paYears'))||1, total=Number(val('f_paTotal'))||0, done=Number(val('f_paDone'))||0;
+  if(total<1) return {err:'Kul services daalein'};
+  if(done>total) return {err:'Ho chuki services kul se zyada hain'};
+  const svcs=[]; let prev='';
+  for(let i=0;i<done;i++){
+    const dt=dmyVal('ps'+i); if(!dt) return {err:'Service '+(i+1)+' ki sahi date chunein'};
+    if(dt<start) return {err:'Service '+(i+1)+' ki date AMC shuru hone se pehle ki hai'};
+    if(dt>todayStr()) return {err:'Service '+(i+1)+' ki date aage ki hai — ho chuki service ki date aaj tak ki hogi'};
+    const ts=val('f_psT'+i); let tech='', techId='';
+    if(ts==='__other'){ tech=val('f_psO'+i).trim(); if(!tech) return {err:'Service '+(i+1)+' ke technician ka naam likhein'}; }
+    else if(ts){ techId=ts; tech=nStaff(ts)||''; }
+    svcs.push({date:dt,tech,techId,note:val('f_psN'+i).trim()});
+  }
+  svcs.sort((a,b)=>a.date.localeCompare(b.date));
+  return {start,years,total,done,svcs,amount:Number(val('f_paAmt'))||0,mode:val('f_paMode'),note:val('f_paNote').trim()};
+}
+async function convertLeadToPastAmc(id,f){
+  const l=(STATE.leads||[]).find(x=>x.id===id); if(!l||l.convertedJobId||l.markedDone) return;
+  const mob=ph10(l.mobile), mob2=ph10(l.resTel);
+  let cust=dupCustomerByPhone(l.mobile,l.resTel);
+  const addr=[l.address1,l.address2,l.address3].filter(Boolean).join(', ');
+  const end=addMonths(f.start,12*f.years), lastSvc=f.svcs.length?f.svcs[f.svcs.length-1].date:'';
+  const hist={start:f.start,end,years:f.years,units:0,amount:f.amount,services:f.svcs.map(s=>s.date),svcDetails:f.svcs.map(s=>({date:s.date,tech:s.tech,note:s.note})),tech:'',teli:String(l.calledBy||l.assignedName||''),desc:f.note,renewalNote:'',status:end<todayStr()?'expired':'active',mode:normMode(f.mode),srcRow:0,inApp:true,pastEntry:true,by:(STATE.session&&STATE.session.name)||'',at:Date.now()};
+  const log=f.svcs.map((s,i)=>({date:new Date(s.date+'T12:00:00').getTime(),visitNo:i+1,manual:false,pastEntry:true,tech:s.tech,note:s.note,by:s.tech||'(purani entry)'}));
+  if(!cust){
+    cust={id:uid(), name:l.customer||'Naya Customer', type:'amc', phone:l.mobile||'', phone2:l.resTel||'', email:'', address:addr, landmark:'', city:'', state:'', pincode:'', brand:'', model:l.product||'', acType:'', serialNo:'', installDate:l.purchaseDate||'', underWarranty:false, amcName:'AMC', activationDate:f.start, expiryDate:end, totalServices:f.total, servicesDone:f.done, source:'Telecaller — '+(l.calledBy||l.assignedName||''), sourceType:'telecaller', amcAmount:f.amount, autoIncentive:true, incentiveGiven:true, incentiveTo:(l.calledBy||l.assignedName||'Telecaller'), incentiveAmount:0, incentivePaid:false, lastService:lastSvc||f.start, intervalMonths:3, notes:('Area: '+(l.area||'')+(f.note?' · '+f.note:'')), serviceLog:log, amcHistory:[hist], createdAt:Date.now()};
+  } else {
+    /* pehle se profile hai: usi mein nayi (purani) contract jodo, naya customer nahi */
+    cust.type='amc'; cust.amcHistory=(cust.amcHistory||[]).concat(hist);
+    if(!cust.activationDate||f.start>=cust.activationDate){ cust.activationDate=f.start; cust.expiryDate=end; cust.totalServices=f.total; cust.servicesDone=f.done; cust.amcAmount=f.amount||cust.amcAmount; cust.serviceLog=log; if(lastSvc) cust.lastService=lastSvc; }
+    if(f.note) cust.notes=(cust.notes?cust.notes+'\n':'')+f.note;
+    if(!cust.model&&l.product) cust.model=l.product;
+  }
+  cust.leadTelecaller=l.assignedName||cust.leadTelecaller||''; cust.leadCalledBy=l.calledBy||''; cust.leadId=l.id;
+  STATE.customers=STATE.customers.filter(x=>x.id!==cust.id).concat(cust); await saveKey(SKEY.CUSTOMERS, STATE.customers);
+  l.markedDone=true; l.doneDate=f.start; l.doneBy=(STATE.session&&STATE.session.name)||''; l.doneAt=Date.now(); l.doneCustId=cust.id; l.followUpDate='';
+  if(!l.called){ l.called=true; l.calledAt=Date.now(); l.calledBy=l.calledBy||'(purani AMC)'; }
+  await saveKey(SKEY.LEADS, STATE.leads);
+  showToast('✅ Purani AMC record ho gayi — '+f.done+'/'+f.total+' service, koi job nahi bani');
+  STATE.customerDetailId=cust.id; STATE.backView=STATE.view; STATE.view='customerProfile'; render();
+}
 function paintAmcNote(){
   const box=document.getElementById('amcVisitNote'); if(!box) return;
   try{ paintJobDup(); }catch(e){}
   const c=STATE.customers.find(x=>x.id===jobCustSelectedId);
   if(!c||c.type!=='amc'){ box.innerHTML=''; return; }
   const done=c.servicesDone||0, tot=c.totalServices||0, next=Math.min(done+1,tot||done+1), full=tot&&done>=tot;
-  box.innerHTML=`<div class="item-sub" style="background:${amcStatusOf(c)==='active'?'#e9f6ef':'#fdf1e0'};border-radius:10px;padding:8px 10px;margin:-6px 0 12px;">📋 ${esc(c.name)} pehle se AMC customer hai (${esc(amcStatusLabel(c))}) — abhi ${done}${tot?'/'+tot:''} service ho chuki hain.${full?' Saari service ho chuki hain, ye <b>extra</b> visit mानी jayegi.':' Ye <b>Service '+next+(tot?'/'+tot:'')+'</b> mानी jayegi.'}</div><label style="display:flex;gap:8px;align-items:center;font-size:13px;margin:-4px 0 12px;"><input type="checkbox" id="f_amcVisit" checked> Ye AMC ki service visit hai (count mein jode)</label>`;
+  box.innerHTML=`<div class="item-sub" style="background:${amcStatusOf(c)==='active'?'#e9f6ef':'#fdf1e0'};border-radius:10px;padding:8px 10px;margin:-6px 0 12px;">📋 ${esc(c.name)} pehle se AMC customer hai (${esc(amcStatusLabel(c))}) — abhi ${done}${tot?'/'+tot:''} service ho chuki hain.${full?' Saari service ho chuki hain, ye <b>extra</b> visit mानी jayegi.':' Ye <b>Service '+next+(tot?'/'+tot:'')+'</b> mानी jayegi.'}</div><div class="field" style="margin:-4px 0 12px;"><label>Ye kaam kis type ka hai?</label><select id="f_amcKind"><option value="service">AMC ki service visit (count mein jode)</option><option value="repair">Repairing / Extra kaam (alag job, AMC count mein nahi)</option></select></div>`;
 }
 function wireJobDateLeaveCheck(){
   const dateEl=document.getElementById('f_date'), techEl=document.getElementById('f_tech'); if(!dateEl||!techEl) return;
