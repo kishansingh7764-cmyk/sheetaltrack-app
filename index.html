@@ -54,6 +54,7 @@ label{display:block;font-size:12.5px;color:var(--ink-soft);margin-bottom:5px;fon
 .brand-text .name{font-family:var(--font-display);font-weight:700;font-size:14.5px;letter-spacing:.1px;}
 .topbar .brand-mark{width:28px!important;height:28px!important;font-size:14px!important;border-radius:8px;}
 .topbar .brand{gap:8px;}
+@keyframes stPulse{0%{transform:scale(.6);opacity:.7}100%{transform:scale(1.6);opacity:0}}
 .topbar.tb-hide{transform:translateY(-105%);}
 .stk,.stk.searchbar,.stk.tabbar{position:sticky!important;z-index:14;background:var(--bg);padding-top:6px;padding-bottom:6px;margin-top:0!important;margin-bottom:6px!important;transition:top .22s ease;}
 .stk.tabbar{background:var(--surface);}
@@ -3217,7 +3218,7 @@ function renderMap(){
   const techsWithLoc=techs.filter(t=>STATE.locations[t.id]);
   return `
     <div class="section-title">Technician Locations</div>
-    ${techsWithLoc.length>0?`<div id="liveMapBox" style="height:280px;border-radius:10px;overflow:hidden;border:1px solid var(--border);margin-bottom:14px;"></div>`:''}
+    ${techsWithLoc.length>0?`<div id="liveMapBox" style="height:280px;border-radius:10px;overflow:hidden;border:1px solid var(--border);margin-bottom:6px;"></div><div class="item-sub" style="margin-bottom:14px;"><span style="color:#1faa59;">●</span> Live (10 min ke andar) &nbsp; <span style="color:#8a979b;">●</span> Offline / purani location</div>`:''}
     ${techs.length===0?`<div class="empty-state"><span class="ic">📍</span><p>Koi technician nahi hai.</p></div>`:
       techs.map(t=>{ const loc=STATE.locations[t.id]; const age=loc?Date.now()-loc.ts:null; let dot='dot-off', label='Location off / kabhi share nahi ki';
         if(loc){ if(age<10*60*1000){ dot='dot-live'; label='Live · '+Math.round(age/60000)+' min pehle'; } else{ dot='dot-stale'; label='Last seen · '+new Date(loc.ts).toLocaleString('en-IN'); } }
@@ -3239,8 +3240,10 @@ function initLiveMap(){
   techs.forEach(t=>{
     const loc=STATE.locations[t.id];
     const age=Date.now()-loc.ts; const live=age<10*60*1000;
-    const marker=L.marker([loc.lat, loc.lng]).addTo(liveMapInstance);
-    marker.bindPopup(`<b>${t.name}</b><br>${live?'Live · '+Math.round(age/60000)+' min pehle':'Last seen · '+new Date(loc.ts).toLocaleString('en-IN')}`);
+    const col=live?'#1faa59':'#8a979b';
+    const icon=L.divIcon({className:'',iconSize:[0,0],iconAnchor:[0,0],html:`<div style="position:relative;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;pointer-events:auto;"><span style="position:relative;display:block;width:18px;height:18px;border-radius:50%;background:${col};border:3px solid #fff;box-shadow:0 1px 6px rgba(0,0,0,.45);">${live?'<span style="position:absolute;inset:-7px;border-radius:50%;border:2px solid '+col+';opacity:.55;animation:stPulse 1.6s ease-out infinite;"></span>':''}</span><span style="margin-top:3px;background:#fff;color:#0D2A30;font:600 11px/1 system-ui,sans-serif;padding:3px 6px;border-radius:8px;box-shadow:0 1px 4px rgba(0,0,0,.3);white-space:nowrap;">${esc(t.name)}</span></div>`});
+    const marker=L.marker([loc.lat, loc.lng],{icon}).addTo(liveMapInstance);
+    marker.bindPopup(`<b>${esc(t.name)}</b><br>${live?'<span style="color:#1faa59;">●</span> Live · '+Math.max(0,Math.round(age/60000))+' min pehle':'<span style="color:#8a979b;">●</span> Offline · Last seen '+new Date(loc.ts).toLocaleString('en-IN')}`);
     bounds.push([loc.lat, loc.lng]);
   });
   if(bounds.length>1){ liveMapInstance.fitBounds(bounds, {padding:[30,30]}); }
