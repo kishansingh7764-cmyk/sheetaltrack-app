@@ -1844,7 +1844,8 @@ async function generateInvoice(jobId, kind){
 /* ===== Technician: Job close par naya Bill (items, discount, GST option, auto total), phir WhatsApp/Email ===== */
 async function finishBill(jid,inv0){
   const j=STATE.jobs.find(x=>x.id===jid); if(!j) return;
-  j.invoice=Object.assign({date:todayStr(),kind:'invoice'},inv0); await ensureInvoiceMeta(j,'invoice');
+  const prev=j.invoice||{}, keep={}; if(prev.no) keep.no=prev.no; if(prev.sentLog) keep.sentLog=prev.sentLog;
+  j.invoice=Object.assign({date:prev.date||(j.completedAt?ymd(new Date(j.completedAt)):todayStr()),kind:'invoice'},keep,inv0); await ensureInvoiceMeta(j,j.invoice.kind||'invoice');
   const c=STATE.customers.find(x=>x.id===j.customerId), bt=inv0.billTo||{};
   if(c){ let ch=false;
     if(bt.email&&!c.email){ c.email=bt.email; ch=true; }
@@ -1852,24 +1853,48 @@ async function finishBill(jid,inv0){
     if(bt.phone&&!c.phone){ const dup=dupCustomerByPhone(bt.phone,''); if(!dup||dup.id===c.id){ c.phone=bt.phone; ch=true; } else showToast('Ye mobile "'+dup.name+'" ke profile mein hai — customer profile mein nahi joda, sirf bill par hai'); }
     if(ch){ await saveKey(SKEY.CUSTOMERS,STATE.customers); linkBillsToCustomer(c); } }
 }
+async function createBillJob(cid,bill,payMode){
+  const me=(STATE.session&&STATE.session.name)||'', now=Date.now(), q=bill.inv.kind==='quotation', amt=q?0:bill.T.grand, due=(!q&&payMode==='due')?amt:0;
+  const j={id:uid(),customerId:cid,title:(q?'Quotation: ':'')+bill.inv.items[0].name+(bill.inv.items.length>1?' +'+(bill.inv.items.length-1)+' aur':''),tag:'Bill',amcVisit:false,assignedTo:'',status:'done',date:todayStr(),notes:'',amount:amt,travelAmount:0,checklist:[],due,payMode:(q||payMode==='due')?'':(normMode(payMode)||''),completedAt:now,closedAt:now,createdAt:now,billOnly:true,history:[{s:'done',t:now,by:me,why:q?'Quotation banaya':'Bill banaya'}]};
+  STATE.jobs.push(j); await saveKey(SKEY.JOBS,STATE.jobs); return j.id;
+}
+function billMakeInner(d){
+  const j=d.id?STATE.jobs.find(x=>x.id===d.id):null, c=STATE.customers.find(x=>x.id===(j?j.customerId:d.customerId))||{};
+  const dd={id:d.id||'',customerId:c.id,always:true};
+  return `<div class="modal-head"><h3>🧾 Bill Banayein</h3><button class="close-x" id="modalClose">×</button></div>
+    <div class="card" style="background:var(--sky-pale);"><div class="item-name">${esc(c.name||'Customer')}</div><div class="item-sub">${j?esc(j.title||'Job')+' · '+fmtDate(j.date)+(j.amount?' · Job amount '+rupee(j.amount):''):'Naya bill — alag se (kisi job ke bina)'}</div></div>
+    ${billPanelHtml(dd)}
+    ${j?`<label class="item-sub" style="display:flex;gap:8px;align-items:center;margin:0 0 12px;"><input type="checkbox" id="f_billSetAmt" style="width:18px;height:18px;" ${Number(j.amount)>0?'':'checked'}> Job ka amount bhi bill ke Total par set karein (Kamai mein yahi ginega)</label>`
+      :`<div class="field"><label>Payment kaise mila?</label><select id="f_billPay"><option value="cash">Cash</option><option value="online">Online</option><option value="cheque">Cheque</option><option value="due">Abhi nahi mila (baad me)</option></select></div>`}
+    <button class="primary-btn" id="modalSave">🧾 Bill Banao</button>`;
+}
 function billHistLine(j){
   const inv=j.invoice, T=invTotals(inv), tech=STATE.session.role==='technician';
   return `<div style="margin-top:8px;padding:8px 10px;background:var(--sky-pale);border-radius:10px;"><div class="item-sub" style="font-weight:700;margin:0 0 4px;">🧾 Bill #${esc(inv.no||'')}${tech?'':' · ₹'+invMoney(T.grand)}${inv.sentLog&&inv.sentLog.length?' · ✅ bheja gaya':''}</div>${inv.items.map(it=>`<div class="item-sub" style="margin:0;">• ${esc(it.name)} — ${it.qty} × ${tech?'':'₹'+invMoney(it.rate)}${tech?'':' = ₹'+invMoney(it.qty*it.rate-(it.disc||0))}</div>`).join('')}${tech?'':`${T.ed>0?`<div class="item-sub" style="margin:2px 0 0;">Discount − ₹${invMoney(T.ed)}</div>`:''}${T.gstAmt>0?`<div class="item-sub" style="margin:0;">GST (${T.gstPct}%) ₹${invMoney(T.gstAmt)}</div>`:''}`}</div>`;
 }
+function blRowHtml(i,it){ it=it||{};
+  return `<div class="card" style="padding:8px;margin-bottom:6px;" data-blrow="${i}"><div class="field" style="margin:0 0 4px;"><input id="bl_n${i}" placeholder="Part / kaam ka naam (jaise Gas refill)" value="${esc(it.name||'')}"></div><div style="display:grid;grid-template-columns:1fr 1.3fr 1.2fr;gap:6px;align-items:center;"><input id="bl_q${i}" type="number" min="0" step="any" inputmode="decimal" placeholder="Qty" value="${it.qty===undefined||it.qty===''?'':it.qty}"><input id="bl_r${i}" type="number" min="0" step="any" inputmode="decimal" placeholder="Rate ₹" value="${it.rate===undefined||it.rate===''||it.rate===0?'':it.rate}"><div class="item-sub" id="bl_a${i}" style="text-align:right;margin:0;">₹ 0</div></div></div>`;
+}
 function billPanelHtml(d){
-  const j=STATE.jobs.find(x=>x.id===d.id)||{}, c=STATE.customers.find(x=>x.id===j.customerId)||{};
-  const row=i=>`<div class="card" style="padding:8px;margin-bottom:6px;" data-blrow="${i}"><div class="field" style="margin:0 0 4px;"><input id="bl_n${i}" placeholder="Part / kaam ka naam (jaise Gas refill)" value="${i===0?esc(j.title||''):''}"></div><div style="display:grid;grid-template-columns:1fr 1.3fr 1.2fr;gap:6px;align-items:center;"><input id="bl_q${i}" type="number" min="0" step="any" inputmode="decimal" placeholder="Qty" value="${i===0?1:''}"><input id="bl_r${i}" type="number" min="0" step="any" inputmode="decimal" placeholder="Rate ₹" value="${i===0&&d.existingAmount?d.existingAmount:''}"><div class="item-sub" id="bl_a${i}" style="text-align:right;margin:0;">₹ 0</div></div></div>`;
-  return `<label class="item-sub" style="display:flex;gap:8px;align-items:center;margin:0 0 10px;font-weight:700;color:var(--teal-deep);"><input type="checkbox" id="f_makeBill" style="width:18px;height:18px;"> 🧾 Customer ko Bill banana hai</label>
-    <div id="billPanel" style="display:none;margin-bottom:14px;padding:10px;border:1px solid var(--border);border-radius:12px;background:var(--sky-pale);">
+  const j=STATE.jobs.find(x=>x.id===d.id)||{}, c=STATE.customers.find(x=>x.id===(j.customerId||d.customerId))||{};
+  const inv=(d.always&&j.invoice&&j.invoice.items&&j.invoice.items.length)?j.invoice:null, bt=(inv&&inv.billTo)||{};
+  let rows;
+  if(inv){ rows=inv.items.map(it=>({name:it.name,qty:it.qty,rate:it.rate})); rows.push({}); }
+  else rows=[{name:j.id?(j.title||''):'',qty:1,rate:d.existingAmount||(j.id&&j.amount?j.amount:'')},{}];
+  const ed=(inv&&inv.extraDisc)||{}, gs=(inv&&inv.gst)||{};
+  const head=d.always?`<div class="field" style="margin:0 0 10px;"><label>Type</label><select id="bl_kind"><option value="invoice" ${(!inv||inv.kind!=='quotation')?'selected':''}>Invoice (Bill)</option><option value="quotation" ${inv&&inv.kind==='quotation'?'selected':''}>Quotation (Estimate)</option></select></div>`
+    :`<label class="item-sub" style="display:flex;gap:8px;align-items:center;margin:0 0 10px;font-weight:700;color:var(--teal-deep);"><input type="checkbox" id="f_makeBill" style="width:18px;height:18px;"> 🧾 Customer ko Bill banana hai</label>`;
+  return head+`
+    <div id="billPanel" style="display:${d.always?'block':'none'};margin-bottom:14px;padding:10px;border:1px solid var(--border);border-radius:12px;background:var(--sky-pale);">
       <div class="item-sub" style="font-weight:700;margin-bottom:6px;">👤 Customer (badal sakte hain)</div>
-      <div class="field" style="margin-bottom:8px;"><input id="bl_name" placeholder="Naam" value="${esc(c.name||'')}"></div>
-      <div class="field" style="margin-bottom:8px;"><input id="bl_addr" placeholder="Address" value="${esc(c.address||'')}"></div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px;"><input id="bl_phone" inputmode="numeric" placeholder="Mobile (10 digit)" value="${esc(c.phone||'')}"><input id="bl_email" type="email" placeholder="Email" value="${esc(c.email||'')}"></div>
+      <div class="field" style="margin-bottom:8px;"><input id="bl_name" placeholder="Naam" value="${esc(bt.name||c.name||'')}"></div>
+      <div class="field" style="margin-bottom:8px;"><input id="bl_addr" placeholder="Address" value="${esc(bt.address!==undefined&&inv?bt.address:(c.address||''))}"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px;"><input id="bl_phone" inputmode="numeric" placeholder="Mobile (10 digit)" value="${esc(bt.phone||c.phone||'')}"><input id="bl_email" type="email" placeholder="Email" value="${esc(bt.email||c.email||'')}"></div>
       <div class="item-sub" style="font-weight:700;margin-bottom:6px;">🧰 Part / Kaam</div>
-      <div id="blRows">${row(0)}${row(1)}</div>
+      <div id="blRows">${rows.map((it,i)=>blRowHtml(i,it)).join('')}</div>
       <button type="button" class="mini-btn" id="blAdd" style="margin-bottom:10px;">+ Item jodo</button>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px;"><select id="bl_dt"><option value="amt">Discount ₹</option><option value="pct">Discount %</option></select><input id="bl_dv" type="number" min="0" step="any" inputmode="decimal" placeholder="Discount (optional)"></div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px;align-items:center;"><label class="item-sub" style="display:flex;gap:8px;align-items:center;margin:0;"><input type="checkbox" id="bl_gst" style="width:18px;height:18px;"> GST lagana hai</label><select id="bl_gp" disabled><option>5</option><option>12</option><option selected>18</option><option>28</option></select></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px;"><select id="bl_dt"><option value="amt" ${ed.type!=='pct'?'selected':''}>Discount ₹</option><option value="pct" ${ed.type==='pct'?'selected':''}>Discount %</option></select><input id="bl_dv" type="number" min="0" step="any" inputmode="decimal" placeholder="Discount (optional)" value="${ed.val||''}"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px;align-items:center;"><label class="item-sub" style="display:flex;gap:8px;align-items:center;margin:0;"><input type="checkbox" id="bl_gst" style="width:18px;height:18px;" ${gs.on?'checked':''}> GST lagana hai</label><select id="bl_gp" ${gs.on?'':'disabled'}>${[5,12,18,28].map(x=>`<option ${Number(gs.pct||18)===x?'selected':''}>${x}</option>`).join('')}</select></div>
       <div id="blSum" class="card" style="margin:0;padding:10px;"></div>
     </div>`;
 }
@@ -1877,7 +1902,7 @@ function billCollect(){
   const items=[]; let bad='';
   document.querySelectorAll('[data-blrow]').forEach(r=>{ const i=r.dataset.blrow, name=val('bl_n'+i).trim(), qty=Number(val('bl_q'+i))||0, rate=Number(val('bl_r'+i))||0; if(!name&&!qty&&!rate) return; if(!name){ bad='Item ka naam likhein'; return; } if(qty<=0){ bad='"'+name+'" ki Qty daalein'; return; } items.push({name,qty,unit:'QTY',rate,disc:0}); });
   const dt=val('bl_dt')||'amt', dv=Number(val('bl_dv'))||0, gstOn=!!(document.getElementById('bl_gst')&&document.getElementById('bl_gst').checked);
-  const inv={items,extraDisc:dv>0?{type:dt,val:dv}:null,gst:{on:gstOn,pct:Number(val('bl_gp'))||18},billTo:{name:val('bl_name').trim(),address:val('bl_addr').trim(),phone:val('bl_phone').trim(),email:val('bl_email').trim()}};
+  const inv={items,kind:val('bl_kind')==='quotation'?'quotation':'invoice',extraDisc:dv>0?{type:dt,val:dv}:null,gst:{on:gstOn,pct:Number(val('bl_gp'))||18},billTo:{name:val('bl_name').trim(),address:val('bl_addr').trim(),phone:val('bl_phone').trim(),email:val('bl_email').trim()}};
   const T=invTotals(inv);
   if(!bad&&!items.length) bad='Kam se kam ek item likhein';
   if(!bad&&dv>0&&dt==='amt'&&dv>T.sub) bad='Discount total se zyada hai';
@@ -1887,22 +1912,22 @@ function billCollect(){
   return {inv,T,bad};
 }
 function wireBillPanel(){
-  const mb=document.getElementById('f_makeBill'), pnl=document.getElementById('billPanel'); if(!mb||!pnl) return;
+  const mb=document.getElementById('f_makeBill'), pnl=document.getElementById('billPanel'); if(!pnl) return;
   const am=document.getElementById('f_amount'), note=document.getElementById('f_amountNote');
   const calc=()=>{
     const {inv,T}=billCollect(); document.querySelectorAll('[data-blrow]').forEach(r=>{ const i=r.dataset.blrow, a=(Number(val('bl_q'+i))||0)*(Number(val('bl_r'+i))||0); const e=document.getElementById('bl_a'+i); if(e) e.textContent='₹ '+invMoney(a); });
     const gp=document.getElementById('bl_gp'); if(gp) gp.disabled=!document.getElementById('bl_gst').checked;
     document.getElementById('blSum').innerHTML=`<div class="row-between"><div class="item-sub">Subtotal</div><div class="item-sub">₹ ${invMoney(T.sub)}</div></div>${T.ed>0?`<div class="row-between"><div class="item-sub">Discount</div><div class="item-sub">− ₹ ${invMoney(T.ed)}</div></div>`:''}${T.gstAmt>0?`<div class="row-between"><div class="item-sub">GST (${T.gstPct}%)</div><div class="item-sub">₹ ${invMoney(T.gstAmt)}</div></div>`:''}<div class="row-between" style="border-top:1px solid var(--border);margin-top:4px;padding-top:6px;"><div class="item-name" style="font-size:15px;">Total</div><div class="item-name" style="font-size:15px;">₹ ${invMoney(T.grand)}</div></div>`;
-    if(mb.checked&&am){ am.value=T.grand>0?T.grand:''; am.readOnly=T.grand>0; if(note) note.style.display=T.grand>0?'block':'none'; }
+    if(mb&&mb.checked&&am){ am.value=T.grand>0?T.grand:''; am.readOnly=T.grand>0; if(note) note.style.display=T.grand>0?'block':'none'; }
   };
-  const apply=()=>{ pnl.style.display=mb.checked?'block':'none'; if(!mb.checked&&am){ am.readOnly=false; if(note) note.style.display='none'; } else calc(); };
-  mb.onchange=apply; pnl.addEventListener('input',calc); pnl.addEventListener('change',calc);
-  document.getElementById('blAdd').onclick=()=>{ const rows=document.getElementById('blRows'), n=rows.querySelectorAll('[data-blrow]').length; if(n>=15){ showToast('Itne hi item jod sakte hain'); return; } const dv=document.createElement('div'); dv.innerHTML=billPanelHtml({id:''}).match(/<div class="card" style="padding:8px;margin-bottom:6px;" data-blrow="0">[\s\S]*?<\/div><\/div><\/div>/)[0].replace(/data-blrow="0"/,'data-blrow="'+n+'"').replace(/(bl_[nqra])0/g,'$1'+n).replace(/value="[^"]*"/g,'value=""'); rows.appendChild(dv.firstElementChild); };
+  const apply=()=>{ if(!mb){ calc(); return; } pnl.style.display=mb.checked?'block':'none'; if(!mb.checked&&am){ am.readOnly=false; if(note) note.style.display='none'; } else calc(); };
+  if(mb) mb.onchange=apply; pnl.addEventListener('input',calc); pnl.addEventListener('change',calc);
+  document.getElementById('blAdd').onclick=()=>{ const rows=document.getElementById('blRows'), n=rows.querySelectorAll('[data-blrow]').length; if(n>=15){ showToast('Itne hi item jod sakte hain'); return; } const dv=document.createElement('div'); dv.innerHTML=blRowHtml(n,{}); rows.appendChild(dv.firstElementChild); };
   apply();
 }
 function invBillText(j,c,inv){
   const T=invTotals(inv), b=STATE.businessInfo||{}, bt=inv.billTo||{};
-  const L=['*'+(b.name||'Super Air Cool')+'*','Invoice No. '+inv.no+' · '+fmtDMY(inv.date),'','Customer: '+(bt.name||(c&&c.name)||'')];
+  const L=['*'+(b.name||'Super Air Cool')+'*',(inv.kind==='quotation'?'Quotation No. ':'Invoice No. ')+inv.no+' · '+fmtDMY(inv.date),'','Customer: '+(bt.name||(c&&c.name)||'')];
   inv.items.forEach((it,i)=>L.push((i+1)+') '+it.name+' — '+it.qty+' × ₹'+invMoney(it.rate)+' = ₹'+invMoney(it.qty*it.rate-(it.disc||0))));
   L.push('');
   if(T.ed>0||T.gstAmt>0) L.push('Subtotal: ₹'+invMoney(T.sub));
@@ -2680,7 +2705,7 @@ function render(){
 function renderSetup(){
   return `
   <div class="login-wrap">
-    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v7.7</p></div>
+    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v7.8</p></div>
     <div class="setup-note">Yeh app ab Firebase (Google ka free real-time database) use karti hai — pehle se tez aur reliable. Firebase Console se apna config copy karke neeche paste karein.</div>
     <div class="field"><label>Firebase Config (poora object paste karein)</label><textarea id="setupConfig" rows="8" placeholder='{"apiKey": "...", "authDomain": "...", "projectId": "...", ...}'>${setupUrlInput}</textarea></div>
     <button class="primary-btn" id="connectBtn">Connect Karein</button>
@@ -2748,7 +2773,7 @@ function renderLogin(){
   }
   return `
   <div class="login-wrap">
-    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v7.7</p></div>
+    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v7.8</p></div>
     <div class="role-grid">
       <button class="role-opt ${loginRole==='admin'?'active':''}" data-role="admin"><span class="ic">🗝️</span>Admin</button>
       <button class="role-opt ${loginRole==='subadmin'?'active':''}" data-role="subadmin"><span class="ic">🧑‍💼</span>Office</button>
@@ -3105,7 +3130,7 @@ function renderCustomerProfile(){
     ${convertBtnsHtml(c)}
       <div class="item-sub" style="margin-top:6px;">${c.phone||''}${c.phone2?' / '+c.phone2:''}${c.email?' · '+c.email:''}</div>
       <div class="item-sub">${c.address||''}${c.landmark?', '+c.landmark:''}${c.city?', '+c.city:''}${c.state?', '+c.state:''}${c.pincode?' - '+c.pincode:''}</div>
-      <div class="card-actions" style="margin-top:10px;">${c.phone?`<a class="mini-btn primary" style="text-decoration:none;" href="tel:${c.phone}">📞 Call</a>`:''}${c.phone?`<a class="mini-btn" style="text-decoration:none;" href="https://wa.me/${waNum(c.phone)}">💬 WhatsApp</a>`:''}${STATE.session.role==='technician'?'':`<button class="mini-btn" data-act="editcust" data-id="${c.id}">✏️ Details Badlein</button><button class="mini-btn primary" data-act="newjobfor" data-id="${c.id}">➕ Job Banao</button>${c.type==='amc'?`<button class="mini-btn" data-act="renewamc" data-id="${c.id}">🔁 Renewal Karein</button>`:''}`}</div>
+      <div class="card-actions" style="margin-top:10px;">${c.phone?`<a class="mini-btn primary" style="text-decoration:none;" href="tel:${c.phone}">📞 Call</a>`:''}${c.phone?`<a class="mini-btn" style="text-decoration:none;" href="https://wa.me/${waNum(c.phone)}">💬 WhatsApp</a>`:''}${STATE.session.role==='technician'?'':`<button class="mini-btn" data-act="editcust" data-id="${c.id}">✏️ Details Badlein</button><button class="mini-btn primary" data-act="newjobfor" data-id="${c.id}">➕ Job Banao</button>${isMoneyRole()?`<button class="mini-btn" data-act="newbill" data-id="${c.id}">🧾 Bill Banao</button>`:''}${c.type==='amc'?`<button class="mini-btn" data-act="renewamc" data-id="${c.id}">🔁 Renewal Karein</button>`:''}`}</div>
     </div>
     ${STATE.session.role==='technician'?'':amcDetailsHtml(c)+amcHistoryHtml(c)+(STATE.session.role==='admin'?billHistoryHtml(c):'')}
     ${c.type==='amc'?`<div class="card">
@@ -3128,7 +3153,7 @@ function renderCustomerProfile(){
         const statusLabel=s=>s==='done'?'Completed':s==='ongoing'?'Ongoing':s==='onhold'?'On Hold':s==='rejected'?'Rejected':'Pending';
         const statusPill=s=>s==='done'?'pill-green':s==='ongoing'?'pill-sky':s==='onhold'?'pill-grey':s==='rejected'?'pill-red':'pill-amber';
         return `<div class="card"><div class="row-between"><div><div class="item-name">${j.title}</div><div class="item-sub">${fmtDate(j.date)}${j.completedAt?' · '+new Date(j.completedAt).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true}):''} · ${tech?`<span data-viewstaff="${tech.id}" style="cursor:pointer;text-decoration:underline;color:var(--teal);">${esc(tech.name)}</span>`:'Unassigned'}${j.status==='done'?' · '+rupee(j.amount):''}</div></div><span class="pill ${statusPill(j.status)}">${statusLabel(j.status)}</span></div>
-        ${j.notes?`<div class="item-sub" style="margin-top:6px;">📝 ${esc(j.notes)}</div>`:''}${(j.status==='done'&&j.invoice&&j.invoice.items&&j.invoice.items.length)?billHistLine(j):''}${j.status==='done'?`<div class="card-actions"><button class="mini-btn primary" data-act="invoice" data-id="${j.id}">Invoice</button>${(j.invoice&&j.invoice.items)?`<button class="mini-btn" data-act="billsend" data-id="${j.id}">📲 Bill bhejo</button>`:''}</div>`:''}${(j.status!=='done'&&j.status!=='rejected'&&STATE.session.role!=='technician')?`<div class="card-actions"><button class="mini-btn" data-act="jobresched" data-id="${j.id}">📅 Date Badlein</button></div>`:''}</div>`; }).join('')}
+        ${j.notes?`<div class="item-sub" style="margin-top:6px;">📝 ${esc(j.notes)}</div>`:''}${(j.status==='done'&&j.invoice&&j.invoice.items&&j.invoice.items.length)?billHistLine(j):''}${j.status==='done'?`<div class="card-actions"><button class="mini-btn primary" data-act="invoice" data-id="${j.id}">🧾 Bill</button>${(j.invoice&&j.invoice.items)?`<button class="mini-btn" data-act="billsend" data-id="${j.id}">📲 Bill bhejo</button>`:''}</div>`:''}${(j.status!=='done'&&j.status!=='rejected'&&STATE.session.role!=='technician')?`<div class="card-actions"><button class="mini-btn" data-act="jobresched" data-id="${j.id}">📅 Date Badlein</button></div>`:''}</div>`; }).join('')}
   `;
 }
 
@@ -3251,14 +3276,14 @@ function jobCardCompact(j){
         ${isOpen?`<button class="mini-btn danger" data-act="jobstatus" data-status="rejected" data-id="${j.id}">Cancel</button>`:''}
         ${isOpen?`<button class="mini-btn" data-act="jobresched" data-id="${j.id}">📅 Date Badlein</button>`:''}
         ${j.status==='ongoing'?`<button class="mini-btn primary" data-act="completejob" data-id="${j.id}">Mark Done</button>`:''}
-        ${j.status==='done'?`<button class="mini-btn primary" data-act="invoice" data-id="${j.id}">Invoice</button>`:''}
+        ${j.status==='done'?`<button class="mini-btn primary" data-act="invoice" data-id="${j.id}">🧾 Bill</button>`:''}
         ${STATE.session.role==='admin'?`<button class="mini-btn danger" data-act="deljob" data-id="${j.id}">Delete</button>`:''}
       </div></div>`;
   } else {
     more=`<div style="margin-top:10px;border-top:1px solid var(--border);padding-top:8px;">
       ${cust&&cust.phone?`<div class="item-sub">📞 <a href="tel:${esc(cust.phone)}" style="color:var(--teal);">${esc(cust.phone)}</a></div>`:''}${cust&&cust.address?`<div class="item-sub">📍 ${esc(cust.address)}</div>`:''}
       ${j.notes?`<div class="item-sub">📝 ${esc(j.notes)}</div>`:''}${mediaHtml(j.id)}
-      <div class="card-actions" style="margin-top:10px;">${j.status==='done'?`<button class="mini-btn primary" data-act="invoice" data-id="${j.id}">Invoice</button>`:''}${STATE.session.role==='admin'?`<button class="mini-btn danger" data-act="deljob" data-id="${j.id}">Delete</button>`:''}</div></div>`;
+      <div class="card-actions" style="margin-top:10px;">${j.status==='done'?`<button class="mini-btn primary" data-act="invoice" data-id="${j.id}">🧾 Bill</button>`:''}${STATE.session.role==='admin'?`<button class="mini-btn danger" data-act="deljob" data-id="${j.id}">Delete</button>`:''}</div></div>`;
     more=''; 
   }
   if(!open) more='';
@@ -4073,6 +4098,8 @@ function modalHtml(){
       <div class="field"><label>Agla call kab karna hai? (Baad me / Phone nahi utha ke liye)</label><input id="f_remNext" type="date" min="${todayStr()}" value="${addDaysStr(todayStr(),2)}"></div>
       <div class="field"><label>Remark / Review (customer ne kya bola)</label><textarea id="f_remNote" rows="3" placeholder="jaise: Shaam 5 baje call karne ko bola, ya 12 tareekh ko service chahiye"></textarea></div>
       <button class="primary-btn" id="modalSave">Remark Save Karein</button>`;
+  } else if(activeModal.type==='billMake'){
+    inner=billMakeInner(activeModal.data);
   } else if(activeModal.type==='invoiceEdit'){
     inner=invoiceModalInner(activeModal.data);
   } else if(activeModal.type==='billImport'){
@@ -4411,7 +4438,8 @@ function bindShellEvents(){
     else if(act==='traveltoggle'){ STATE.travelAmtOpen=(STATE.travelAmtOpen===id)?null:id; render(); }
     else if(act==='showvisitlist'){ const k=el.dataset.kind; STATE.dashVisitOpen=(STATE.dashVisitOpen===k)?null:k; render(); }
     else if(act==='recvideo'){ activeModal={type:'recVideo',data:{jobId:id}}; render(); }
-    else if(act==='invoice'){ if(isMoneyRole()){ activeModal={type:'invoiceEdit',data:{id}}; render(); } else { await generateInvoice(id); } }
+    else if(act==='newbill'){ if(!isMoneyRole()) return; activeModal={type:'billMake',data:{customerId:id}}; render(); }
+    else if(act==='invoice'){ if(isMoneyRole()){ activeModal={type:'billMake',data:{id}}; render(); } else { await generateInvoice(id); } }
     else if(act==='deljob'){ if(STATE.session.role!=='admin'){ showToast('Sirf Admin delete kar sakta hai'); return; } if(confirm('Job delete karein?')){ await deleteJob(id); render(); } }
     else if(act==='delstaff'){ if(confirm('Remove karein?')){ await deleteStaff(id); render(); } }
     else if(act==='resetpin'){ const s=STATE.staff.find(x=>x.id===id); activeModal={type:'resetPin', data:{id, name:s.name}}; render(); }
@@ -4516,7 +4544,7 @@ function bindShellEvents(){
     const custSearch=document.getElementById('f_custSearch');
     if(custSearch){ custSearch.oninput=(e)=>{ jobCustQuery=e.target.value; jobCustSelectedId=''; paintCustSuggest(); }; paintCustSuggest(); }
     { const am=document.getElementById('f_amount'), mb=document.getElementById('f_makeBill');
-      if(am&&mb){ mb.checked=Number(am.value)>0; wireBillPanel(); } }
+      if(am&&mb){ mb.checked=Number(am.value)>0; wireBillPanel(); } else if(document.getElementById('billPanel')) wireBillPanel(); }
     if(document.getElementById('sigCanvas')){
       setTimeout(()=>initSignaturePad('sigCanvas'),0);
       const clearSigBtn=document.getElementById('clearSigBtn');
@@ -4622,6 +4650,13 @@ function bindShellEvents(){
         if(r){ if(r==='booked'){ jobCustQuery=''; jobCustSelectedId=activeModal.data.id; activeModal={type:'addJob'}; } else { activeModal=null; } render(); }
       } else if(activeModal.type==='extraJob'){
         const ok=await saveExtra(activeModal.data.id,val('f_exDesc'),val('f_exAmt'),val('f_exNote')); if(ok){ activeModal=null; render(); }
+      } else if(activeModal.type==='billMake'){
+        const d=activeModal.data, bill=billCollect(); if(bill.bad){ showToast(bill.bad); resetBtn(); return; }
+        let jid=d.id;
+        if(!jid){ if(!d.customerId){ showToast('Customer nahi mila'); resetBtn(); return; } jid=await createBillJob(d.customerId,bill,val('f_billPay')); }
+        else { const j=STATE.jobs.find(x=>x.id===jid), set=document.getElementById('f_billSetAmt'); if(!j){ showToast('Job nahi mili'); resetBtn(); return; }
+          if(set&&set.checked&&bill.inv.kind!=='quotation'&&bill.T.grand!==Number(j.amount)){ j.amount=bill.T.grand; j.history=(j.history||[]).concat({s:'amount',t:Date.now(),by:(STATE.session&&STATE.session.name)||'',why:'Bill total se amount '+rupee(bill.T.grand)}); await saveKey(SKEY.JOBS,STATE.jobs); } }
+        await finishBill(jid,bill.inv); activeModal={type:'billSend',data:{id:jid}}; render();
       } else if(activeModal.type==='invoiceEdit'){
         const ok=await saveInvoiceFromModal(activeModal.data); if(ok){ activeModal=null; render(); }
       } else if(activeModal.type==='dueRecv'){
