@@ -614,8 +614,8 @@ function backupCenterHtml(){
     ${(()=>{ const dg=dupCustomerGroups(); return `<div class="card"><div class="item-name" style="margin-bottom:6px;">🔗 Duplicate Jodo (ek number = ek profile)</div><div class="item-sub" style="margin-bottom:8px;">${dg.length?'<b>'+dg.length+'</b> number par ek se zyada profile hain: '+dg.slice(0,5).map(a=>esc(a[0].name)).join(', ')+(dg.length>5?'…':'')+'. Jodne par jobs, bills aur AMC detail ek profile mein aa jayengi.':'Koi duplicate profile nahi hai. ✅'}</div>${dg.length?'<div class="card-actions"><button class="mini-btn primary" data-act="mergedups">Duplicate Jodo</button></div>':''}</div>`; })()}
     ${(()=>{ const ng=nameMergeGroups(); return `<div class="card"><div class="item-name" style="margin-bottom:6px;">🔗 Naam se Jodo (bina number / alag profile)</div><div class="item-sub" style="margin-bottom:8px;">${ng.length?'<b>'+ng.length+'</b> naam par ek se zyada profile hain (jaise AMC bina number ka + One-time). Preview mein dekhkar tick karke jodein.':'Same naam ke alag-alag profile nahi mile. ✅'}</div>${ng.length?'<div class="card-actions"><button class="mini-btn primary" data-act="namemerge">Preview dekhein</button></div>':''}</div>`; })()}
     <div class="card"><div class="item-name" style="margin-bottom:6px;">💾 Poora Backup (restore ke liye)</div>
-      <div class="item-sub" style="margin-bottom:8px;">Ek file mein sab kuch. Kabhi data bigde toh isi file se wapas aa sakta hai (Data tab mein Restore).</div>
-      <div class="card-actions"><button class="mini-btn primary" data-act="bkfull">Poora Backup Download</button></div></div>
+      <div class="item-sub" style="margin-bottom:8px;"><b>TOTAL backup</b> — ek file mein sab kuch: Customers (AMC history samet), Staff (+ KYC), Jobs, Leads (call remarks aur sheet links samet), Bills, Photos + Videos, Attendance, Location, Travel, Chhutti, Notifications, Login log, Settings aur Signatures. Kabhi data bigde toh isi file se wapas aa sakta hai (Restore se). ⚠️ File mein staff ke PIN aur KYC bhi hota hai — ise sirf apne paas surakshit rakhein.</div>
+      <div class="card-actions"><button class="mini-btn primary" data-act="bkfull">Total Backup Download</button></div></div>
     ${STATE.session.role==='admin'?`<div class="card"><div class="item-name" style="margin-bottom:6px;">🧹 Test Data Saaf Karo (live hone se pehle)</div><div class="item-sub" style="margin-bottom:8px;">Testing ke customers aur jobs hatane ke liye. Staff, PIN aur settings nahi hatate. Pehle Poora Backup download kar lein.</div><div class="card-actions"><button class="mini-btn danger" data-act="wipetest">🧹 Test Data Saaf Karo</button></div></div>`:''}
     <div class="card"><div class="item-name" style="margin-bottom:6px;">🗑 Recycle Bin</div>
       <div class="item-sub" style="margin-bottom:8px;">Galti se delete hua customer, job ya staff yahan se wapas aa sakta hai. Delete karne par data mitta nahi, sirf chhup jaata hai.</div>
@@ -627,21 +627,48 @@ function backupCenterHtml(){
       <div class="item-sub">2. <b>Purana original data:</b> app badalne se pehle ka data waise ka waisa alag jagah padha hai, use chhua nahi gaya.</div>
       <div class="item-sub">3. <b>Aapki downloaded files:</b> Excel aur Poora Backup. Inhe Google Drive ya email mein rakhein. Har hafte ek baar zaroor lein.</div></div>`;
 }
+/* ===== TOTAL BACKUP (v7.6): har collection ka poora data — staff, customers, jobs, leads (call remarks, sheet links), bills, photos+videos, KYC, attendance, location, travel, chhutti, notifications, login log, settings, signatures ===== */
+const FULL_COLLS=['sheetaltrack_data','st_staff','st_customers','st_jobs','st_leads','st_bills','st_travel','st_leave','st_att','st_loc','st_trail','st_kyc','st_notif','st_audit','st_media','st_mchunk'];
+const FULL_LABEL={sheetaltrack_data:'Settings/Signatures',st_staff:'Staff',st_customers:'Customers',st_jobs:'Jobs',st_leads:'Leads',st_bills:'Bills',st_travel:'Travel',st_leave:'Chhutti',st_att:'Attendance',st_loc:'Location',st_trail:'Location trail',st_kyc:'KYC',st_notif:'Notifications',st_audit:'Login/Activity log',st_media:'Photos/Videos',st_mchunk:'Video/Resume data'};
 async function exportData(){
-  showToast('Backup taiyaar ho raha hai…');
-  let media=[];
-  try{ const snap=await firestoreDB.collection('st_media').where('type','==','photo').get(); snap.forEach(d=>{ const r=d.data(); if(!r.deleted) media.push(Object.assign({id:d.id},r)); }); }
-  catch(e){ console.error('exportData media fetch',e); showToast('⚠️ Photos fetch nahi ho payin, baaki backup mein hai'); }
-  const backup={staff:STATE.staff, customers:STATE.customers, jobs:STATE.jobs, locations:STATE.locations, attendance:STATE.attendance, businessInfo:STATE.businessInfo, leaves:STATE.leaves||[], travelLogs:STATE.travelLogs||[], bills:STATE.bills||[], media, exportedAt:new Date().toISOString()};
-  const blob=new Blob([JSON.stringify(backup,null,2)],{type:'application/json'});
+  if(!firestoreDB){ showToast('Server se connect nahi hai'); return; }
+  showToast('Total backup shuru… (bada data ho to 1-2 minute lag sakte hain)');
+  const parts=['{"format":"sheetaltrack-full-v2","app":"SheetalTrack","exportedAt":'+JSON.stringify(new Date().toISOString())+',"collections":{'], counts={}; let first=true, failed=[];
+  for(const name of FULL_COLLS){
+    try{
+      showToast('Backup: '+(FULL_LABEL[name]||name)+'…');
+      const snap=await firestoreDB.collection(name).get(), obj={}; let n=0; snap.forEach(d=>{ obj[d.id]=d.data(); n++; });
+      counts[name]=n; parts.push((first?'':',')+JSON.stringify(name)+':'+JSON.stringify(obj)); first=false;
+    }catch(e){ console.error('backup fail',name,e); failed.push(name); }
+  }
+  parts.push('},"counts":'+JSON.stringify(counts)+',"failed":'+JSON.stringify(failed)+'}');
+  if(failed.length&&!confirm('⚠️ Ye hisse backup mein nahi aa paye: '+failed.map(x=>FULL_LABEL[x]||x).join(', ')+'.\n\nPhir bhi file download karein?')) return;
+  const blob=new Blob(parts,{type:'application/json'});
   const url=URL.createObjectURL(blob);
-  const a=document.createElement('a'); a.href=url; a.download='sheetaltrack-backup-'+todayStr()+'.json';
-  document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
-  markBackup(); auditLog(STATE.session.staffId,STATE.session.name,STATE.session.role,'export','Poora Backup'); showToast('Backup file download ho gayi');
+  const a=document.createElement('a'); a.href=url; a.download='sheetaltrack-TOTAL-backup-'+todayStr()+'.json';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a); setTimeout(()=>URL.revokeObjectURL(url),60000);
+  markBackup(); auditLog(STATE.session.staffId,STATE.session.name,STATE.session.role,'export','Total Backup'); showToast('Total backup download ho gaya ✅ ('+(counts.st_customers||0)+' customers, '+(counts.st_leads||0)+' leads, '+(counts.st_staff||0)+' staff)');
 }
-async function importData(file){ if(!confirm('Restore maujooda data ko badal sakta hai. Pehle naya Backup Download kar liya? Aage badhein?')) return;
+async function importData(file){ if(!confirm('Restore maujooda data par backup ka data wapas likh dega. Pehle naya Backup Download kar liya? Aage badhein?')) return;
   try{
     const text=await file.text(); const data=JSON.parse(text);
+    if(data.format==='sheetaltrack-full-v2'&&data.collections){
+      const C=data.collections, cnt=Object.keys(C).map(k=>(FULL_LABEL[k]||k)+': '+Object.keys(C[k]).length).join('\n');
+      if(!confirm('Is backup mein ye hai:\n\n'+cnt+'\n\nSab wapas daalna hai?')) return;
+      window.NOTIF_MUTE=true; const db=firestoreDB; let batch=db.batch(), ops=0, bytes=0, done=0, total=0;
+      Object.keys(C).forEach(k=>{ total+=Object.keys(C[k]).length; });
+      const flush=async()=>{ if(ops){ await batch.commit(); batch=db.batch(); ops=0; bytes=0; } };
+      for(const name of Object.keys(C)){
+        if(name==='st_authmap') continue;
+        for(const id of Object.keys(C[name])){
+          const d=C[name][id], sz=JSON.stringify(d).length;
+          if(ops>=400||bytes+sz>7e6) await flush();
+          batch.set(db.collection(name).doc(id),d); ops++; bytes+=sz; done++;
+          if(done%200===0) showToast('Restore ho raha hai… '+done+'/'+total);
+        }
+      }
+      await flush(); showToast('Restore ho gaya ✅ — app dobara khul rahi hai'); setTimeout(()=>location.reload(),1500); return;
+    }
     if(!data.staff || !data.customers || !data.jobs){ showToast('Yeh file valid backup nahi hai'); return; }
     STATE.staff=data.staff; STATE.customers=data.customers; STATE.jobs=data.jobs;
     window.NOTIF_MUTE=true; setTimeout(()=>{ window.NOTIF_MUTE=false; },20000); STATE.locations=data.locations||{}; STATE.attendance=data.attendance||{};
@@ -651,12 +678,12 @@ async function importData(file){ if(!confirm('Restore maujooda data ko badal sak
     if(data.travelLogs){ STATE.travelLogs=data.travelLogs; await saveKey('st_travel',STATE.travelLogs); }
     if(data.bills&&STATE.billsOK!==false){ STATE.bills=data.bills; await saveKey(SKEY.BILLS,STATE.bills); }
     showToast('Data restore ho gaya'); render();
-  }catch(e){ showToast('File read nahi ho payi — sahi backup file select karein'); }
+  }catch(e){ console.error(e); showToast('File read nahi ho payi — sahi backup file select karein'); }
 }
-async function sendEmailViaBackend(to, subject, message){
+async function sendEmailViaBackend(to, subject, message, attachment){
   const url=getEmailUrl(); if(!url){ showToast('Email service connect nahi hai — Settings mein add karein'); return false; }
   try{
-    const res=await fetch(url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({action:'sendEmail', to, subject, message})});
+    const res=await fetch(url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(attachment?{action:'sendEmail', to, subject, message, attachment}:{action:'sendEmail', to, subject, message})});
     const data=await res.json();
     return !!data.ok;
   }catch(e){ console.error('email send failed',e); return false; }
@@ -1758,7 +1785,15 @@ function invCalc(items){
   const rows=items.map(it=>{ const qty=Number(it.qty)||0, rate=Number(it.rate)||0, disc=Number(it.disc)||0, gross=qty*rate, amt=gross-disc; return {name:it.name,qty,unit:it.unit||'QTY',rate,disc,amt,pct:gross>0&&disc>0?(Math.round(disc/gross*10000)/100):0}; });
   return {rows,qty:rows.reduce((s,r)=>s+r.qty,0),disc:rows.reduce((s,r)=>s+r.disc,0),total:rows.reduce((s,r)=>s+r.amt,0)};
 }
+function invTotals(inv){
+  const K=invCalc(inv.items||[]), sub=K.total, ed0=inv.extraDisc||{}; let ed=ed0.type==='pct'?Math.round(sub*(Number(ed0.val)||0))/100:(Number(ed0.val)||0); ed=Math.max(0,Math.min(sub,Math.round(ed*100)/100));
+  const after=Math.round((sub-ed)*100)/100, g=inv.gst||{}, gstAmt=g.on?Math.round(after*(Number(g.pct)||0))/100:0, grand=Math.round((after+gstAmt)*100)/100;
+  return {K,sub,ed,after,gstAmt,gstPct:g.on?(Number(g.pct)||0):0,grand};
+}
+function invMoney(n){ return Number(n||0).toLocaleString('en-IN',{maximumFractionDigits:2}); }
 function invoiceDocHtml(j,c,inv,sig,techSig,tech){
+  if(inv.billTo){ c=Object.assign({},c||{},{name:inv.billTo.name||(c&&c.name)||'',address:inv.billTo.address!==undefined?inv.billTo.address:(c&&c.address)||'',phone:inv.billTo.phone||(c&&c.phone)||'',email:inv.billTo.email||(c&&c.email)||''}); }
+  const T=invTotals(inv);
   const b=STATE.businessInfo||{}, K=invCalc(inv.items), isQ=inv.kind==='quotation', title=isQ?'Quotation':'Invoice';
   const terms=(b.terms&&b.terms.trim())?b.terms:'1. Goods once sold will not be taken back or exchanged\n2. All disputes are subject to Mumbai jurisdiction only';
   const mode=normMode(j.payMode);
@@ -1777,10 +1812,10 @@ function invoiceDocHtml(j,c,inv,sig,techSig,tech){
   @media print{button{display:none} body{padding:0}}</style></head><body>
   <div class="hd">${b.logo?`<img src="${b.logo}">`:''}<div><h1>${esc(b.name||'Super Air Cool')}</h1><div>${esc(b.address||'')}</div>${b.phone?`<div><b>Mobile:</b> &nbsp;${esc(b.phone)}</div>`:''}${b.email?`<div><b>Email:</b> ${esc(b.email)}</div>`:''}</div></div>
   <div class="bar"><div><b>${title} No.:</b> &nbsp;${esc(inv.no)}</div><div><b>${title} Date:</b> &nbsp;${fmtDMY(inv.date)}</div>${isQ?`<div><b>Expiry Date:</b> &nbsp;${fmtDMY(ymd(new Date(new Date(inv.date+'T12:00:00').getTime()+7*864e5)))}</div>`:(mode?`<div><b>Payment:</b> &nbsp;${MODE_L[mode]}</div>`:'')}</div>
-  <div class="bt">BILL TO</div><div class="nm">${esc(c?c.name:'—')}</div><div>${esc(c?(c.address||''):'')}</div>${c&&c.phone?`<div>Mobile: &nbsp;${esc(c.phone)}</div>`:''}
+  <div class="bt">BILL TO</div><div class="nm">${esc(c?c.name:'—')}</div><div>${esc(c?(c.address||''):'')}</div>${c&&c.phone?`<div>Mobile: &nbsp;${esc(c.phone)}</div>`:''}${c&&c.email?`<div>Email: &nbsp;${esc(c.email)}</div>`:''}
   <table><tr><th>ITEMS/SERVICES</th><th class="r">QTY.</th><th class="r">RATE</th><th class="r">DISC.</th><th class="r">AMOUNT</th></tr>${rowsH}<tr class="fill"><td colspan="5"></td></tr>
   <tr class="sub"><td>SUBTOTAL</td><td class="r">${K.qty}</td><td></td><td class="r">₹ ${K.disc.toLocaleString('en-IN')}</td><td class="r">₹ ${K.total.toLocaleString('en-IN')}</td></tr></table>
-  <div class="ft"><div class="tc"><b>TERMS AND CONDITIONS</b><br>${esc(terms)}</div><div class="tt"><div class="tot"><span>Total Amount</span><span>₹ ${K.total.toLocaleString('en-IN')}</span></div><div class="words">Total Amount (in words)<div>${numToWordsIN(K.total)}</div></div></div></div>
+  <div class="ft"><div class="tc"><b>TERMS AND CONDITIONS</b><br>${esc(terms)}</div><div class="tt">${(T.ed>0||T.gstAmt>0)?`<div class="tot" style="font-weight:400;border-bottom:0;"><span>Subtotal</span><span>₹ ${invMoney(T.sub)}</span></div>${T.ed>0?`<div class="tot" style="font-weight:400;border:0;"><span>Discount${inv.extraDisc&&inv.extraDisc.type==='pct'?' ('+inv.extraDisc.val+'%)':''}</span><span>− ₹ ${invMoney(T.ed)}</span></div>`:''}${T.gstAmt>0?`<div class="tot" style="font-weight:400;border:0;"><span>GST (${T.gstPct}%)</span><span>₹ ${invMoney(T.gstAmt)}</span></div>`:''}`:''}<div class="tot"><span>Total Amount</span><span>₹ ${invMoney(T.grand)}</span></div><div class="words">Total Amount (in words)<div>${numToWordsIN(Math.round(T.grand))}</div></div></div></div>
   <div class="sgs">${sig?`<div><img src="${sig}"><div class="muted">Customer Signature</div></div>`:'<span></span>'}${techSig?`<div><img src="${techSig}"><div class="muted">Technician Signature${tech?' ('+esc(tech.name)+')':''}</div></div>`:'<span></span>'}</div>
   <div class="sg">${b.signature?`<img src="${b.signature}"><br>`:'<br><br>'}<b>AUTHORISED SIGNATORY FOR</b><br>${esc(b.name||'Super Air Cool')}</div>
   <button onclick="window.print()" style="margin-top:26px;padding:10px 20px;background:#0E4C5C;color:#fff;border:none;border-radius:6px;font-size:14px;">Print / Save as PDF</button></body></html>`;
@@ -1806,6 +1841,122 @@ async function generateInvoice(jobId, kind){
   document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
   showToast('Invoice download ho gayi — usse khol ke Print/PDF kar sakte hain');
 }
+/* ===== Technician: Job close par naya Bill (items, discount, GST option, auto total), phir WhatsApp/Email ===== */
+async function finishBill(jid,inv0){
+  const j=STATE.jobs.find(x=>x.id===jid); if(!j) return;
+  j.invoice=Object.assign({date:todayStr(),kind:'invoice'},inv0); await ensureInvoiceMeta(j,'invoice');
+  const c=STATE.customers.find(x=>x.id===j.customerId), bt=inv0.billTo||{};
+  if(c){ let ch=false;
+    if(bt.email&&!c.email){ c.email=bt.email; ch=true; }
+    if(bt.address&&!c.address){ c.address=bt.address; ch=true; }
+    if(bt.phone&&!c.phone){ const dup=dupCustomerByPhone(bt.phone,''); if(!dup||dup.id===c.id){ c.phone=bt.phone; ch=true; } else showToast('Ye mobile "'+dup.name+'" ke profile mein hai — customer profile mein nahi joda, sirf bill par hai'); }
+    if(ch){ await saveKey(SKEY.CUSTOMERS,STATE.customers); linkBillsToCustomer(c); } }
+}
+function billHistLine(j){
+  const inv=j.invoice, T=invTotals(inv), tech=STATE.session.role==='technician';
+  return `<div style="margin-top:8px;padding:8px 10px;background:var(--sky-pale);border-radius:10px;"><div class="item-sub" style="font-weight:700;margin:0 0 4px;">🧾 Bill #${esc(inv.no||'')}${tech?'':' · ₹'+invMoney(T.grand)}${inv.sentLog&&inv.sentLog.length?' · ✅ bheja gaya':''}</div>${inv.items.map(it=>`<div class="item-sub" style="margin:0;">• ${esc(it.name)} — ${it.qty} × ${tech?'':'₹'+invMoney(it.rate)}${tech?'':' = ₹'+invMoney(it.qty*it.rate-(it.disc||0))}</div>`).join('')}${tech?'':`${T.ed>0?`<div class="item-sub" style="margin:2px 0 0;">Discount − ₹${invMoney(T.ed)}</div>`:''}${T.gstAmt>0?`<div class="item-sub" style="margin:0;">GST (${T.gstPct}%) ₹${invMoney(T.gstAmt)}</div>`:''}`}</div>`;
+}
+function billPanelHtml(d){
+  const j=STATE.jobs.find(x=>x.id===d.id)||{}, c=STATE.customers.find(x=>x.id===j.customerId)||{};
+  const row=i=>`<div class="card" style="padding:8px;margin-bottom:6px;" data-blrow="${i}"><div class="field" style="margin:0 0 4px;"><input id="bl_n${i}" placeholder="Part / kaam ka naam (jaise Gas refill)" value="${i===0?esc(j.title||''):''}"></div><div style="display:grid;grid-template-columns:1fr 1.3fr 1.2fr;gap:6px;align-items:center;"><input id="bl_q${i}" type="number" min="0" step="any" inputmode="decimal" placeholder="Qty" value="${i===0?1:''}"><input id="bl_r${i}" type="number" min="0" step="any" inputmode="decimal" placeholder="Rate ₹" value="${i===0&&d.existingAmount?d.existingAmount:''}"><div class="item-sub" id="bl_a${i}" style="text-align:right;margin:0;">₹ 0</div></div></div>`;
+  return `<label class="item-sub" style="display:flex;gap:8px;align-items:center;margin:0 0 10px;font-weight:700;color:var(--teal-deep);"><input type="checkbox" id="f_makeBill" style="width:18px;height:18px;"> 🧾 Customer ko Bill banana hai</label>
+    <div id="billPanel" style="display:none;margin-bottom:14px;padding:10px;border:1px solid var(--border);border-radius:12px;background:var(--sky-pale);">
+      <div class="item-sub" style="font-weight:700;margin-bottom:6px;">👤 Customer (badal sakte hain)</div>
+      <div class="field" style="margin-bottom:8px;"><input id="bl_name" placeholder="Naam" value="${esc(c.name||'')}"></div>
+      <div class="field" style="margin-bottom:8px;"><input id="bl_addr" placeholder="Address" value="${esc(c.address||'')}"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px;"><input id="bl_phone" inputmode="numeric" placeholder="Mobile (10 digit)" value="${esc(c.phone||'')}"><input id="bl_email" type="email" placeholder="Email" value="${esc(c.email||'')}"></div>
+      <div class="item-sub" style="font-weight:700;margin-bottom:6px;">🧰 Part / Kaam</div>
+      <div id="blRows">${row(0)}${row(1)}</div>
+      <button type="button" class="mini-btn" id="blAdd" style="margin-bottom:10px;">+ Item jodo</button>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px;"><select id="bl_dt"><option value="amt">Discount ₹</option><option value="pct">Discount %</option></select><input id="bl_dv" type="number" min="0" step="any" inputmode="decimal" placeholder="Discount (optional)"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px;align-items:center;"><label class="item-sub" style="display:flex;gap:8px;align-items:center;margin:0;"><input type="checkbox" id="bl_gst" style="width:18px;height:18px;"> GST lagana hai</label><select id="bl_gp" disabled><option>5</option><option>12</option><option selected>18</option><option>28</option></select></div>
+      <div id="blSum" class="card" style="margin:0;padding:10px;"></div>
+    </div>`;
+}
+function billCollect(){
+  const items=[]; let bad='';
+  document.querySelectorAll('[data-blrow]').forEach(r=>{ const i=r.dataset.blrow, name=val('bl_n'+i).trim(), qty=Number(val('bl_q'+i))||0, rate=Number(val('bl_r'+i))||0; if(!name&&!qty&&!rate) return; if(!name){ bad='Item ka naam likhein'; return; } if(qty<=0){ bad='"'+name+'" ki Qty daalein'; return; } items.push({name,qty,unit:'QTY',rate,disc:0}); });
+  const dt=val('bl_dt')||'amt', dv=Number(val('bl_dv'))||0, gstOn=!!(document.getElementById('bl_gst')&&document.getElementById('bl_gst').checked);
+  const inv={items,extraDisc:dv>0?{type:dt,val:dv}:null,gst:{on:gstOn,pct:Number(val('bl_gp'))||18},billTo:{name:val('bl_name').trim(),address:val('bl_addr').trim(),phone:val('bl_phone').trim(),email:val('bl_email').trim()}};
+  const T=invTotals(inv);
+  if(!bad&&!items.length) bad='Kam se kam ek item likhein';
+  if(!bad&&dv>0&&dt==='amt'&&dv>T.sub) bad='Discount total se zyada hai';
+  if(!bad&&dv>0&&dt==='pct'&&dv>100) bad='Discount 100% se zyada nahi ho sakta';
+  if(!bad&&!phoneOk(inv.billTo.phone)) bad='Mobile number 10 digit ka hona chahiye';
+  if(!bad&&inv.billTo.email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(inv.billTo.email)) bad='Email sahi likhein';
+  return {inv,T,bad};
+}
+function wireBillPanel(){
+  const mb=document.getElementById('f_makeBill'), pnl=document.getElementById('billPanel'); if(!mb||!pnl) return;
+  const am=document.getElementById('f_amount'), note=document.getElementById('f_amountNote');
+  const calc=()=>{
+    const {inv,T}=billCollect(); document.querySelectorAll('[data-blrow]').forEach(r=>{ const i=r.dataset.blrow, a=(Number(val('bl_q'+i))||0)*(Number(val('bl_r'+i))||0); const e=document.getElementById('bl_a'+i); if(e) e.textContent='₹ '+invMoney(a); });
+    const gp=document.getElementById('bl_gp'); if(gp) gp.disabled=!document.getElementById('bl_gst').checked;
+    document.getElementById('blSum').innerHTML=`<div class="row-between"><div class="item-sub">Subtotal</div><div class="item-sub">₹ ${invMoney(T.sub)}</div></div>${T.ed>0?`<div class="row-between"><div class="item-sub">Discount</div><div class="item-sub">− ₹ ${invMoney(T.ed)}</div></div>`:''}${T.gstAmt>0?`<div class="row-between"><div class="item-sub">GST (${T.gstPct}%)</div><div class="item-sub">₹ ${invMoney(T.gstAmt)}</div></div>`:''}<div class="row-between" style="border-top:1px solid var(--border);margin-top:4px;padding-top:6px;"><div class="item-name" style="font-size:15px;">Total</div><div class="item-name" style="font-size:15px;">₹ ${invMoney(T.grand)}</div></div>`;
+    if(mb.checked&&am){ am.value=T.grand>0?T.grand:''; am.readOnly=T.grand>0; if(note) note.style.display=T.grand>0?'block':'none'; }
+  };
+  const apply=()=>{ pnl.style.display=mb.checked?'block':'none'; if(!mb.checked&&am){ am.readOnly=false; if(note) note.style.display='none'; } else calc(); };
+  mb.onchange=apply; pnl.addEventListener('input',calc); pnl.addEventListener('change',calc);
+  document.getElementById('blAdd').onclick=()=>{ const rows=document.getElementById('blRows'), n=rows.querySelectorAll('[data-blrow]').length; if(n>=15){ showToast('Itne hi item jod sakte hain'); return; } const dv=document.createElement('div'); dv.innerHTML=billPanelHtml({id:''}).match(/<div class="card" style="padding:8px;margin-bottom:6px;" data-blrow="0">[\s\S]*?<\/div><\/div><\/div>/)[0].replace(/data-blrow="0"/,'data-blrow="'+n+'"').replace(/(bl_[nqra])0/g,'$1'+n).replace(/value="[^"]*"/g,'value=""'); rows.appendChild(dv.firstElementChild); };
+  apply();
+}
+function invBillText(j,c,inv){
+  const T=invTotals(inv), b=STATE.businessInfo||{}, bt=inv.billTo||{};
+  const L=['*'+(b.name||'Super Air Cool')+'*','Invoice No. '+inv.no+' · '+fmtDMY(inv.date),'','Customer: '+(bt.name||(c&&c.name)||'')];
+  inv.items.forEach((it,i)=>L.push((i+1)+') '+it.name+' — '+it.qty+' × ₹'+invMoney(it.rate)+' = ₹'+invMoney(it.qty*it.rate-(it.disc||0))));
+  L.push('');
+  if(T.ed>0||T.gstAmt>0) L.push('Subtotal: ₹'+invMoney(T.sub));
+  if(T.ed>0) L.push('Discount: − ₹'+invMoney(T.ed));
+  if(T.gstAmt>0) L.push('GST ('+T.gstPct+'%): ₹'+invMoney(T.gstAmt));
+  L.push('*Total: ₹'+invMoney(T.grand)+'*');
+  if(b.phone) L.push('','Sampark: '+b.phone);
+  L.push('Dhanyawad 🙏');
+  return L.join('\n');
+}
+let _pdfLibP=null;
+function loadPdfLib(){ if(window.html2pdf) return Promise.resolve(); if(_pdfLibP) return _pdfLibP; _pdfLibP=new Promise((res,rej)=>{ const sc=document.createElement('script'); sc.src='https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js'; sc.onload=res; sc.onerror=()=>{ _pdfLibP=null; rej(new Error('pdf lib')); }; document.head.appendChild(sc); }); return _pdfLibP; }
+async function billPdfBlob(j){
+  const c=STATE.customers.find(x=>x.id===j.customerId), tech=STATE.staff.find(s=>s.id===j.assignedTo);
+  let sig=STATE.signatures[j.id]; if(sig===undefined){ sig=await loadKey(jobSigKey(j.id),null); STATE.signatures[j.id]=sig; }
+  let techSig=STATE.techSignatures[j.id]; if(techSig===undefined){ techSig=await loadKey(techSigKey(j.id),null); STATE.techSignatures[j.id]=techSig; }
+  const html=invoiceDocHtml(j,c,j.invoice,sig,techSig,tech); await loadPdfLib();
+  const doc=new DOMParser().parseFromString(html,'text/html'); const host=document.createElement('div'); host.style.cssText='position:fixed;left:-12000px;top:0;width:794px;background:#fff;';
+  host.innerHTML='<style>'+[...doc.querySelectorAll('style')].map(x=>x.textContent).join('\n')+'</style>'+doc.body.innerHTML; host.querySelectorAll('button').forEach(x=>x.remove()); document.body.appendChild(host);
+  try{ return await window.html2pdf().from(host).set({margin:8,filename:'bill.pdf',image:{type:'jpeg',quality:0.92},html2canvas:{scale:2,useCORS:true},jsPDF:{unit:'mm',format:'a4',orientation:'portrait'}}).outputPdf('blob'); } finally{ host.remove(); }
+}
+function blobToB64(blob){ return new Promise((res,rej)=>{ const fr=new FileReader(); fr.onload=()=>res(String(fr.result).split(',')[1]||''); fr.onerror=rej; fr.readAsDataURL(blob); }); }
+async function shareBill(jobId,how){
+  const j=STATE.jobs.find(x=>x.id===jobId); if(!j||!j.invoice){ showToast('Bill nahi mila'); return; }
+  const c=STATE.customers.find(x=>x.id===j.customerId)||{}, inv=j.invoice, bt=inv.billTo||{};
+  const phone=(document.getElementById('bs_phone')?document.getElementById('bs_phone').value:'')||bt.phone||c.phone||'', email=(document.getElementById('bs_email')?document.getElementById('bs_email').value:'')||bt.email||c.email||'';
+  const text=invBillText(j,c,inv), fname='Bill-'+inv.no+'-'+String(bt.name||c.name||'customer').replace(/[^A-Za-z0-9]+/g,'-')+'.pdf';
+  const rec=how==='wa'?'whatsapp':'email';
+  if(how==='wa'){
+    if(phone&&!phoneOk(phone)){ showToast('Mobile 10 digit ka hona chahiye'); return; }
+    let shared=false;
+    try{ showToast('Bill ka PDF ban raha hai…'); const blob=await billPdfBlob(j), file=new File([blob],fname,{type:'application/pdf'});
+      if(navigator.canShare&&navigator.canShare({files:[file]})){ await navigator.share({files:[file],text}); shared=true; } }
+    catch(e){ if(e&&e.name==='AbortError'){ return; } console.error('bill share',e); }
+    if(!shared){ const n=waNum(phone); window.open('https://wa.me/'+(n||'')+'?text='+encodeURIComponent(text),'_blank'); showToast('WhatsApp khul raha hai (bill text ke roop mein)'); }
+  } else {
+    if(!email||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ showToast('Pehle customer ka sahi email likhein'); return; }
+    let att=null; try{ showToast('Bill ka PDF ban raha hai…'); att={name:fname,mime:'application/pdf',data:await blobToB64(await billPdfBlob(j))}; }catch(e){ console.error('pdf for email',e); }
+    const ok=await sendEmailViaBackend(email,'Bill #'+inv.no+' — '+((STATE.businessInfo&&STATE.businessInfo.name)||'Super Air Cool'),text.replace(/\*/g,''),att);
+    if(!ok){ window.location.href='mailto:'+encodeURIComponent(email)+'?subject='+encodeURIComponent('Bill #'+inv.no)+'&body='+encodeURIComponent(text.replace(/\*/g,'')); showToast('Email service se nahi gaya — aapka email app khul raha hai'); }
+    else showToast('📧 Bill email par bhej diya'+(att?'':' (PDF attach nahi hua, bill text gaya)'));
+  }
+  j.invoice.sentLog=(j.invoice.sentLog||[]).concat({t:Date.now(),how:rec,to:how==='wa'?phone:email,by:(STATE.session&&STATE.session.name)||''}); await saveKey(SKEY.JOBS,STATE.jobs);
+}
+function billSendInner(d){
+  const j=STATE.jobs.find(x=>x.id===d.id)||{}, c=STATE.customers.find(x=>x.id===j.customerId)||{}, inv=j.invoice||{items:[]}, bt=inv.billTo||{}, T=invTotals(inv);
+  return `<div class="modal-head"><h3>🧾 Bill Taiyaar</h3><button class="close-x" id="modalClose">×</button></div>
+    <div class="card" style="background:var(--sky-pale);"><div class="item-name">${esc(bt.name||c.name||'Customer')}</div><div class="item-sub">Bill #${esc(inv.no||'')} · ${inv.items.length} item${T.ed>0?' · Discount ₹'+invMoney(T.ed):''}${T.gstAmt>0?' · GST ₹'+invMoney(T.gstAmt):''}</div><div class="item-name" style="margin-top:4px;">Total ₹${invMoney(T.grand)}</div></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:10px 0;"><div><label style="font-size:11px;">WhatsApp / Mobile</label><input id="bs_phone" inputmode="numeric" value="${esc(bt.phone||c.phone||'')}" placeholder="10 digit"></div><div><label style="font-size:11px;">Email</label><input id="bs_email" type="email" value="${esc(bt.email||c.email||'')}" placeholder="email"></div></div>
+    <button class="primary-btn" id="bsWa" style="background:#1faa59;">📲 WhatsApp par bhejo</button>
+    <button class="primary-btn" id="bsMail" style="margin-top:8px;">📧 Email par bhejo</button>
+    <div class="card-actions" style="margin-top:10px;"><button class="mini-btn" id="bsDl">⬇️ Download</button><button class="mini-btn" id="bsClose">Abhi nahi bhejna</button></div>
+    <div class="item-sub" style="margin-top:8px;">Bhejna zaroori nahi — bill customer ki History mein save ho gaya hai, baad mein wahin se bhej sakte hain.</div>`;
+}
 function invoiceModalInner(d){
   const j=STATE.jobs.find(x=>x.id===d.id)||{}, c=STATE.customers.find(x=>x.id===j.customerId)||{};
   const inv=j.invoice||{items:invDefaultItems(j),kind:'invoice'}, items=inv.items.slice(); while(items.length<6) items.push({name:'',qty:'',unit:'QTY',rate:'',disc:''});
@@ -1823,7 +1974,7 @@ async function saveInvoiceFromModal(d){
     if(qty<=0){ showToast('Item '+(i+1)+': Qty daalein'); return false; } if(disc>qty*rate){ showToast('Item '+(i+1)+': Discount amount se zyada hai'); return false; }
     items.push({name,qty,unit:val('f_iu'+i)||'QTY',rate,disc}); }
   if(!items.length){ showToast('Kam se kam ek item likhein'); return false; }
-  const K=invCalc(items); j.invoice=Object.assign(j.invoice||{date:j.completedAt?ymd(new Date(j.completedAt)):todayStr()},{items});
+  j.invoice=Object.assign(j.invoice||{date:j.completedAt?ymd(new Date(j.completedAt)):todayStr()},{items}); const K={total:invTotals(j.invoice).grand};
   const set=document.getElementById('f_invSetAmt'); if(set&&set.checked&&K.total!==Number(j.amount)){ j.amount=K.total; j.history=(j.history||[]).concat({s:'amount',t:Date.now(),by:(STATE.session&&STATE.session.name)||'',why:'Bill total se amount '+rupee(K.total)}); }
   await generateInvoice(j.id, val('f_invKind')||'invoice'); return true;
 }
@@ -2529,7 +2680,7 @@ function render(){
 function renderSetup(){
   return `
   <div class="login-wrap">
-    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v7.5</p></div>
+    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v7.7</p></div>
     <div class="setup-note">Yeh app ab Firebase (Google ka free real-time database) use karti hai — pehle se tez aur reliable. Firebase Console se apna config copy karke neeche paste karein.</div>
     <div class="field"><label>Firebase Config (poora object paste karein)</label><textarea id="setupConfig" rows="8" placeholder='{"apiKey": "...", "authDomain": "...", "projectId": "...", ...}'>${setupUrlInput}</textarea></div>
     <button class="primary-btn" id="connectBtn">Connect Karein</button>
@@ -2597,7 +2748,7 @@ function renderLogin(){
   }
   return `
   <div class="login-wrap">
-    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v7.5</p></div>
+    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v7.7</p></div>
     <div class="role-grid">
       <button class="role-opt ${loginRole==='admin'?'active':''}" data-role="admin"><span class="ic">🗝️</span>Admin</button>
       <button class="role-opt ${loginRole==='subadmin'?'active':''}" data-role="subadmin"><span class="ic">🧑‍💼</span>Office</button>
@@ -2973,11 +3124,11 @@ function renderCustomerProfile(){
     </div>
     <div class="section-title">Service History</div>
     ${customerJobs.length===0?`<div class="empty-state"><span class="ic">🧾</span><p>Koi service history nahi hai.</p></div>`:
-      customerJobs.map(j=>{ if(STATE.session.role==='technician'&&j.status==='done') return `<div class="card"><div class="row-between"><div class="item-name">${esc(j.title)}</div><span class="pill pill-green">Completed</span></div><div class="item-sub">📅 ${fmtDate(j.date)}</div>${(j.assignedTo===STATE.session.staffId&&j.extra&&j.extra.status==='confirmed')?`<div class="item-sub">🔧 Extra kaam: ${esc(j.extra.desc)}</div>`:''}</div>`; const tech=STATE.staff.find(s=>s.id===j.assignedTo);
+      customerJobs.map(j=>{ if(STATE.session.role==='technician'&&j.status==='done') return `<div class="card"><div class="row-between"><div class="item-name">${esc(j.title)}</div><span class="pill pill-green">Completed</span></div><div class="item-sub">📅 ${fmtDate(j.date)}</div>${(j.assignedTo===STATE.session.staffId&&j.invoice&&j.invoice.items&&j.invoice.items.length)?billHistLine(j)+`<div class="card-actions"><button class="mini-btn" data-act="billsend" data-id="${j.id}">📲 Bill bhejo</button></div>`:''}${(j.assignedTo===STATE.session.staffId&&j.extra&&j.extra.status==='confirmed')?`<div class="item-sub">🔧 Extra kaam: ${esc(j.extra.desc)}</div>`:''}</div>`; const tech=STATE.staff.find(s=>s.id===j.assignedTo);
         const statusLabel=s=>s==='done'?'Completed':s==='ongoing'?'Ongoing':s==='onhold'?'On Hold':s==='rejected'?'Rejected':'Pending';
         const statusPill=s=>s==='done'?'pill-green':s==='ongoing'?'pill-sky':s==='onhold'?'pill-grey':s==='rejected'?'pill-red':'pill-amber';
         return `<div class="card"><div class="row-between"><div><div class="item-name">${j.title}</div><div class="item-sub">${fmtDate(j.date)}${j.completedAt?' · '+new Date(j.completedAt).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true}):''} · ${tech?`<span data-viewstaff="${tech.id}" style="cursor:pointer;text-decoration:underline;color:var(--teal);">${esc(tech.name)}</span>`:'Unassigned'}${j.status==='done'?' · '+rupee(j.amount):''}</div></div><span class="pill ${statusPill(j.status)}">${statusLabel(j.status)}</span></div>
-        ${j.notes?`<div class="item-sub" style="margin-top:6px;">📝 ${esc(j.notes)}</div>`:''}${j.status==='done'?`<div class="card-actions"><button class="mini-btn primary" data-act="invoice" data-id="${j.id}">Invoice</button></div>`:''}${(j.status!=='done'&&j.status!=='rejected'&&STATE.session.role!=='technician')?`<div class="card-actions"><button class="mini-btn" data-act="jobresched" data-id="${j.id}">📅 Date Badlein</button></div>`:''}</div>`; }).join('')}
+        ${j.notes?`<div class="item-sub" style="margin-top:6px;">📝 ${esc(j.notes)}</div>`:''}${(j.status==='done'&&j.invoice&&j.invoice.items&&j.invoice.items.length)?billHistLine(j):''}${j.status==='done'?`<div class="card-actions"><button class="mini-btn primary" data-act="invoice" data-id="${j.id}">Invoice</button>${(j.invoice&&j.invoice.items)?`<button class="mini-btn" data-act="billsend" data-id="${j.id}">📲 Bill bhejo</button>`:''}</div>`:''}${(j.status!=='done'&&j.status!=='rejected'&&STATE.session.role!=='technician')?`<div class="card-actions"><button class="mini-btn" data-act="jobresched" data-id="${j.id}">📅 Date Badlein</button></div>`:''}</div>`; }).join('')}
   `;
 }
 
@@ -3902,6 +4053,8 @@ function modalHtml(){
   } else if(activeModal.type==='nameMerge'){
     const gs=nameMergeGroups().slice(0,150), tl=c=>({amc:'AMC',onetime:'One-time',enquiry:'Enquiry',quotation:'Quotation'}[c.type||'amc']||'');
     inner=`<div class="modal-head"><h3>🔗 Naam se Jodo</h3><button class="close-x" id="modalClose">×</button></div><div class="item-sub" style="margin-bottom:8px;">Tick wale profile ek mein jud jayenge (AMC wala profile mukhya rahega). ⚠️ wale galat ho sakte hain (address alag) — default mein tick nahi. Pehle Poora Backup le lein.</div><div class="card-actions" style="margin-bottom:8px;"><button class="mini-btn" id="nmAll">Sab strong tick</button><button class="mini-btn" id="nmNone">Sab hatayein</button></div>${gs.length?gs.map(g=>`<label class="card" style="display:block;padding:10px;margin-bottom:8px;cursor:pointer;"><div style="display:flex;gap:8px;align-items:flex-start;"><input type="checkbox" class="nmchk" data-nmkey="${esc(g.key)}" data-strong="${g.strong?1:0}" ${g.strong?'checked':''} style="margin-top:3px;"><div style="min-width:0;"><div class="item-name" style="font-size:14px;">${g.strong?'':'⚠️ '}${esc(g.arr[0].name)}</div>${g.arr.map(c=>`<div class="item-sub">• ${tl(c)}${c.phone?' · '+esc(c.phone):' · <b>bina number</b>'}${c.address?' · '+esc(c.address):''}</div>`).join('')}</div></div></label>`).join(''):'<div class="item-sub">Kuch nahi mila.</div>'}<button class="primary-btn" id="modalSave">Tick wale Jodo</button>`;
+  } else if(activeModal.type==='billSend'){
+    inner=billSendInner(activeModal.data);
   } else if(activeModal.type==='fixAmt'){
     const d=activeModal.data;
     inner=`<div class="modal-head"><h3>💰 Amount theek karein</h3><button class="close-x" id="modalClose">x</button></div><div class="card"><div class="item-name">${esc(d.name||'Customer')}</div><div class="item-sub">${esc(d.title||'')} · ${fmtDate(d.date)} · abhi ka amount: <b>${rupee(d.amount)}</b></div></div><div class="field"><label>Sahi amount (₹)</label><input id="f_fxamt" type="number" inputmode="numeric" min="1" placeholder="jaise 3500"></div><button class="primary-btn" id="modalSave">Save Karein</button>`;
@@ -4067,7 +4220,8 @@ function modalHtml(){
       <button class="primary-btn" id="modalSave">Signature Save Karein</button>`;
   } else if(activeModal.type==='completeJob'){
     inner=`<div class="modal-head"><h3>Job Complete Karein</h3><button class="close-x" id="modalClose">×</button></div>
-      <div class="field"><label>Amount Charge Kiya (₹)</label><input id="f_amount" type="number" min="0" value="${activeModal.data.existingAmount||''}" placeholder="e.g. 500"></div>
+      ${billPanelHtml(activeModal.data)}
+      <div class="field"><label>Amount Charge Kiya (₹)</label><input id="f_amount" type="number" min="0" value="${activeModal.data.existingAmount||''}" placeholder="e.g. 500"><div class="item-sub" id="f_amountNote" style="display:none;margin-top:4px;">✅ Ye amount bill ke Total se apne aap bhara hai</div></div>
       <div class="field"><label>Payment kaise mila?</label><select id="f_payMode"><option value="cash">Cash</option><option value="online">Online</option><option value="cheque">Cheque</option><option value="due">Abhi nahi mila (baad me)</option></select></div>
       <div class="field"><label>🚗 Travel Amount (₹) (optional)</label><input id="f_travelAmt" type="number" min="0" value="${activeModal.data.existingTravel||''}" placeholder="e.g. 100"></div>
       <div class="field"><label>Customer Rating (optional)</label>
@@ -4084,7 +4238,6 @@ function modalHtml(){
         <canvas id="techSigCanvas" width="440" height="160" style="width:100%;border:1px solid var(--border);border-radius:8px;touch-action:none;background:#fff;"></canvas>
         <button type="button" class="mini-btn" id="clearTechSigBtn" style="margin-top:8px;">Clear Signature</button>
       </div>
-      <label class="item-sub" style="display:flex;gap:8px;align-items:center;margin:4px 0 12px;"><input type="checkbox" id="f_makeBill" style="width:18px;height:18px;"> 🧾 Bill (Invoice) bhi banana hai</label>
       <button class="primary-btn" id="modalSave">Mark Done</button>`;
   }
   return `<div class="modal-overlay" id="modalOverlay"><div class="modal-sheet">${inner}</div></div>`;
@@ -4253,6 +4406,7 @@ function bindShellEvents(){
     else if(act==='leaveok'||act==='leaveno'){ const l=(STATE.leaves||[]).find(x=>x.id===id); if(l&&(STATE.session.role==='admin'||(STATE.session.role==='subadmin'&&l.role==='technician'))){ l.status=act==='leaveok'?'approved':'rejected'; l.decidedBy=STATE.session.name; l.decidedAt=Date.now(); await saveKey('st_leave',STATE.leaves); render(); } }
     else if(act==='toggleholiday'){ if(STATE.session.role==='admin') toggleHoliday(el.dataset.day); }
     else if(act==='removeprofilephoto'){ await removeProfilePhoto(id); }
+    else if(act==='billsend'){ activeModal={type:'billSend',data:{id}}; render(); }
     else if(act==='travelall'){ STATE.travelAll=!STATE.travelAll; render(); }
     else if(act==='traveltoggle'){ STATE.travelAmtOpen=(STATE.travelAmtOpen===id)?null:id; render(); }
     else if(act==='showvisitlist'){ const k=el.dataset.kind; STATE.dashVisitOpen=(STATE.dashVisitOpen===k)?null:k; render(); }
@@ -4331,6 +4485,9 @@ function bindShellEvents(){
   if(overlay){
     overlay.onclick=(e)=>{ if(e.target===overlay){ activeModal=null; render(); } };
     const closeX=document.getElementById('modalClose'); if(closeX) closeX.onclick=()=>{ activeModal=null; render(); };
+    if(activeModal&&activeModal.type==='billSend'){ const jid=activeModal.data.id, g=id=>document.getElementById(id);
+      if(g('bsWa')) g('bsWa').onclick=()=>shareBill(jid,'wa'); if(g('bsMail')) g('bsMail').onclick=()=>shareBill(jid,'email'); if(g('bsClose')) g('bsClose').onclick=()=>{ activeModal=null; render(); };
+      if(g('bsDl')) g('bsDl').onclick=async()=>{ try{ await generateInvoice(jid); }catch(e){ showToast('Download nahi hua'); } } }
     { const na=document.getElementById('nmAll'), nn=document.getElementById('nmNone'); if(na) na.onclick=()=>document.querySelectorAll('.nmchk').forEach(e=>{ e.checked=e.dataset.strong==='1'; }); if(nn) nn.onclick=()=>document.querySelectorAll('.nmchk').forEach(e=>{ e.checked=false; }); }
     if(document.getElementById('recBtn')) initRecorder();
     if(document.getElementById('holdBtn')) initHold();
@@ -4359,7 +4516,7 @@ function bindShellEvents(){
     const custSearch=document.getElementById('f_custSearch');
     if(custSearch){ custSearch.oninput=(e)=>{ jobCustQuery=e.target.value; jobCustSelectedId=''; paintCustSuggest(); }; paintCustSuggest(); }
     { const am=document.getElementById('f_amount'), mb=document.getElementById('f_makeBill');
-      if(am&&mb){ mb.onchange=()=>{ mb.dataset.touched='1'; }; am.oninput=()=>{ if(!mb.dataset.touched) mb.checked=Number(am.value)>0; }; mb.checked=Number(am.value)>0; } }
+      if(am&&mb){ mb.checked=Number(am.value)>0; wireBillPanel(); } }
     if(document.getElementById('sigCanvas')){
       setTimeout(()=>initSignaturePad('sigCanvas'),0);
       const clearSigBtn=document.getElementById('clearSigBtn');
@@ -4444,8 +4601,9 @@ function bindShellEvents(){
       } else if(activeModal.type==='completeJob'){
         const amount=val('f_amount'); const rating=val('f_rating'); const travelAmt=val('f_travelAmt'); const sigUrl=getSignatureDataUrl('sigCanvas'); const techSigUrl=getSignatureDataUrl('techSigCanvas');
         const mkBill=!!(document.getElementById('f_makeBill')&&document.getElementById('f_makeBill').checked), jid=activeModal.data.id;
-        await completeJobWithAmount(jid, amount, rating, sigUrl, techSigUrl, travelAmt, val('f_payMode')); activeModal=null; render();
-        if(mkBill){ try{ await generateInvoice(jid); showToast('🧾 Bill download ho gaya'); }catch(e){ console.error(e); showToast('Bill nahi ban paya — office se banwa lein'); } }
+        let bill=null; if(mkBill){ bill=billCollect(); if(bill.bad){ showToast(bill.bad); resetBtn(); return; } }
+        await completeJobWithAmount(jid, bill?bill.T.grand:amount, rating, sigUrl, techSigUrl, travelAmt, val('f_payMode')); activeModal=null; render();
+        if(bill){ try{ await finishBill(jid,bill.inv); activeModal={type:'billSend',data:{id:jid}}; render(); }catch(e){ console.error(e); showToast('Bill nahi ban paya — office se banwa lein'); } }
       } else if(activeModal.type==='nameMerge'){
         const keys=[...document.querySelectorAll('.nmchk:checked')].map(e=>e.dataset.nmkey);
         if(!keys.length){ showToast('Kam se kam ek tick karein'); resetBtn(); return; }
