@@ -239,15 +239,199 @@ function auditHtml(staffId){
   return `<div class="card"><div class="item-name" style="margin-bottom:6px;">🕒 Activity</div><div class="item-sub">Aakhri login: <b>${logins.length?fmtT(logins[0].ts):'—'}</b></div>${isA?`<details style="margin-top:6px;"><summary class="item-sub" style="cursor:pointer;">Recent logins (${logins.length})</summary>${logins.slice(0,10).map(r=>`<div class="item-sub">${fmtT(r.ts)}${auditWhere(r)}</div>`).join('')}</details><details style="margin-top:4px;"><summary class="item-sub" style="cursor:pointer;">Data export ki history (${exports.length})</summary>${exports.length?exports.slice(0,10).map(r=>`<div class="item-sub">${fmtT(r.ts)} — ${esc(r.detail)}</div>`).join(''):'<div class="item-sub">Koi export nahi kiya.</div>'}</details>`:''}</div>`;
 }
 function syncBadge(){ const b=document.getElementById('syncBadge'); if(b) b.textContent=PENDING>0?'⏳ Sync ho raha hai':'✅ Saved'; }
+/* ===== v8.0: Change history — kisne, kab, kya badla (pehle -> baad). Undo ke liye purani value save hoti hai ===== */
+const AUDIT_KEYS={st_customers:'customers',st_jobs:'jobs',st_staff:'staff'};
+const CHG_IGN=['id','deleted','deletedAt','deletedBy','deletedById','history','createdAt','restoredAt','restoredBy'];
+const J_=v=>v===undefined?'__u':JSON.stringify(v);
+function chgShort(v){ if(v===undefined||v===null||v==='') return '—'; if(typeof v==='object') return Array.isArray(v)?('('+v.length+' entry)'):'(badla)'; const t=String(v); return t.length>40?t.slice(0,38)+'…':t; }
+function chgDiff(a,b){
+  const out=[]; const keys=[...new Set(Object.keys(a||{}).concat(Object.keys(b||{})))];
+  keys.forEach(f=>{ if(CHG_IGN.indexOf(f)>-1) return; const x=a?a[f]:undefined, y=b?b[f]:undefined, jx=J_(x), jy=J_(y); if(jx===jy) return;
+    const e={f,a:chgShort(x),b:chgShort(y)}; if(jx.length<=300&&jy.length<=300){ e.bj=jx; e.aj=jy; } out.push(e); });
+  return out.slice(0,25);
+}
+function chgName(coll,r){ r=r||{}; if(coll==='jobs'){ const c=(STATE.customers||[]).find(x=>x.id===r.customerId); return (c?c.name:'Customer')+' · '+(r.title||'Job'); } return r.name||'?'; }
+function chgWrite(o){ try{ if(!firestoreDB||!STATE.session) return; const me=STATE.session; firestoreDB.collection('st_audit').add(Object.assign({type:'chg',byId:me.staffId||'',by:me.name||'',role:me.role||'',ts:Date.now()},o)).catch(()=>{}); }catch(e){} }
+function chgFlush(key,list){
+  const coll=AUDIT_KEYS[key]; if(!STATE.session) return;
+  if(list.length>6){ chgWrite({coll,act:'bulk',n:list.length,recName:list.length+' '+coll+' ek saath badle/jude (import ya merge)',ch:[]}); return; }
+  list.forEach(x=>{
+    if(x.act==='add'){ chgWrite({coll,act:'add',recId:x.rec.id,recName:chgName(coll,x.rec),ch:[]}); }
+    else if(x.act==='delete'){ chgWrite({coll,act:'delete',recId:x.old.id,recName:chgName(coll,x.old),ch:[]}); }
+    else { const ch=chgDiff(x.old,x.rec); if(!ch.length) return; chgWrite({coll,act:'edit',recId:x.rec.id,recName:chgName(coll,x.rec),ch}); }
+  });
+}
+function chgLine(r){
+  if(r.type!=='chg') return (r.detail||r.type||'');
+  const nm=esc(r.recName||''), ic={customers:'👤',jobs:'🧾',staff:'🧑‍🔧'}[r.coll]||'';
+  if(r.act==='add') return '➕ Naya '+({customers:'customer',jobs:'job',staff:'staff'}[r.coll]||'record')+': <b>'+nm+'</b>';
+  if(r.act==='delete') return '🗑 Delete kiya: <b>'+nm+'</b>';
+  if(r.act==='restore') return '↩️ Wapas laaye: <b>'+nm+'</b>';
+  if(r.act==='bulk') return '📦 '+esc(r.recName||'');
+  const ch=r.ch||[]; return '✏️ '+ic+' <b>'+nm+'</b><div style="margin-top:2px;">'+ch.slice(0,4).map(c=>'<span class="pill pill-grey" style="font-size:11px;margin:1px 2px 1px 0;">'+esc(c.f)+': '+esc(c.a)+' → '+esc(c.b)+'</span>').join('')+(ch.length>4?' <span class="item-sub">+'+(ch.length-4)+' aur</span>':'')+'</div>';
+}
+function chgUndoable(r){ if(r.type!=='chg'||r.undone) return false; if(r.act==='add'||r.act==='delete') return true; if(r.act==='edit') return (r.ch||[]).some(c=>c.aj!==undefined); return false; }
+async function chgUndo(rows){
+  if(STATE.session.role!=='admin'){ showToast('Sirf Admin wapas kar sakta hai'); return; }
+  const maps={customers:['st_customers',STATE.customers],jobs:['st_jobs',STATE.jobs],staff:['st_staff',STATE.staff]}, touched=new Set(); let ok=0, skip=0; const done=[];
+  for(const r of rows){
+    const m=maps[r.coll]; if(!m){ skip++; continue; } const arr=m[1], rec=arr.find(x=>x.id===r.recId);
+    if(r.act==='edit'){
+      if(!rec){ skip++; continue; } let n=0;
+      (r.ch||[]).forEach(c=>{ if(c.aj===undefined) return; const cur=J_(rec[c.f]); if(cur!==c.aj) return; if(c.bj==='__u') delete rec[c.f]; else rec[c.f]=JSON.parse(c.bj); n++; });
+      if(n){ ok++; touched.add(r.coll); done.push(r); } else skip++;
+    } else if(r.act==='add'){
+      if(!rec){ skip++; continue; } const i=arr.indexOf(rec); arr.splice(i,1); ok++; touched.add(r.coll); done.push(r);
+    } else if(r.act==='delete'){
+      if(rec){ skip++; continue; } try{ await firestoreDB.collection(m[0]).doc(r.recId).set({deleted:false,restoredAt:Date.now(),restoredBy:STATE.session.name},{merge:true}); ok++; done.push(r); }catch(e){ skip++; }
+    }
+  }
+  for(const c of touched){ await saveKey(maps[c][0],maps[c][1]); }
+  for(const r of done){ if(r.id){ try{ await firestoreDB.collection('st_audit').doc(r.id).set({undone:true,undoneBy:STATE.session.name,undoneAt:Date.now()},{merge:true}); r.undone=true; }catch(e){} } }
+  showToast('↩️ '+ok+' wapas kiye'+(skip?' · '+skip+' skip (baad mein dobara badle ya mile nahi)':''));
+  return ok;
+}
+/* ===== v8.0: Telecaller call report + Admin "Aaj ka Hisaab" ===== */
+function periodRange(k,from,to){
+  const now=new Date(), d0=new Date(now.getFullYear(),now.getMonth(),now.getDate()), D=864e5; let s,e,l;
+  if(k==='yesterday'){ s=d0.getTime()-D; e=d0.getTime(); l='Kal'; }
+  else if(k==='week'){ s=d0.getTime()-6*D; e=d0.getTime()+D; l='Pichhle 7 din'; }
+  else if(k==='month'){ s=new Date(now.getFullYear(),now.getMonth(),1).getTime(); e=d0.getTime()+D; l='Is mahine'; }
+  else if(k==='custom'){ const a=from?new Date(from+'T00:00:00').getTime():d0.getTime(), b=to?new Date(to+'T00:00:00').getTime()+D:a+D; s=Math.min(a,b); e=Math.max(a,b); if(e<=s) e=s+D; l=(from?fmtDate(from):'')+' → '+(to?fmtDate(to):''); }
+  else { s=d0.getTime(); e=d0.getTime()+D; l='Aaj'; }
+  return [s,e,l];
+}
+const CALL_SKIP=['(Sheet se import)','(AMC match)',''];
+function callStats(s,e){
+  const by={}, row=(id,name)=>{ const k=id||('n:'+name); return by[k]||(by[k]={id:id||'',name:name||'?',calls:0,later:0,amc:0,list:[]}); };
+  const nameToId={}; (STATE.staff||[]).forEach(x=>{ nameToId[x.name]=x.id; });
+  (STATE.leads||[]).forEach(l=>{
+    const log=l.callLog||[]; let hadLog=false;
+    log.forEach(c=>{ if(c.t>=s&&c.t<e){ hadLog=true; const r=row(c.byId||nameToId[c.by],c.by); if(c.out==='later') r.later++; else r.calls++; r.list.push({t:c.t,cust:l.customer||'',mob:l.mobile||'',out:c.out}); } else if(c.t){ hadLog=true; } });
+    if(!log.length&&l.called&&l.calledAt>=s&&l.calledAt<e&&CALL_SKIP.indexOf(l.calledBy||'')<0){ const r=row(l.calledByStaffId||nameToId[l.calledBy],l.calledBy); r.calls++; r.list.push({t:l.calledAt,cust:l.customer||'',mob:l.mobile||'',out:'called'}); }
+    if(l.convertedAt>=s&&l.convertedAt<e&&!l.dismissed){ const r=row(l.calledByStaffId||l.assignedTo||nameToId[l.assignedName],l.calledBy&&CALL_SKIP.indexOf(l.calledBy)<0?l.calledBy:l.assignedName); r.amc++; }
+  });
+  const rows=Object.values(by).map(r=>{ const st=(STATE.staff||[]).find(x=>x.id===r.id); if(st) r.name=st.name; r.list.sort((a,b)=>b.t-a.t); r.tot=r.calls+r.later; return r; }).sort((a,b)=>b.tot-a.tot);
+  return {rows,calls:rows.reduce((x,r)=>x+r.calls,0),later:rows.reduce((x,r)=>x+r.later,0),amc:rows.reduce((x,r)=>x+r.amc,0)};
+}
+function callReportHtml(){
+  const R=STATE.crPer||'today', [s,e,l]=periodRange(R,STATE.crFrom,STATE.crTo), st=callStats(s,e), open=STATE.crOpen||'';
+  const opt=(k,t)=>`<option value="${k}" ${R===k?'selected':''}>${t}</option>`;
+  return `<div class="card"><div class="row-between" style="align-items:center;gap:8px;"><div class="item-name">📞 Telecaller Call Report</div><select id="crPer" style="width:auto;padding:5px 8px;font-size:12px;">${opt('today','Aaj')}${opt('yesterday','Kal')}${opt('week','Pichhle 7 din')}${opt('month','Is mahine')}${opt('custom','Date se Date')}</select></div>
+    ${R==='custom'?`<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px;"><input type="date" id="crFrom" value="${STATE.crFrom||''}"><input type="date" id="crTo" value="${STATE.crTo||''}"></div>`:''}
+    <div class="item-sub" style="margin-top:6px;">${esc(l)} · Total <b>${st.calls}</b> call · <b>${st.later}</b> "baad mein" · <b>${st.amc}</b> AMC bani</div>
+    ${st.rows.length?st.rows.map(r=>{ const o=open===(r.id||r.name); return `<div class="row-between" data-act="crtoggle" data-id="${esc(r.id||r.name)}" style="cursor:pointer;padding:6px 0;border-top:1px solid var(--border);"><div class="item-sub" style="margin:0;"><b>${esc(r.name)}</b> ${o?'▾':'▸'}</div><div class="item-sub" style="margin:0;"><b>${r.calls}</b> call · ${r.later} baad mein · ${r.amc} AMC</div></div>`+(o?`<div style="margin:2px 0 6px;padding:6px 10px;background:var(--bg);border-radius:10px;max-height:220px;overflow:auto;">${r.list.length?r.list.map(x=>`<div class="item-sub" style="margin:0;padding:2px 0;">${new Date(x.t).toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit',hour12:true})} · ${esc(x.cust)} ${esc(x.mob)} <span class="pill ${x.out==='later'?'pill-amber':'pill-green'}" style="font-size:10px;">${x.out==='later'?'baad mein':'call hui'}</span></div>`).join(''):'<div class="item-sub">Is period mein call nahi.</div>'}</div>`:''); }).join(''):'<div class="item-sub" style="margin-top:8px;">Is period mein kisi telecaller ki call record nahi hui.</div>'}
+    <div class="item-sub" style="opacity:.7;margin-top:6px;">Sheet se import hui purani calls ginti mein nahi aati. Har naya "Call Ho Gayi" / "Baad mein call" ab time ke saath record hota hai.</div></div>`;
+}
+const DL_TYPES={'':'Sab kuch',edit:'✏️ Badlav (edit)',add:'➕ Naya jodna',delete:'🗑 Delete',other:'🔑 Login / Import / Export'};
+function dlKey(){ const d=STATE.dl||{}; return (d.range||'today')+'|'+(d.from||'')+'|'+(d.to||''); }
+async function loadDayLog(){
+  const d=STATE.dl; const [s,e]=periodRange(d.range,d.from,d.to), k=dlKey(); STATE.dlLoading=true; STATE.dlKeyLoaded=k;
+  try{ const snap=await firestoreDB.collection('st_audit').where('ts','>=',s).where('ts','<',e).orderBy('ts','desc').limit(600).get(); const rows=[]; snap.forEach(x=>rows.push(Object.assign({id:x.id},x.data()))); STATE.dlRows=rows; STATE.dlErr=''; }
+  catch(err){ console.error('daylog',err); STATE.dlRows=[]; STATE.dlErr=err.code||err.message; }
+  STATE.dlLoading=false; if(STATE.view==='daylog') bgRender();
+}
+function dlFiltered(){
+  const d=STATE.dl||{}, rows=STATE.dlRows||[];
+  return rows.filter(r=>{ const who=r.by||r.name||''; if(d.who&&who!==d.who) return false;
+    if(d.type){ if(d.type==='other'){ if(r.type==='chg') return false; } else { if(r.type!=='chg'||r.act!==d.type) return false; } } return true; });
+}
+function renderDayLog(){
+  if(STATE.session.role!=='admin') return '<div class="empty-state"><p>Ye screen sirf Admin ke liye hai.</p></div>';
+  STATE.dl=STATE.dl||{range:'today',from:'',to:'',who:'',type:'',sel:{}}; const d=STATE.dl;
+  if(d.range==='custom'&&!d.from) { d.from=todayStr(); d.to=todayStr(); }
+  if(firestoreDB&&!STATE.dlLoading&&STATE.dlKeyLoaded!==dlKey()) loadDayLog();
+  const [s,e,lab]=periodRange(d.range,d.from,d.to), inR=t=>t>=s&&t<e;
+  const newC=(STATE.customers||[]).filter(c=>inR(c.createdAt||0)), jm=(STATE.jobs||[]).filter(j=>inR(j.createdAt||0)), jd=(STATE.jobs||[]).filter(j=>j.status==='done'&&inR(j.completedAt||0));
+  const earn=jd.reduce((x,j)=>x+(Number(j.amount)||0),0), bills=(STATE.jobs||[]).filter(j=>j.invoice&&j.invoice.items&&j.invoice.items.length&&j.invoice.date&&inR(new Date(j.invoice.date+'T12:00:00').getTime())&&j.invoice.kind!=='quotation').length, cs=callStats(s,e);
+  const rowsAll=STATE.dlRows||[], dels=rowsAll.filter(r=>r.type==='chg'&&r.act==='delete').length, eds=rowsAll.filter(r=>r.type==='chg'&&r.act==='edit').length;
+  const tile=(n,l,c)=>`<div class="stat-card"><div class="stat-num" style="${c?'color:'+c:''}">${n}</div><div class="stat-label">${l}</div></div>`;
+  const list=dlFiltered(), und=list.filter(chgUndoable), nSel=Object.keys(d.sel||{}).length;
+  const whos=[...new Set(rowsAll.map(r=>r.by||r.name||'').filter(Boolean))].sort();
+  const opt=(k,t,cur)=>`<option value="${k}" ${cur===k?'selected':''}>${t}</option>`;
+  const dayHead=t=>new Date(t).toLocaleDateString('en-IN',{weekday:'short',day:'2-digit',month:'short',year:'numeric'});
+  let lastDay='', rowsH='';
+  list.forEach(r=>{ const dk=ymd(new Date(r.ts)); if(dk!==lastDay){ lastDay=dk; rowsH+=`<div class="item-sub" style="margin:10px 0 2px;font-weight:700;color:var(--teal-deep);">${dayHead(r.ts)}</div>`; }
+    const canU=chgUndoable(r), who=esc(r.by||r.name||'?'), tm=new Date(r.ts).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:true});
+    const what=r.type==='chg'?chgLine(r):(({login:'🔑 Login',export:'⬇️ Data export',import:'📥 Import',wipe:'🧹 Test data saaf',edit:'✏️ Edit'}[r.type]||esc(r.type))+(r.detail?' — '+esc(r.detail):'')+(r.type==='login'?auditWhere(r):''));
+    rowsH+=`<div class="row-between" style="gap:8px;align-items:flex-start;padding:7px 0;border-bottom:1px solid var(--border);${r.undone?'opacity:.55;':''}">${und.length?`<input type="checkbox" class="dlchk" data-id="${r.id}" ${canU?'':'disabled'} ${(d.sel||{})[r.id]?'checked':''} style="width:18px;height:18px;flex:none;margin-top:3px;${canU?'':'visibility:hidden;'}">`:''}<div style="flex:1;min-width:0;"><div class="item-sub" style="margin:0;color:#1f2933;">${what}</div><div class="item-sub" style="margin:2px 0 0;">🕒 ${tm} · 👤 <b>${who}</b>${r.role?' <span class="pill pill-grey" style="font-size:10px;">'+esc(roleLabel(r.role))+'</span>':''}${r.undone?' · ↩️ wapas ho chuka ('+esc(r.undoneBy||'')+')':''}</div></div>${canU?`<button class="mini-btn" data-act="dlundo" data-id="${r.id}" style="flex:none;padding:5px 9px;font-size:12px;">↩️ Wapas</button>`:''}</div>`; });
+  return `<div class="row-between sticky-back"><button class="ghost-btn" style="width:auto;padding:8px 14px;margin-top:0;" data-navto="dashboard">‹ Wapas</button><button class="mini-btn" data-act="dlrefresh">🔄 Refresh</button></div>
+    <div class="section-title">📋 Aaj ka Hisaab</div>
+    <div class="card"><div style="display:grid;grid-template-columns:${d.range==='custom'?'1fr':'1fr'};gap:6px;"><select id="dlRange">${opt('today','Aaj',d.range)}${opt('yesterday','Kal',d.range)}${opt('week','Pichhle 7 din',d.range)}${opt('month','Is mahine',d.range)}${opt('custom','Date se Date',d.range)}</select></div>
+      ${d.range==='custom'?`<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:6px;"><input type="date" id="dlFrom" value="${d.from}" max="${todayStr()}"><input type="date" id="dlTo" value="${d.to}" max="${todayStr()}"></div>`:''}
+      <div class="item-sub" style="margin-top:6px;">📅 ${esc(lab)}</div></div>
+    <div class="stat-grid">${tile(newC.length,'Naye Customer')}${tile(jm.length,'Jobs Bani')}${tile(jd.length,'Jobs Complete','var(--green)')}${tile(rupee(earn),'Complete Jobs ka Amount')}${tile(bills,'Bills Bane')}${tile(cs.calls,'Telecaller Calls')}${tile(eds,'Edits (badlav)')}${tile(dels,'Delete hue',dels?'#c0392b':'')}</div>
+    <div class="section-title">Kisne kya kiya</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px;"><select id="dlWho"><option value="">👥 Sab log</option>${whos.map(w=>`<option value="${esc(w)}" ${d.who===w?'selected':''}>${esc(w)}</option>`).join('')}</select><select id="dlType">${Object.keys(DL_TYPES).map(k=>opt(k,DL_TYPES[k],d.type||'')).join('')}</select></div>
+    ${STATE.dlLoading&&!STATE.dlRows?'<div class="item-sub">Load ho raha hai…</div>':STATE.dlErr?'<div class="item-sub" style="color:#c0392b;">Log nahi khul paya: '+esc(STATE.dlErr)+'</div>':''}
+    ${und.length?`<div class="card-actions" style="margin-bottom:6px;"><button class="mini-btn" data-act="dlall">☑️ Sab Select (${und.length})</button><button class="mini-btn" data-act="dlnone">Select Hatao</button></div>`:''}
+    <div id="dlList">${list.length?rowsH:(STATE.dlLoading?'':'<div class="empty-state"><span class="ic">🗒</span><p>Is period mein koi record nahi.</p></div>')}</div>
+    ${und.length?`<button class="primary-btn" id="dlUndoSel" style="margin-top:10px;" ${nSel?'':'disabled'}>↩️ Select kiye Wapas Karein (<span id="dlSelN">${nSel}</span>)</button><div class="item-sub" style="margin-top:6px;">Wapas karne par sirf wahi field wapas hoti hai jo us badlav ke baad dobara nahi badli. Naya jodi hui entry wapas karne par Recycle Bin mein chali jaati hai.</div>`:''}
+    <div class="item-sub" style="opacity:.7;margin-top:10px;">Ye record is update ke baad se banna shuru hua hai. Pehle ke badlav yahan nahi dikhenge.</div>`;
+}
+function wireDayLog(){
+  const g=id=>document.getElementById(id), d=STATE.dl; if(!d||STATE.view!=='daylog') return;
+  const ch=(id,f)=>{ const el=g(id); if(el) el.onchange=()=>{ f(el.value); }; };
+  ch('dlRange',v=>{ d.range=v; d.sel={}; STATE.dlRows=null; if(v==='custom'&&!d.from){ d.from=todayStr(); d.to=todayStr(); } render(); });
+  ch('dlFrom',v=>{ d.from=v; if(d.to&&d.to<v) d.to=v; d.sel={}; STATE.dlRows=null; render(); }); ch('dlTo',v=>{ d.to=v; if(d.from&&d.from>v) d.from=v; d.sel={}; STATE.dlRows=null; render(); });
+  ch('dlWho',v=>{ d.who=v; d.sel={}; render(); }); ch('dlType',v=>{ d.type=v; d.sel={}; render(); });
+  document.querySelectorAll('.dlchk').forEach(c=>c.onchange=()=>{ d.sel=d.sel||{}; if(c.checked) d.sel[c.dataset.id]=1; else delete d.sel[c.dataset.id]; const n=Object.keys(d.sel).length, e=g('dlSelN'), b=g('dlUndoSel'); if(e) e.textContent=n; if(b) b.disabled=!n; });
+  const ub=g('dlUndoSel'); if(ub) ub.onclick=async()=>{ const ids=Object.keys(d.sel||{}), rows=(STATE.dlRows||[]).filter(r=>ids.indexOf(r.id)>-1&&chgUndoable(r)); if(!rows.length) return; if(!confirm(rows.length+' badlav wapas karne hain?\n\n(Jis field ko baad mein dobara badla gaya hai wo skip hoga)')) return; ub.disabled=true; await chgUndo(rows); d.sel={}; render(); };
+}
+/* ===== v8.0: AC-wise tracking — customer ke kitne AC hain, kis service mein kaunse AC hue, kaunse baaki ===== */
+function acCycleStartMs(c){
+  if(!c||c.type!=='amc') return 0; const h=c.amcHistory&&c.amcHistory.length?c.amcHistory[c.amcHistory.length-1]:null, st=(h&&h.start)||c.activationDate||'';
+  return st?new Date(st+'T00:00:00').getTime():0;
+}
+function acStats(c){
+  const acs=(c&&c.acs)||[], cs=acCycleStartMs(c), jobs=(STATE.jobs||[]).filter(j=>j.customerId===c.id&&j.status==='done'&&j.acsDone&&j.acsDone.length&&(j.completedAt||0)>=cs);
+  return acs.map(a=>{ const js=jobs.filter(j=>j.acsDone.indexOf(a.id)>-1); const last=js.reduce((m,j)=>Math.max(m,j.completedAt||0),0); return {ac:a,n:js.length,last}; });
+}
+function acCardHtml(c){
+  if(!c) return ''; const role=STATE.session.role; if(role==='technician') return '';
+  const acs=c.acs||[];
+  if(!acs.length) return `<div class="card" style="padding:10px 12px;"><div class="row-between" style="align-items:center;"><div><div class="item-name" style="font-size:14px;">❄️ AC ki list</div><div class="item-sub" style="margin:0;">Kitne AC hain aur kaunse ki service hui — track karne ke liye jodein.</div></div><button class="mini-btn primary" data-act="editacs" data-id="${c.id}" style="flex:none;">➕ AC jodein</button></div></div>`;
+  const st=acStats(c), done=st.filter(x=>x.n>0), left=st.filter(x=>x.n===0);
+  return `<div class="card"><div class="row-between" style="align-items:center;"><div class="item-name">❄️ AC-wise Service (${acs.length} AC)</div><button class="mini-btn" data-act="editacs" data-id="${c.id}" style="flex:none;">✏️ AC badlein</button></div>
+    <div class="item-sub" style="margin:4px 0 6px;"><b>${acs.length}</b> AC mein se <b style="color:var(--green)">${done.length}</b> ki service hui${c.type==='amc'?' (is AMC cycle mein)':''}, <b style="color:${left.length?'#c0392b':'var(--green)'}">${left.length}</b> baaki${left.length?': '+left.map(x=>esc(x.ac.name)).join(', '):' ✅'}</div>
+    ${st.map(x=>`<div class="row-between" style="padding:3px 0;"><div class="item-sub" style="margin:0;">${x.n?'✅':'⏳'} ${esc(x.ac.name)}</div><div class="item-sub" style="margin:0;">${x.n?x.n+' service · aakhri '+fmtDate(new Date(x.last)):'abhi tak nahi hui'}</div></div>`).join('')}</div>`;
+}
+function acPickHtml(jobId){
+  const j=STATE.jobs.find(x=>x.id===jobId)||{}, c=STATE.customers.find(x=>x.id===j.customerId); if(!c||!(c.acs||[]).length) return '';
+  const st=acStats(c);
+  return `<div class="field"><div class="row-between" style="align-items:center;"><label style="margin:0;">❄️ Kaunse AC ki service ki? (${c.acs.length} AC)</label><button type="button" class="mini-btn" id="acAll" style="flex:none;padding:4px 10px;font-size:12px;">Sab</button></div>
+    <div style="margin-top:6px;">${st.map(x=>`<label class="item-sub" style="display:flex;gap:8px;align-items:center;margin:0 0 4px;"><input type="checkbox" class="acchk" value="${x.ac.id}" style="width:18px;height:18px;"> ${esc(x.ac.name)} <span style="opacity:.65;">${x.n?'('+x.n+' service ho chuki)':'(abhi tak nahi hui)'}</span></label>`).join('')}</div></div>`;
+}
+function acNamesOf(j){ const c=(STATE.customers||[]).find(x=>x.id===j.customerId); if(!c||!j.acsDone||!j.acsDone.length) return ''; return j.acsDone.map(id=>{ const a=(c.acs||[]).find(x=>x.id===id); return a?a.name:''; }).filter(Boolean).join(', '); }
+function acListInner(d){
+  const c=STATE.customers.find(x=>x.id===d.id)||{}, acs=c.acs||[];
+  return `<div class="modal-head"><h3>❄️ AC ki list</h3><button class="close-x" id="modalClose">×</button></div>
+    <div class="card" style="background:var(--sky-pale);"><div class="item-name">${esc(c.name||'')}</div><div class="item-sub">Har line mein ek AC ka naam (jaise Hall AC, Bedroom 1, Office 3).</div></div>
+    <div class="field"><label>Kitne AC hain? (naam baad mein bhi likh sakte hain)</label><input id="f_acN" type="number" min="0" max="60" value="${acs.length||''}" placeholder="jaise 10"></div>
+    <div class="field"><label>AC ke naam (ek line = ek AC)</label><textarea id="f_acNames" rows="8" placeholder="Hall AC&#10;Bedroom 1&#10;Bedroom 2">${esc(acs.map(a=>a.name).join('\n'))}</textarea></div>
+    <div class="item-sub" style="margin-bottom:10px;">Naam khali chhodein aur sirf number likhein to "AC 1, AC 2…" apne aap ban jayenge. Naam badalne par us AC ki purani service history nahi jaati.</div>
+    <button class="primary-btn" id="modalSave">Save Karein</button>`;
+}
+async function saveAcList(id){
+  const c=STATE.customers.find(x=>x.id===id); if(!c) return false;
+  let names=(document.getElementById('f_acNames').value||'').split('\n').map(x=>x.trim()).filter(Boolean), n=Number(val('f_acN'))||0;
+  if(n<0||n>60){ showToast('AC ki ginti 0 se 60 ke beech likhein'); return false; }
+  if(!names.length&&n>0) names=Array.from({length:n},(_,i)=>'AC '+(i+1)); else if(n>names.length) for(let i=names.length;i<n;i++) names.push('AC '+(i+1));
+  if(names.length>60){ showToast('Ek customer ke 60 se zyada AC nahi ho sakte'); return false; }
+  const old=(c.acs||[]).slice(), used=new Set(), lower=names.map(x=>x.toLowerCase());
+  const out=names.map((nm,i)=>{ let m=old.find(a=>!used.has(a.id)&&a.name.toLowerCase()===nm.toLowerCase()); if(!m){ const o=old[i]; if(o&&!used.has(o.id)&&lower.indexOf(o.name.toLowerCase())<0) m=o; } if(m){ used.add(m.id); return {id:m.id,name:nm}; } return {id:uid()+i,name:nm}; });
+  c.acs=out; await saveKey(SKEY.CUSTOMERS,STATE.customers); showToast('AC list save ho gayi ('+out.length+' AC)'); return true;
+}
 function track(p){ PENDING++; syncBadge(); p.then(()=>{PENDING--;syncBadge();},(e)=>{PENDING--;syncBadge();console.error('write failed',e);showToast('⚠️ Server par save nahi hua — internet/permission check karein');}); return p; }
 async function saveKey(key, value){
   if(!firestoreDB) return false;
   try{
     const db=firestoreDB, S=SYNCED[key]||(SYNCED[key]=new Map());
     if(COLL[key]){
-      const ids=new Set();
-      value.forEach(r=>{ if(!r||!r.id) return; ids.add(r.id); const js=JSON.stringify(r); if(S.get(r.id)!==js){ const pj=S.get(r.id); S.set(r.id,js); if(key==='st_jobs'||key==='st_leave') notifyChange(key,pj?JSON.parse(pj):null,JSON.parse(js)); track(db.collection(COLL[key]).doc(r.id).set(Object.assign(JSON.parse(js),{deleted:false}),{merge:true})); } });
-      [...S.keys()].forEach(id=>{ if(!ids.has(id)){ S.delete(id); track(db.collection(COLL[key]).doc(id).set({deleted:true,deletedAt:Date.now()},{merge:true})); } });
+      const ids=new Set(), chg=[];
+      value.forEach(r=>{ if(!r||!r.id) return; ids.add(r.id); const js=JSON.stringify(r); if(S.get(r.id)!==js){ const pj=S.get(r.id); S.set(r.id,js); if(key==='st_jobs'||key==='st_leave') notifyChange(key,pj?JSON.parse(pj):null,JSON.parse(js)); if(AUDIT_KEYS[key]) chg.push({act:pj?'edit':'add',old:pj?JSON.parse(pj):null,rec:JSON.parse(js)}); track(db.collection(COLL[key]).doc(r.id).set(Object.assign(JSON.parse(js),{deleted:false}),{merge:true})); } });
+      [...S.keys()].forEach(id=>{ if(!ids.has(id)){ const oj=S.get(id); S.delete(id); if(AUDIT_KEYS[key]&&oj) chg.push({act:'delete',old:JSON.parse(oj),rec:null}); track(db.collection(COLL[key]).doc(id).set({deleted:true,deletedAt:Date.now(),deletedBy:(STATE.session&&STATE.session.name)||'',deletedById:(STATE.session&&STATE.session.staffId)||''},{merge:true})); } });
+      if(chg.length&&AUDIT_KEYS[key]) { try{ chgFlush(key,chg); }catch(e){ console.error('audit',e); } }
     } else if(MAPK[key]){
       Object.keys(value||{}).forEach(k=>{ const js=JSON.stringify(value[k]); if(S.get(k)!==js){ S.set(k,js); const o=JSON.parse(js); track(db.collection(MAPK[key]).doc(k).set(key==='st_attendance'?{dates:o}:o,{merge:true})); } });
     } else { track(db.collection('sheetaltrack_data').doc(key).set({value: JSON.stringify(value)})); }
@@ -296,7 +480,8 @@ document.addEventListener('focusout',()=>setTimeout(()=>{ if(renderPending) bgRe
 function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
 function ymd(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
 function todayStr(){ return ymd(new Date()); }
-function fmtDate(d){ if(!d) return '—'; const dt=new Date(d); return dt.toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}); }
+const _fD=new Intl.DateTimeFormat('en-IN',{day:'2-digit',month:'short',year:'numeric'}), _fT=new Intl.DateTimeFormat('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit',hour12:true});
+function fmtDate(d){ if(!d) return '—'; const dt=new Date(d); return isNaN(dt)?'—':_fD.format(dt); }
 function addMonths(s,m){const [y,mo,da]=String(s).slice(0,10).split('-').map(Number);const n=Number(m)||0;const last=new Date(y,mo+n,0).getDate();return ymd(new Date(y,mo-1+n,Math.min(da,last)));}
 function daysUntil(dateStr){ const d=new Date(dateStr), n=new Date(todayStr()); return Math.round((d-n)/86400000); }
 function rupee(n){ return '₹'+Number(n||0).toLocaleString('en-IN'); }
@@ -329,7 +514,8 @@ function ensureLazyListeners(){
   if((r==='admin'||r==='subadmin'||r==='telecaller')&&!LAZY.leads){ LAZY.leads=1; attachLeadsListener(); }
 }
 function attachListeners(){
-  const cfg=[['st_staff','staff','arr'],['st_customers','customers','arr'],['st_jobs','jobs','arr'],['st_leave','leaves','arr'],['st_travel','travelLogs','arr'],['st_locations','locations','loc'],['st_attendance','attendance','att']];
+  const noLoc=!(STATE.session&&isMoneyRole());
+  const cfg=[['st_staff','staff','arr'],['st_customers','customers','arr'],['st_jobs','jobs','arr'],['st_leave','leaves','arr'],['st_travel','travelLogs','arr'],['st_locations','locations','loc'],['st_attendance','attendance','att']].filter(x=>!(noLoc&&x[0]==='st_locations'));
   return Promise.all(cfg.map(([key,prop,kind])=>new Promise((res,rej)=>{
     let first=true;
     firestoreDB.collection(COLL[key]||MAPK[key]).onSnapshot(snap=>{
@@ -578,6 +764,55 @@ async function staffExcel(){
   }
   xlsxSave('staff-'+todayStr()+'.xlsx',sheets);
 }
+/* ===== v8.0: Recycle Bin — kab delete hua, kisne, Sab Select, ek saath wapas ===== */
+function fmtDT(t){ return t?new Date(t).toLocaleString('en-IN',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit',hour12:true}):'—'; }
+function binItems(){
+  const b=STATE.bin||{}, out=[]; if(!b.customers) return out;
+  const cn=id=>{ const c=(STATE.customers||[]).find(x=>x.id===id); return c?c.name:''; };
+  (b.customers||[]).forEach(x=>out.push({kind:'customers',id:x._id,name:(x.name||'?')+(x.phone?' · '+x.phone:''),tag:'👤 Customer',at:x.deletedAt||0,by:x.deletedBy||''}));
+  (b.jobs||[]).forEach(x=>out.push({kind:'jobs',id:x._id,name:((cn(x.customerId)||'')+' · ').replace(/^ · $/,'')+(x.title||'?')+' · '+fmtDate(x.date),tag:'🧾 Job',at:x.deletedAt||0,by:x.deletedBy||''}));
+  (b.staff||[]).forEach(x=>out.push({kind:'staff',id:x._id,name:(x.name||'?')+(x.role?' ('+roleLabel(x.role)+')':''),tag:'🧑‍🔧 Staff',at:x.deletedAt||0,by:x.deletedBy||''}));
+  out.sort((a,b)=>b.at-a.at); return out;
+}
+function binFiltered(){
+  const k=STATE.binKind||'', q=String(STATE.binQ||'').trim().toLowerCase();
+  return binItems().filter(x=>(!k||x.kind===k)&&(!q||(x.name.toLowerCase().includes(q)||(x.at&&(fmtDT(x.at).toLowerCase().includes(q)||fmtDMY(ymd(new Date(x.at))).includes(q)||ymd(new Date(x.at)).includes(q)))||(x.by||'').toLowerCase().includes(q))));
+}
+function binRowsHtml(list){
+  if(!list.length) return '<div class="item-sub" style="padding:8px 0;">Is filter mein kuch nahi mila.</div>';
+  const sel=STATE.binSel||{};
+  return list.map(x=>`<label class="row-between" style="padding:7px 0;border-bottom:1px solid var(--border);gap:8px;align-items:flex-start;cursor:pointer;"><input type="checkbox" class="binchk" data-kind="${x.kind}" data-id="${esc(x.id)}" ${sel[x.kind+':'+x.id]?'checked':''} style="width:18px;height:18px;flex:none;margin-top:3px;"><div style="flex:1;min-width:0;"><div class="item-sub" style="margin:0;"><b>${esc(x.name)}</b> <span class="pill pill-grey" style="font-size:10px;">${x.tag}</span></div><div class="item-sub" style="margin:2px 0 0;">🗑 ${x.at?fmtDT(x.at):'time record nahi'} · kisne: <b>${x.by?esc(x.by):'—'}</b></div></div></label>`).join('');
+}
+function binBoxHtml(){
+  const all=binItems(); if(!all.length) return '<div class="item-sub" style="margin-top:8px;">Bin khaali hai.</div>';
+  const cnt=k=>all.filter(x=>x.kind===k).length, cur=STATE.binKind||'', list=binFiltered(), nSel=Object.keys(STATE.binSel||{}).length;
+  const chip=(k,l)=>`<button class="tabbtn ${cur===k?'active':''}" data-act="binkind" data-k="${k}">${l}</button>`;
+  return `<div style="margin-top:10px;"><div class="tabbar" style="margin-bottom:8px;">${chip('','Sab ('+all.length+')')}${chip('customers','Customers ('+cnt('customers')+')')}${chip('jobs','Jobs ('+cnt('jobs')+')')}${chip('staff','Staff ('+cnt('staff')+')')}</div>
+    <div class="field" style="margin:0 0 8px;"><input id="binQ" placeholder="🔍 Naam / mobile / date (jaise 08/10/2026) / kisne" value="${esc(STATE.binQ||'')}" autocomplete="off"></div>
+    <div class="card-actions" style="margin-bottom:6px;"><button class="mini-btn" data-act="binall">☑️ Sab Select (<span id="binTotal">${list.length}</span>)</button><button class="mini-btn" data-act="binnone">Select Hatao</button></div>
+    <div id="binList">${binRowsHtml(list)}</div>
+    <button class="primary-btn" id="binRestore" style="margin-top:10px;" ${nSel?'':'disabled'}>↩️ Select kiye Wapas Laayein (<span id="binSelN">${nSel}</span>)</button></div>`;
+}
+function binRefreshCount(){ const n=Object.keys(STATE.binSel||{}).length, e=document.getElementById('binSelN'), b=document.getElementById('binRestore'); if(e) e.textContent=n; if(b) b.disabled=!n; }
+function wireBin(){
+  const q=document.getElementById('binQ'), lst=document.getElementById('binList'); if(!lst) return;
+  const bind=()=>{ lst.querySelectorAll('.binchk').forEach(c=>c.onchange=()=>{ STATE.binSel=STATE.binSel||{}; const k=c.dataset.kind+':'+c.dataset.id; if(c.checked) STATE.binSel[k]=1; else delete STATE.binSel[k]; binRefreshCount(); }); };
+  bind();
+  if(q) q.oninput=()=>{ STATE.binQ=q.value; const l=binFiltered(); lst.innerHTML=binRowsHtml(l); const t=document.getElementById('binTotal'); if(t) t.textContent=l.length; bind(); };
+  const rb=document.getElementById('binRestore'); if(rb) rb.onclick=async()=>{ const items=Object.keys(STATE.binSel||{}).map(k=>{ const i=k.indexOf(':'); return {kind:k.slice(0,i),id:k.slice(i+1)}; }); if(!items.length) return; if(!confirm(items.length+' record wapas laane hain?')) return; rb.disabled=true; await restoreMany(items); };
+}
+async function restoreMany(items){
+  if(STATE.session.role!=='admin'){ showToast('Sirf Admin wapas la sakta hai'); return; }
+  if(!firestoreDB||!items.length) return; const MAP={customers:'st_customers',jobs:'st_jobs',staff:'st_staff'}, me=STATE.session.name||''; let n=0;
+  try{
+    const names=items.map(it=>{ const x=((STATE.bin||{})[it.kind]||[]).find(r=>r._id===it.id)||{}; return {coll:it.kind,id:it.id,name:it.kind==='jobs'?chgName('jobs',x):(x.name||'?')}; });
+    for(let i=0;i<items.length;i+=400){ const b=firestoreDB.batch(); items.slice(i,i+400).forEach(x=>{ if(MAP[x.kind]) b.set(firestoreDB.collection(MAP[x.kind]).doc(x.id),{deleted:false,restoredAt:Date.now(),restoredBy:me},{merge:true}); }); await track(b.commit()); n+=Math.min(400,items.length-i); }
+    items.forEach(it=>{ if(STATE.bin&&STATE.bin[it.kind]) STATE.bin[it.kind]=STATE.bin[it.kind].filter(x=>x._id!==it.id); if(STATE.binSel) delete STATE.binSel[it.kind+':'+it.id]; });
+    if(names.length>6) chgWrite({coll:'bulk',act:'bulk',n:names.length,recName:names.length+' record Recycle Bin se wapas laaye gaye',ch:[]}); else names.forEach(x=>chgWrite({coll:x.coll,act:'restore',recId:x.id,recName:x.name,ch:[]}));
+    showToast('↩️ '+n+' wapas aa gaye ✅');
+  }catch(e){ console.error('restoreMany',e); showToast('Wapas nahi aa paya: '+(e.code||e.message)); }
+  render();
+}
 async function loadBin(){
   STATE.bin={loading:true}; render();
   try{ const out={customers:[],jobs:[],staff:[]};
@@ -585,7 +820,7 @@ async function loadBin(){
     STATE.bin=out; }catch(e){ STATE.bin={err:e.code||e.message}; }
   render();
 }
-function restoreRec(kind,id){ const c={customers:'st_customers',jobs:'st_jobs',staff:'st_staff'}[kind]; if(!c||STATE.session.role!=='admin') return; track(firestoreDB.collection(c).doc(id).set({deleted:false},{merge:true})); STATE.bin[kind]=STATE.bin[kind].filter(x=>x._id!==id); showToast('Wapas laa diya'); render(); }
+function restoreRec(kind,id){ restoreMany([{kind,id}]); }
 /* Dashboard par sirf GINTI (count) dikhani hai, poori photo/video data nahi — isliye Firestore ki
    count() aggregation query use karte hain, jo bina ek bhi document/photo download kiye sirf number deti hai. */
 async function loadMediaCounts(){
@@ -620,8 +855,7 @@ function backupCenterHtml(){
     <div class="card"><div class="item-name" style="margin-bottom:6px;">🗑 Recycle Bin</div>
       <div class="item-sub" style="margin-bottom:8px;">Galti se delete hua customer, job ya staff yahan se wapas aa sakta hai. Delete karne par data mitta nahi, sirf chhup jaata hai.</div>
       <div class="card-actions"><button class="mini-btn" data-act="bkbin">Recycle Bin kholein</button></div>
-      ${!b?'':b.loading?'<div class="item-sub">Load ho raha hai…</div>':b.err?'<div class="item-sub">Error: '+esc(b.err)+'</div>':(b.customers.length+b.jobs.length+b.staff.length===0?'<div class="item-sub" style="margin-top:8px;">Bin khaali hai.</div>':
-        (b.customers.length?'<div class="item-sub" style="margin-top:8px;"><b>Customers</b></div>'+li('customers',b.customers,x=>(x.name||'?')+' · '+(x.phone||'')):'')+(b.jobs.length?'<div class="item-sub" style="margin-top:8px;"><b>Jobs</b></div>'+li('jobs',b.jobs,x=>(x.title||'?')+' · '+fmtDate(x.date)):'')+(b.staff.length?'<div class="item-sub" style="margin-top:8px;"><b>Staff</b></div>'+li('staff',b.staff,x=>x.name||'?'):''))}</div>
+      ${!b?'':b.loading?'<div class="item-sub">Load ho raha hai…</div>':b.err?'<div class="item-sub">Error: '+esc(b.err)+'</div>':binBoxHtml()}</div>
     <div class="card"><div class="item-name" style="margin-bottom:6px;">🛡 Data kahan-kahan safe hai</div>
       <div class="item-sub">1. <b>Live database (Firebase):</b> har customer, job aur staff alag record mein. Delete = sirf chhupta hai, Recycle Bin se wapas aata hai.</div>
       <div class="item-sub">2. <b>Purana original data:</b> app badalne se pehle ka data waise ka waisa alag jagah padha hai, use chhua nahi gaya.</div>
@@ -691,8 +925,9 @@ async function sendEmailViaBackend(to, subject, message, attachment){
 function getAllDueCustomers(){
   const amcDue=STATE.customers.filter(c=>c.type==='amc' && c.expiryDate && daysUntil(c.expiryDate)<=90)
     .map(c=>({...c, dueDate:c.expiryDate, dueLabel:'AMC Renewal', dueMsg:'AMC contract ('+(c.amcName||'AC Service')+')'}));
+  const lastDone=new Map(); (STATE.jobs||[]).forEach(j=>{ if(j.status!=='done'||!j.customerId) return; const d=j.completedAt?ymd(new Date(j.completedAt)):j.date; if(d&&(!lastDone.get(j.customerId)||d>lastDone.get(j.customerId))) lastDone.set(j.customerId,d); });
   const oneTimeDue=STATE.customers.filter(c=>c.type==='onetime').map(c=>{
-      const jd=(STATE.jobs||[]).filter(j=>j.customerId===c.id && j.status==='done').map(j=>j.completedAt?ymd(new Date(j.completedAt)):j.date).filter(Boolean).sort().pop();
+      const jd=lastDone.get(c.id);
       const last=[c.lastService,jd].filter(Boolean).sort().pop(), iv=Number(c.intervalMonths)||3;
       return last?{...c, lastService:last, intervalMonths:iv, dueDate:addMonths(last,iv), dueLabel:'Service Due', dueMsg:'AC Service'}:null; })
     .filter(c=>c && daysUntil(c.dueDate)<=15);
@@ -733,7 +968,7 @@ function startSharingLocation(){
   const staffId=STATE.session.staffId;
   STATE.watchId=navigator.geolocation.watchPosition(async (pos)=>{
     const {latitude,longitude}=pos.coords;
-    const nowTs=Date.now(); if(nowTs-(startSharingLocation.last||0)<60000) return; startSharingLocation.last=nowTs; STATE.locations[staffId]={lat:latitude,lng:longitude,ts:nowTs};
+    const nowTs=Date.now(); if(nowTs-(startSharingLocation.last||0)<60000) return; const pl=startSharingLocation.pl; if(pl&&nowTs-pl.ts<240000&&kmBetween([pl.lat,pl.lng],[latitude,longitude])<0.03){ startSharingLocation.last=nowTs-30000; return; } startSharingLocation.last=nowTs; startSharingLocation.pl={lat:latitude,lng:longitude,ts:nowTs}; STATE.locations[staffId]={lat:latitude,lng:longitude,ts:nowTs};
     saveKey(SKEY.LOCATIONS, STATE.locations);
     if(pos.coords.accuracy<=100){ const P=[+latitude.toFixed(5),+longitude.toFixed(5)], lp=startSharingLocation.lp; if(!lp||kmBetween(lp,P)>=0.04){ startSharingLocation.lp=P; track(firestoreDB.collection('st_trail').doc(staffId+'_'+todayStr()).set({staffId,date:todayStr(),p:{[Math.floor(nowTs/1000)]:P}},{merge:true})); } }
     const t=todayStr();
@@ -1227,13 +1462,14 @@ async function zeroTelecallerData(id){
 async function markLeadLater(id, remark, date){
   const l=(STATE.leads||[]).find(x=>x.id===id); if(!l) return;
   if(!date){ showToast('Follow-up ki date chunein'); return; }
-  l.followUpDate=date;
+  l.followUpDate=date; l.callLog=(l.callLog||[]).concat({t:Date.now(),by:(STATE.session&&STATE.session.name)||'',byId:STATE.session.staffId,out:'later'});
   const txt=(remark||'').trim(); l.remarks=(l.remarks||[]).concat(fmtDate(todayStr())+': Baad mein call ('+fmtDate(date)+')'+(txt?' — '+txt:''));
   await saveKey(SKEY.LEADS, STATE.leads); showToast('⏰ '+fmtDate(date)+' ko follow-up set ho gaya');
 }
 async function markLeadCalled(id, remark){
   const l=(STATE.leads||[]).find(x=>x.id===id); if(!l) return;
   l.called=true; l.calledAt=Date.now(); l.calledBy=(STATE.session&&STATE.session.name)||''; l.calledByStaffId=STATE.session.staffId;
+  l.callLog=(l.callLog||[]).concat({t:l.calledAt,by:l.calledBy,byId:l.calledByStaffId,out:'called'});
   l.followUpDate='';
   const txt=(remark||'').trim(); if(txt){ l.remarks=(l.remarks||[]).concat(fmtDate(todayStr())+': '+txt); }
   await saveKey(SKEY.LEADS, STATE.leads); showToast('✅ Call mark ho gayi');
@@ -2711,7 +2947,7 @@ function render(){
 function renderSetup(){
   return `
   <div class="login-wrap">
-    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v7.9</p></div>
+    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v8.1</p></div>
     <div class="setup-note">Yeh app ab Firebase (Google ka free real-time database) use karti hai — pehle se tez aur reliable. Firebase Console se apna config copy karke neeche paste karein.</div>
     <div class="field"><label>Firebase Config (poora object paste karein)</label><textarea id="setupConfig" rows="8" placeholder='{"apiKey": "...", "authDomain": "...", "projectId": "...", ...}'>${setupUrlInput}</textarea></div>
     <button class="primary-btn" id="connectBtn">Connect Karein</button>
@@ -2779,7 +3015,7 @@ function renderLogin(){
   }
   return `
   <div class="login-wrap">
-    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v7.9</p></div>
+    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v8.1</p></div>
     <div class="role-grid">
       <button class="role-opt ${loginRole==='admin'?'active':''}" data-role="admin"><span class="ic">🗝️</span>Admin</button>
       <button class="role-opt ${loginRole==='subadmin'?'active':''}" data-role="subadmin"><span class="ic">🧑‍💼</span>Office</button>
@@ -2829,6 +3065,7 @@ function renderShell(){
   else if(STATE.view==='customers') body=renderCustomers();
   else if(STATE.view==='reminders') body=renderReminders();
   else if(STATE.view==='amccal') body=renderAmcCalendar();
+  else if(STATE.view==='daylog') body=renderDayLog();
   else if(STATE.view==='customerProfile') body=renderCustomerProfile();
   else if(STATE.view==='jobs') body=renderJobs();
   else if(STATE.view==='money') body=renderMoney();
@@ -2900,7 +3137,7 @@ function renderDashboard(){
   const absentToday=allStaffNonAdmin.length-presentToday;
 
   return `
-    <div class="section-title">Aaj ka overview</div>${(STATE.session.role==='admin'&&(!(STATE.businessInfo||{}).lastBackupAt||Date.now()-STATE.businessInfo.lastBackupAt>7*864e5))?`<div class="card" data-act="gobackup" style="cursor:pointer;background:#fff4e0;"><div class="item-name" style="color:#8a5a0f;">💾 ${(STATE.businessInfo||{}).lastBackupAt?'Pichla backup '+Math.floor((Date.now()-STATE.businessInfo.lastBackupAt)/864e5)+' din pehle liya tha':'Abhi tak koi backup nahi liya'} — abhi lein ›</div></div>`:''}${(STATE.session.role!=='technician'&&STATE.jobs.some(j=>j.cancelReq&&j.cancelReq.status==='pending'))?`<div class="card" data-navto="jobs" style="cursor:pointer;background:#fdecea;"><div class="item-name" style="color:#a12a20;">❗ ${STATE.jobs.filter(j=>j.cancelReq&&j.cancelReq.status==='pending').length} cancel request office ke intezaar mein ›</div></div>`:''}
+    <div class="section-title">Aaj ka overview</div>${STATE.session.role==='admin'?`<div class="card" data-navto="daylog" style="cursor:pointer;background:var(--sky-pale);"><div class="row-between"><div><div class="item-name">📋 Aaj ka Hisaab</div><div class="item-sub">Kisne kya kiya, kya badla, kya delete hua — time ke saath, wapas karne ke option ke saath ›</div></div></div></div>`:''}${(STATE.session.role==='admin'&&(!(STATE.businessInfo||{}).lastBackupAt||Date.now()-STATE.businessInfo.lastBackupAt>7*864e5))?`<div class="card" data-act="gobackup" style="cursor:pointer;background:#fff4e0;"><div class="item-name" style="color:#8a5a0f;">💾 ${(STATE.businessInfo||{}).lastBackupAt?'Pichla backup '+Math.floor((Date.now()-STATE.businessInfo.lastBackupAt)/864e5)+' din pehle liya tha':'Abhi tak koi backup nahi liya'} — abhi lein ›</div></div>`:''}${(STATE.session.role!=='technician'&&STATE.jobs.some(j=>j.cancelReq&&j.cancelReq.status==='pending'))?`<div class="card" data-navto="jobs" style="cursor:pointer;background:#fdecea;"><div class="item-name" style="color:#a12a20;">❗ ${STATE.jobs.filter(j=>j.cancelReq&&j.cancelReq.status==='pending').length} cancel request office ke intezaar mein ›</div></div>`:''}
     <div class="stat-grid">
       <div class="stat-card" data-navto="customers" style="cursor:pointer;"><div class="stat-num">${STATE.customers.length}</div><div class="stat-label">Total Customers ›</div></div>
       <div class="stat-card" data-navto="reminders" style="cursor:pointer;"><div class="stat-num" style="color:${(dueSoon.length+oneTimeDue.length)?'var(--amber)':'var(--teal-deep)'}">${dueSoon.length+oneTimeDue.length}</div><div class="stat-label">Service Due Soon ›</div></div>
@@ -3044,7 +3281,7 @@ function renderReminders(){
         <button class="mini-btn primary" id="remEmailBtn">📧 Email (${nE})</button>
         <button class="mini-btn primary" id="remWaBtn">💬 WhatsApp agla ▶ (${nW})</button></div>
       <div class="item-sub" style="margin-top:8px;">Pehle customers ke aage ☑ karein. Email ek saath chali jati hai. WhatsApp me har customer ke liye ek baar Send dabana padta hai; "agla ▶" dabate jayein.</div></div></div>
-    ${list.length===0?`<div class="empty-state"><span class="ic">✅</span><p>${f==='all'?'Koi due customer nahi hai.':'Is filter me koi customer nahi.'}</p></div>`:list.map(card).join('')}
+    ${list.length===0?`<div class="empty-state"><span class="ic">✅</span><p>${f==='all'?'Koi due customer nahi hai.':'Is filter me koi customer nahi.'}</p></div>`:list.slice(0,STATE.remShown||50).map(card).join('')}${list.length>(STATE.remShown||50)?`<button class="ghost-btn" data-act="remmore">Aur dikhayein (${list.length-(STATE.remShown||50)} baaki)</button>`:''}
   `;
 }
 function renderCustomers(){
@@ -3069,7 +3306,7 @@ function renderCustomers(){
     </div>
     ${filterType==='amc'?`<div class="tabbar"><button class="tabbtn ${!STATE.custStatus?'active':''}" data-custstatus="">Sab AMC (${amcCnt.all})</button><button class="tabbtn ${STATE.custStatus==='active'?'active':''}" data-custstatus="active">✅ Chal rahi (${amcCnt.active})</button><button class="tabbtn ${STATE.custStatus==='expired'?'active':''}" data-custstatus="expired">⏳ Expired / Cancel (${amcCnt.exp})</button></div>`:''}
     <div id="custListWrap">${list.length===0?`<div class="empty-state"><span class="ic">👥</span><p>${q?'Koi match nahi mila.':'Abhi tak koi customer add nahi hua.<br>Neeche + button se add karein.'}</p></div>`:
-      list.map(custCardX).join('')}</div>
+      list.slice(0,STATE.custShown||60).map(custCardX).join('')}${list.length>(STATE.custShown||60)?`<button class="ghost-btn" data-act="custmore">Aur dikhayein (${list.length-(STATE.custShown||60)} baaki)</button>`:''}</div>
     <button class="fab" id="addCustBtn">+</button>
   `;
 }
@@ -3138,7 +3375,7 @@ function renderCustomerProfile(){
       <div class="item-sub">${c.address||''}${c.landmark?', '+c.landmark:''}${c.city?', '+c.city:''}${c.state?', '+c.state:''}${c.pincode?' - '+c.pincode:''}</div>
       <div class="card-actions" style="margin-top:10px;">${c.phone?`<a class="mini-btn primary" style="text-decoration:none;" href="tel:${c.phone}">📞 Call</a>`:''}${c.phone?`<a class="mini-btn" style="text-decoration:none;" href="https://wa.me/${waNum(c.phone)}">💬 WhatsApp</a>`:''}${STATE.session.role==='technician'?'':`<button class="mini-btn" data-act="editcust" data-id="${c.id}">✏️ Details Badlein</button><button class="mini-btn primary" data-act="newjobfor" data-id="${c.id}">➕ Job Banao</button>${isMoneyRole()?`<button class="mini-btn" data-act="newbill" data-id="${c.id}">🧾 Bill Banao</button>`:''}${c.type==='amc'?`<button class="mini-btn" data-act="renewamc" data-id="${c.id}">🔁 Renewal Karein</button>`:''}`}</div>
     </div>
-    ${STATE.session.role==='technician'?'':amcDetailsHtml(c)+amcHistoryHtml(c)+(STATE.session.role==='admin'?billHistoryHtml(c):'')}
+    ${STATE.session.role==='technician'?'':amcDetailsHtml(c)+acCardHtml(c)+amcHistoryHtml(c)+(STATE.session.role==='admin'?billHistoryHtml(c):'')}
     ${c.type==='amc'?`<div class="card">
       <div class="section-title" style="margin:0 0 8px 0;">AMC Contract</div>
       <div class="item-sub">${c.brand||''} ${c.model||''} ${c.serialNo?'· SN: '+c.serialNo:''}</div>
@@ -3159,7 +3396,7 @@ function renderCustomerProfile(){
         const statusLabel=s=>s==='done'?'Completed':s==='ongoing'?'Ongoing':s==='onhold'?'On Hold':s==='rejected'?'Rejected':'Pending';
         const statusPill=s=>s==='done'?'pill-green':s==='ongoing'?'pill-sky':s==='onhold'?'pill-grey':s==='rejected'?'pill-red':'pill-amber';
         return `<div class="card"><div class="row-between"><div><div class="item-name">${j.title}</div><div class="item-sub">${fmtDate(j.date)}${j.completedAt?' · '+new Date(j.completedAt).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true}):''} · ${tech?`<span data-viewstaff="${tech.id}" style="cursor:pointer;text-decoration:underline;color:var(--teal);">${esc(tech.name)}</span>`:'Unassigned'}${j.status==='done'?' · '+rupee(j.amount):''}</div></div><span class="pill ${statusPill(j.status)}">${statusLabel(j.status)}</span></div>
-        ${j.notes?`<div class="item-sub" style="margin-top:6px;">📝 ${esc(j.notes)}</div>`:''}${(j.status==='done'&&j.invoice&&j.invoice.items&&j.invoice.items.length)?billHistLine(j):''}${j.status==='done'?`<div class="card-actions"><button class="mini-btn primary" data-act="invoice" data-id="${j.id}">🧾 Bill</button>${(j.invoice&&j.invoice.items)?`<button class="mini-btn" data-act="billsend" data-id="${j.id}">📲 Bill bhejo</button>`:''}</div>`:''}${(j.status!=='done'&&j.status!=='rejected'&&STATE.session.role!=='technician')?`<div class="card-actions"><button class="mini-btn" data-act="jobresched" data-id="${j.id}">📅 Date Badlein</button></div>`:''}</div>`; }).join('')}
+        ${j.notes?`<div class="item-sub" style="margin-top:6px;">📝 ${esc(j.notes)}</div>`:''}${(j.status==='done'&&acNamesOf(j))?`<div class="item-sub" style="margin-top:4px;">❄️ AC: <b>${esc(acNamesOf(j))}</b></div>`:''}${(j.status==='done'&&j.invoice&&j.invoice.items&&j.invoice.items.length)?billHistLine(j):''}${j.status==='done'?`<div class="card-actions"><button class="mini-btn primary" data-act="invoice" data-id="${j.id}">🧾 Bill</button>${(j.invoice&&j.invoice.items)?`<button class="mini-btn" data-act="billsend" data-id="${j.id}">📲 Bill bhejo</button>`:''}</div>`:''}${(j.status!=='done'&&j.status!=='rejected'&&STATE.session.role!=='technician')?`<div class="card-actions"><button class="mini-btn" data-act="jobresched" data-id="${j.id}">📅 Date Badlein</button></div>`:''}</div>`; }).join('')}
   `;
 }
 
@@ -3230,6 +3467,7 @@ function renderLeadsInner(){
   return `<div class="row-between" style="margin-bottom:12px;"><div class="section-title" style="margin:0;">Leads</div>${role==='admin'?`<button class="mini-btn primary" data-act="leadimport">📥 Leads Import Karein</button>`:''}</div>
     <div class="field" style="margin:0 0 10px;"><select id="leadTcSel"><option value="">👥 Sab telecaller (Total)</option>${callers0.map(t=>`<option value="${t.id}" ${STATE.leadTc===t.id?'selected':''}>${esc(t.name)}${t.role==='subadmin'?' (Sub-admin)':''}</option>`).join('')}</select></div>
     ${STATE.leadTc?`<div class="item-sub" style="background:var(--sky-pale);border-radius:8px;padding:6px 10px;margin:-4px 0 10px;">Filter: <b>${esc(nStaff(STATE.leadTc))}</b> — neeche sab tabs, month-wise aur total sirf iski leads ke hain.</div>`:''}
+    ${(role==='admin'||role==='subadmin')?callReportHtml():''}
     ${(()=>{ const tot=leads.filter(l=>!l.dismissed); return callers.length?xCard('lt',`<div class="item-name">📊 Telecaller-wise${STATE.leadTc?' — '+esc(nStaff(STATE.leadTc)):' (Total)'}</div><div class="item-sub" style="margin-top:2px;">Total <b>${tot.length}</b> leads · <b>${tot.filter(l=>l.called).length}</b> call hui · <b>${tot.filter(l=>l.convertedJobId||l.markedDone).length}</b> AMC bani</div><div style="margin-top:4px;">${leadBucketLine(leads)}</div>`,'',summary):`<div class="card"><div class="item-sub">Abhi koi Telecaller nahi hai. Team mein "Telecaller" role se add karein.</div></div>`; })()}
     ${months.length?(()=>{ const tot=leads.filter(l=>!l.dismissed); return xCard('lm',`<div class="item-name">📅 Month-wise (kis mahine kitni AMC bani)</div><div class="item-sub" style="margin-top:2px;">${months.length} mahine · Total <b>${tot.length}</b> leads · <b>${tot.filter(l=>l.called).length}</b> call hui · <b>${tot.filter(l=>l.convertedJobId||l.markedDone).length}</b> AMC bani</div>`,'',monthRows); })():''}
     ${(()=>{ const B={amc:[],already:[],followup:[],owncb:[],called:[],amcdone:[],closed:[]}; leads.forEach(l=>{ const k=leadBucket(l); if(k) B[k].push(l); });
@@ -3818,7 +4056,7 @@ function jobFlagsHtml(j){
   h+=jobTimelineHtml(j);
   return h;
 }
-function fmtT(t){ return t?new Date(t).toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit',hour12:true}):'—'; }
+function fmtT(t){ if(!t) return '—'; const d=new Date(t); return isNaN(d)?'—':_fT.format(d); }
 function jobTimelineHtml(j){
   const ev=[], H=j.history||[], lab={resched:'📅 Date badli',ongoing:'▶ Start / Resume',onhold:'⏸ Hold',done:'✅ Job complete',rejected:'✖ Reject',cancelreq:'❗ Cancel request',pending:'↺ Pending',call:'📞 Customer ko call kiya'};
   if(j.createdAt) ev.push({t:j.createdAt,l:'📝 Job banayi gayi'});
@@ -4112,6 +4350,8 @@ function modalHtml(){
       <div class="field"><label>Agla call kab karna hai? (Baad me / Phone nahi utha ke liye)</label><input id="f_remNext" type="date" min="${todayStr()}" value="${addDaysStr(todayStr(),2)}"></div>
       <div class="field"><label>Remark / Review (customer ne kya bola)</label><textarea id="f_remNote" rows="3" placeholder="jaise: Shaam 5 baje call karne ko bola, ya 12 tareekh ko service chahiye"></textarea></div>
       <button class="primary-btn" id="modalSave">Remark Save Karein</button>`;
+  } else if(activeModal.type==='acList'){
+    inner=acListInner(activeModal.data);
   } else if(activeModal.type==='newChoice'){
     inner=`<div class="modal-head"><h3>➕ Kya banana hai?</h3><button class="close-x" id="modalClose">×</button></div>
       <button class="primary-btn" data-nc="job" style="text-align:left;">🛠 Naya Job<div style="font-size:12px;font-weight:400;opacity:.85;">Technician ko kaam assign karein</div></button>
@@ -4276,6 +4516,7 @@ function modalHtml(){
   } else if(activeModal.type==='completeJob'){
     inner=`<div class="modal-head"><h3>Job Complete Karein</h3><button class="close-x" id="modalClose">×</button></div>
       ${billPanelHtml(activeModal.data)}
+      ${acPickHtml(activeModal.data.id)}
       <div class="field"><label>Amount Charge Kiya (₹)</label><input id="f_amount" type="number" min="0" value="${activeModal.data.existingAmount||''}" placeholder="e.g. 500"><div class="item-sub" id="f_amountNote" style="display:none;margin-top:4px;">✅ Ye amount bill ke Total se apne aap bhara hai</div></div>
       <div class="field"><label>Payment kaise mila?</label><select id="f_payMode"><option value="cash">Cash</option><option value="online">Online</option><option value="cheque">Cheque</option><option value="due">Abhi nahi mila (baad me)</option></select></div>
       <div class="field"><label>🚗 Travel Amount (₹) (optional)</label><input id="f_travelAmt" type="number" min="0" value="${activeModal.data.existingTravel||''}" placeholder="e.g. 100"></div>
@@ -4316,15 +4557,15 @@ function bindShellEvents(){
   }
   document.querySelectorAll('.navbtn').forEach(b=>b.onclick=()=>{ if(b.dataset.more){ activeModal={type:'navMore',data:{}}; render(); return; } STATE.view=b.dataset.view; STATE.jobStatusFilter=''; STATE.jobPeriod=''; render(); });
   document.querySelectorAll('[data-navto]').forEach(el=>el.onclick=()=>{ STATE.view=el.dataset.navto; render(); });
-  document.querySelectorAll('[data-typefilter]').forEach(el=>el.onclick=()=>{ STATE.custTypeFilter=el.dataset.typefilter; render(); });
-  document.querySelectorAll('[data-custstatus]').forEach(el=>el.onclick=()=>{ STATE.custStatus=el.dataset.custstatus; render(); });
+  document.querySelectorAll('[data-typefilter]').forEach(el=>el.onclick=()=>{ STATE.custTypeFilter=el.dataset.typefilter; STATE.custShown=60; render(); });
+  document.querySelectorAll('[data-custstatus]').forEach(el=>el.onclick=()=>{ STATE.custStatus=el.dataset.custstatus; STATE.custShown=60; render(); });
   if(document.getElementById('liveMapBox')){ setTimeout(initLiveMap, 0); }
   document.querySelectorAll('[data-viewcust]').forEach(el=>el.onclick=()=>{ openCustomerProfile(el.dataset.viewcust); });
   document.querySelectorAll('[data-viewstaff]').forEach(el=>el.onclick=()=>{ activeModal=null; STATE.staffDetailId=el.dataset.viewstaff; STATE.view='staffProfile'; render(); });
   document.querySelectorAll('[data-lightbox]').forEach(el=>el.onclick=()=>{ STATE.lightboxSrc=el.dataset.lightbox; render(); });
   document.querySelectorAll('[data-video]').forEach(el=>el.onclick=()=>openVideo(el.dataset.video,el.dataset.vjob));
   document.querySelectorAll('[data-settab]').forEach(el=>el.onclick=()=>{ STATE.setTab=el.dataset.settab; render(); });
-  document.querySelectorAll('[data-remf]').forEach(el=>el.onclick=()=>{ STATE.remFilter=el.dataset.remf; render(); });
+  document.querySelectorAll('[data-remf]').forEach(el=>el.onclick=()=>{ STATE.remFilter=el.dataset.remf; STATE.remShown=50; render(); });
   document.querySelectorAll('[data-remsel]').forEach(el=>el.onchange=()=>{ STATE.remSel=STATE.remSel||{}; STATE.remSel[el.dataset.remsel]=el.checked; render(); });
   document.querySelectorAll('[data-remwa]').forEach(el=>el.onclick=()=>{ const c=getAllDueCustomers().find(x=>x.id===el.dataset.remwa); if(c) remWaOpen(c); });
   const remTpl=document.getElementById('f_remTpl'); if(remTpl) remTpl.oninput=()=>{ STATE.remTpl=remTpl.value; };
@@ -4363,7 +4604,7 @@ function bindShellEvents(){
   const addStaffBtn=document.getElementById('addStaffBtn'); if(addStaffBtn) addStaffBtn.onclick=()=>{ activeModal={type:'addStaff'}; render(); };
   const addJobBtn=document.getElementById('addJobBtn'); if(addJobBtn) addJobBtn.onclick=()=>{ if(isMoneyRole()){ activeModal={type:'newChoice'}; render(); return; } jobCustQuery=''; jobCustSelectedId=''; activeModal={type:'addJob'}; render(); };
   const custSearchInput=document.getElementById('custSearchInput');
-  if(custSearchInput){ custSearchInput.oninput=(e)=>{ STATE.custSearch=e.target.value; const tmp=document.createElement('div'); tmp.innerHTML=renderCustomers(); const nw=tmp.querySelector('#custListWrap'), ow=document.getElementById('custListWrap'), nc=tmp.querySelector('#custCount'), oc=document.getElementById('custCount'); if(nw&&ow){ ow.innerHTML=nw.innerHTML; if(nc&&oc) oc.textContent=nc.textContent; bindShellEvents(); } else render(); }; }
+  if(custSearchInput){ custSearchInput.oninput=(e)=>{ STATE.custSearch=e.target.value; STATE.custShown=60; const tmp=document.createElement('div'); tmp.innerHTML=renderCustomers(); const nw=tmp.querySelector('#custListWrap'), ow=document.getElementById('custListWrap'), nc=tmp.querySelector('#custCount'), oc=document.getElementById('custCount'); if(nw&&ow){ ow.innerHTML=nw.innerHTML; if(nc&&oc) oc.textContent=nc.textContent; bindShellEvents(); } else render(); }; }
   const shareToggle=document.getElementById('shareToggle'); if(shareToggle) shareToggle.onclick=()=>{ if(STATE.sharingLocation) stopSharingLocation(); else startSharingLocation(); render(); };
 
   document.querySelectorAll('[data-act]').forEach(el=>el.onclick=async ()=>{
@@ -4390,6 +4631,8 @@ function bindShellEvents(){
     else if(act==='billmkcust'){ await billsMakeCustomers(); }
     else if(act==='fixdate'){ if(!isMoneyRole()) return; const rw=moneyRows().find(r=>String(r.id)===id&&r.k===el.dataset.k); if(!rw){ showToast('Entry nahi mili'); return; } activeModal={type:'fixDate',data:{id:rw.id,k:rw.k,name:rw.name,title:rw.title,amount:rw.amount,date:rw.date}}; render(); }
     else if(act==='jobtab'){ STATE.jobTab=el.dataset.tab; STATE.jobsShown=60; render(); }
+    else if(act==='custmore'){ STATE.custShown=(STATE.custShown||60)+60; render(); }
+    else if(act==='remmore'){ STATE.remShown=(STATE.remShown||50)+50; render(); }
     else if(act==='jobsmore'){ STATE.jobsShown=(STATE.jobsShown||60)+60; render(); }
     else if(act==='nopen'){ notifOpen(id); }
     else if(act==='nreadall'){ notifReadAll(); render(); }
@@ -4447,7 +4690,10 @@ function bindShellEvents(){
     else if(act==='bkcust'){ customersExcel(); }
     else if(act==='bkstaff'){ await staffExcel(); }
     else if(act==='bkfull'){ await exportData(); }
-    else if(act==='bkbin'){ await loadBin(); }
+    else if(act==='bkbin'){ STATE.binSel={}; STATE.binKind=''; STATE.binQ=''; await loadBin(); }
+    else if(act==='binkind'){ STATE.binKind=el.dataset.k||''; render(); }
+    else if(act==='binall'){ STATE.binSel=STATE.binSel||{}; binFiltered().forEach(x=>{ STATE.binSel[x.kind+':'+x.id]=1; }); render(); }
+    else if(act==='binnone'){ STATE.binSel={}; render(); }
     else if(act==='namemerge'){ if(STATE.session.role!=='admin') return; activeModal={type:'nameMerge',data:{}}; render(); }
     else if(act==='mergedups'){ if(STATE.session.role!=='admin') return; if(confirm('Same number wale profile ek mein jud jayenge (jobs, bills sab usi mein). Purane duplicate Recycle Bin mein rahenge. Karein?')) await mergeDuplicateCustomers(); }
     else if(act==='bkrestore'){ restoreRec(el.dataset.kind,id); }
@@ -4463,6 +4709,12 @@ function bindShellEvents(){
     else if(act==='removeprofilephoto'){ await removeProfilePhoto(id); }
     else if(act==='billsend'){ activeModal={type:'billSend',data:{id}}; render(); }
     else if(act==='travelall'){ STATE.travelAll=!STATE.travelAll; render(); }
+    else if(act==='editacs'){ if(STATE.session.role==='technician') return; activeModal={type:'acList',data:{id}}; render(); }
+    else if(act==='dlundo'){ const r=(STATE.dlRows||[]).find(x=>x.id===id); if(r&&chgUndoable(r)&&confirm('Ye badlav wapas karna hai?')){ await chgUndo([r]); render(); } }
+    else if(act==='dlall'){ STATE.dl.sel=STATE.dl.sel||{}; dlFiltered().filter(chgUndoable).forEach(r=>{ STATE.dl.sel[r.id]=1; }); render(); }
+    else if(act==='dlnone'){ STATE.dl.sel={}; render(); }
+    else if(act==='dlrefresh'){ STATE.dlRows=null; STATE.dlKeyLoaded=''; render(); }
+    else if(act==='crtoggle'){ STATE.crOpen=(STATE.crOpen===id?'':id); render(); }
     else if(act==='colltoggle'){ const k=el.dataset.k; STATE.coll=STATE.coll||{}; STATE.coll[k]=!STATE.coll[k]; render(); }
     else if(act==='traveltoggle'){ STATE.travelAmtOpen=(STATE.travelAmtOpen===id)?null:id; render(); }
     else if(act==='showvisitlist'){ const k=el.dataset.kind; STATE.dashVisitOpen=(STATE.dashVisitOpen===k)?null:k; render(); }
@@ -4535,6 +4787,9 @@ function bindShellEvents(){
   const incEl=document.getElementById('f_incGiven'); if(incEl) incEl.onchange=(e)=>{ const w=document.getElementById('incWrap'); if(w) w.style.display=e.target.checked?'':'none'; };
 
   document.querySelectorAll('[data-biundo]').forEach(b=>b.onclick=async()=>{ await billUndoBatch(b.dataset.biundo); });
+  wireBin(); wireDayLog();
+  { const cp=document.getElementById('crPer'); if(cp){ cp.onchange=()=>{ STATE.crPer=cp.value; if(cp.value==='custom'&&!STATE.crFrom){ STATE.crFrom=todayStr(); STATE.crTo=todayStr(); } render(); };
+      const f=document.getElementById('crFrom'), t=document.getElementById('crTo'); if(f) f.onchange=()=>{ STATE.crFrom=f.value; if(STATE.crTo&&STATE.crTo<f.value) STATE.crTo=f.value; render(); }; if(t) t.onchange=()=>{ STATE.crTo=t.value; if(STATE.crFrom&&STATE.crFrom>t.value) STATE.crFrom=t.value; render(); }; } }
   document.querySelectorAll('[data-billcat]').forEach(sel=>sel.onchange=async()=>{ const b=(STATE.bills||[]).find(x=>x.id===sel.dataset.billcat); if(b){ b.cat=sel.value; await saveKey(SKEY.BILLS,STATE.bills); showToast('Category badal di'); render(); } });
   { const lg=document.getElementById('f_bizlogo'); if(lg) lg.onchange=()=>{ if(lg.files&&lg.files[0]) imgToDataUrl(lg.files[0],240,async u=>{ STATE.businessInfo.logo=u; await saveKey(SKEY.BUSINESS,STATE.businessInfo); showToast('Logo save ho gaya'); render(); }); };
     const sg=document.getElementById('f_bizsign'); if(sg) sg.onchange=()=>{ if(sg.files&&sg.files[0]) imgToDataUrl(sg.files[0],320,async u=>{ STATE.businessInfo.signature=u; await saveKey(SKEY.BUSINESS,STATE.businessInfo); showToast('Signature save ho gaya'); render(); }); }; }
@@ -4542,6 +4797,7 @@ function bindShellEvents(){
   if(overlay){
     overlay.onclick=(e)=>{ if(e.target===overlay){ activeModal=null; render(); } };
     const closeX=document.getElementById('modalClose'); if(closeX) closeX.onclick=()=>{ activeModal=null; render(); };
+    { const aa=document.getElementById('acAll'); if(aa) aa.onclick=()=>{ const bx=[...document.querySelectorAll('.acchk')], all=bx.every(x=>x.checked); bx.forEach(x=>{ x.checked=!all; }); }; }
     document.querySelectorAll('[data-nc]').forEach(b=>b.onclick=()=>{ const k=b.dataset.nc; if(k==='job'){ jobCustQuery=''; jobCustSelectedId=''; activeModal={type:'addJob'}; } else activeModal={type:'billCust',data:{kind:k==='quote'?'quotation':'invoice'}}; render(); });
     if(activeModal&&activeModal.type==='billCust'){ const d=activeModal.data||{}, bq=document.getElementById('bcQ'), bl=document.getElementById('bcList');
       const paint=()=>{ const q=bq.value.trim().toLowerCase(); if(q.length<2){ bl.innerHTML=''; return; }
@@ -4671,7 +4927,11 @@ function bindShellEvents(){
         const amount=val('f_amount'); const rating=val('f_rating'); const travelAmt=val('f_travelAmt'); const sigUrl=getSignatureDataUrl('sigCanvas'); const techSigUrl=getSignatureDataUrl('techSigCanvas');
         const mkBill=!!(document.getElementById('f_makeBill')&&document.getElementById('f_makeBill').checked), jid=activeModal.data.id;
         let bill=null; if(mkBill){ bill=billCollect(); if(bill.bad){ showToast(bill.bad); resetBtn(); return; } }
-        await completeJobWithAmount(jid, bill?bill.T.grand:amount, rating, sigUrl, techSigUrl, travelAmt, val('f_payMode')); activeModal=null; render();
+        const acBoxes=[...document.querySelectorAll('.acchk')], acSel=acBoxes.filter(x=>x.checked).map(x=>x.value);
+        if(acBoxes.length&&!acSel.length&&!confirm('Kaunse AC ki service hui ye tick nahi kiya.\n\nBina tick kiye job close karein?')){ resetBtn(); return; }
+        await completeJobWithAmount(jid, bill?bill.T.grand:amount, rating, sigUrl, techSigUrl, travelAmt, val('f_payMode'));
+        if(acSel.length){ const jj=STATE.jobs.find(x=>x.id===jid); if(jj){ jj.acsDone=acSel; await saveKey(SKEY.JOBS,STATE.jobs); } }
+        activeModal=null; render();
         if(bill){ try{ await finishBill(jid,bill.inv); activeModal={type:'billSend',data:{id:jid}}; render(); }catch(e){ console.error(e); showToast('Bill nahi ban paya — office se banwa lein'); } }
       } else if(activeModal.type==='nameMerge'){
         const keys=[...document.querySelectorAll('.nmchk:checked')].map(e=>e.dataset.nmkey);
@@ -4691,6 +4951,8 @@ function bindShellEvents(){
         if(r){ if(r==='booked'){ jobCustQuery=''; jobCustSelectedId=activeModal.data.id; activeModal={type:'addJob'}; } else { activeModal=null; } render(); }
       } else if(activeModal.type==='extraJob'){
         const ok=await saveExtra(activeModal.data.id,val('f_exDesc'),val('f_exAmt'),val('f_exNote')); if(ok){ activeModal=null; render(); }
+      } else if(activeModal.type==='acList'){
+        const ok=await saveAcList(activeModal.data.id); if(ok){ activeModal=null; render(); } else resetBtn();
       } else if(activeModal.type==='billMake'){
         const d=activeModal.data, bill=billCollect(); if(bill.bad){ showToast(bill.bad); resetBtn(); return; }
         let jid=d.id;
