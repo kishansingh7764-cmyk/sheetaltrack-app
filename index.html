@@ -64,6 +64,8 @@ label{display:block;font-size:12.5px;color:var(--ink-soft);margin-bottom:5px;fon
 .brand-text .who{font-size:10.5px;color:#A9D4DA;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .logout-btn{flex:none;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.25);color:#fff;padding:5px 9px;border-radius:8px;font-size:12px;font-weight:600;}
 .content{flex:1;padding:16px 16px 92px 16px;}
+.modal-sheet input,.modal-sheet select,.modal-sheet textarea,.modal-sheet .field{scroll-margin-top:84px;}
+html{scroll-padding-top:120px;}
 .sticky-back{position:sticky;top:56px;z-index:15;background:var(--bg);padding:10px 0;margin-bottom:8px;}
 .bottomnav{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:520px;background:var(--surface);border-top:1px solid var(--border);display:flex;z-index:20;padding:6px 4px calc(env(safe-area-inset-bottom,0px) + 4px) 4px;overflow-x:auto;box-shadow:0 -2px 10px rgba(13,42,48,.04);}
 .navbtn{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;min-width:56px;background:none;border:none;padding:8px 2px 6px 2px;border-radius:10px;color:var(--ink-faint);font-size:10px;font-weight:600;position:relative;}
@@ -117,7 +119,7 @@ label{display:block;font-size:12.5px;color:var(--ink-soft);margin-bottom:5px;fon
 .suggest-item .n{font-weight:700;color:var(--ink);}
 .suggest-item .p{font-size:12px;color:var(--ink-soft);}
 .modal-overlay{position:fixed;inset:0;background:rgba(10,30,35,.55);z-index:50;display:flex;align-items:flex-end;justify-content:center;backdrop-filter:blur(2px);}
-.modal-sheet{background:var(--surface);width:100%;max-width:520px;border-radius:20px 20px 0 0;padding:22px 18px calc(env(safe-area-inset-bottom,0px) + 20px) 18px;max-height:88vh;max-height:88dvh;overflow-y:auto;-webkit-overflow-scrolling:touch;scroll-padding-bottom:80px;}
+.modal-sheet{scroll-padding-top:80px;background:var(--surface);width:100%;max-width:520px;border-radius:20px 20px 0 0;padding:22px 18px calc(env(safe-area-inset-bottom,0px) + 20px) 18px;max-height:88vh;max-height:88dvh;overflow-y:auto;-webkit-overflow-scrolling:touch;scroll-padding-bottom:80px;}
 .modal-head{display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:5;background:var(--surface);margin:-22px -18px 16px;padding:22px 18px 12px;border-radius:20px 20px 0 0;border-bottom:1px solid var(--border);}
 .modal-head h3{font-family:var(--font-display);font-size:17px;font-weight:600;color:var(--teal-deep);}
 .close-x{background:none;border:none;font-size:26px;line-height:1;color:var(--ink-soft);padding:4px 10px;}
@@ -2436,7 +2438,7 @@ const fixBtn=r=>!isMoneyRole()?'':((rowOdd(r)?`<button class="mini-btn" data-act
 (function(){ const vv=window.visualViewport; if(!vv) return;
   const fit=()=>{ const o=document.querySelector('.modal-overlay'); if(!o) return; const kb=Math.max(0,window.innerHeight-vv.height-vv.offsetTop); o.style.paddingBottom=kb+'px'; const sh=o.querySelector('.modal-sheet'); if(sh) sh.style.maxHeight=Math.max(200,Math.round(vv.height*0.94))+'px'; };
   vv.addEventListener('resize',fit); vv.addEventListener('scroll',fit);
-  document.addEventListener('focusin',e=>{ const t=e.target; if(t&&/INPUT|TEXTAREA|SELECT/.test(t.tagName)&&t.closest&&t.closest('.modal-sheet')) setTimeout(()=>{ fit(); try{ t.scrollIntoView({block:'center',behavior:'smooth'}); }catch(_){} },300); });
+  document.addEventListener('focusin',e=>{ const t=e.target; if(t&&/INPUT|TEXTAREA|SELECT/.test(t.tagName)&&t.closest&&t.closest('.modal-sheet')) setTimeout(()=>{ fit(); try{ const sh=t.closest('.modal-sheet'), hd=sh.querySelector('.modal-head'), w=t.closest('.field')||t, hb=(hd?hd.getBoundingClientRect().bottom:sh.getBoundingClientRect().top)+10, r=w.getBoundingClientRect(), sb=sh.getBoundingClientRect(), tb=t.getBoundingClientRect(); if(r.top<hb) sh.scrollBy({top:r.top-hb,behavior:'smooth'}); else if(tb.bottom>sb.bottom-24) sh.scrollBy({top:tb.bottom-sb.bottom+60,behavior:'smooth'}); }catch(_){} },300); });
 })();
 /* ===== v6.4 helpers ===== */
 function jobsByDayHtml(list, tab, cardFn){
@@ -2947,7 +2949,7 @@ function render(){
 function renderSetup(){
   return `
   <div class="login-wrap">
-    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v8.1</p></div>
+    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v8.2</p></div>
     <div class="setup-note">Yeh app ab Firebase (Google ka free real-time database) use karti hai — pehle se tez aur reliable. Firebase Console se apna config copy karke neeche paste karein.</div>
     <div class="field"><label>Firebase Config (poora object paste karein)</label><textarea id="setupConfig" rows="8" placeholder='{"apiKey": "...", "authDomain": "...", "projectId": "...", ...}'>${setupUrlInput}</textarea></div>
     <button class="primary-btn" id="connectBtn">Connect Karein</button>
@@ -3015,7 +3017,7 @@ function renderLogin(){
   }
   return `
   <div class="login-wrap">
-    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v8.1</p></div>
+    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v8.2</p></div>
     <div class="role-grid">
       <button class="role-opt ${loginRole==='admin'?'active':''}" data-role="admin"><span class="ic">🗝️</span>Admin</button>
       <button class="role-opt ${loginRole==='subadmin'?'active':''}" data-role="subadmin"><span class="ic">🧑‍💼</span>Office</button>
