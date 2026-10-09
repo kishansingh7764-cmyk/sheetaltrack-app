@@ -120,7 +120,7 @@ html{scroll-padding-top:120px;}
 .suggest-item .p{font-size:12px;color:var(--ink-soft);}
 .modal-overlay{position:fixed;inset:0;background:rgba(10,30,35,.55);z-index:50;display:flex;align-items:flex-end;justify-content:center;backdrop-filter:blur(2px);}
 .modal-sheet{scroll-padding-top:80px;background:var(--surface);width:100%;max-width:520px;border-radius:20px 20px 0 0;padding:22px 18px calc(env(safe-area-inset-bottom,0px) + 20px) 18px;max-height:88vh;max-height:88dvh;overflow-y:auto;-webkit-overflow-scrolling:touch;scroll-padding-bottom:80px;}
-.modal-head{display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:5;background:var(--surface);margin:-22px -18px 16px;padding:22px 18px 12px;border-radius:20px 20px 0 0;border-bottom:1px solid var(--border);}
+.modal-head{display:flex;align-items:center;justify-content:space-between;position:sticky;top:-22px;z-index:5;background:var(--surface);margin:-22px -18px 16px;padding:22px 18px 12px;border-radius:20px 20px 0 0;border-bottom:1px solid var(--border);}
 .modal-head h3{font-family:var(--font-display);font-size:17px;font-weight:600;color:var(--teal-deep);}
 .close-x{background:none;border:none;font-size:26px;line-height:1;color:var(--ink-soft);padding:4px 10px;}
 .toast{position:fixed;top:14px;left:50%;transform:translateX(-50%);background:var(--teal-deep);color:#fff;padding:10px 18px;border-radius:10px;font-size:13px;font-weight:600;z-index:100;box-shadow:0 6px 20px rgba(10,46,56,.3);max-width:90%;text-align:center;}
@@ -2034,7 +2034,7 @@ function invoiceDocHtml(j,c,inv,sig,techSig,tech){
   const T=invTotals(inv);
   const b=STATE.businessInfo||{}, K=invCalc(inv.items), isQ=inv.kind==='quotation', title=isQ?'Quotation':'Invoice';
   const terms=(b.terms&&b.terms.trim())?b.terms:'1. Goods once sold will not be taken back or exchanged\n2. All disputes are subject to Mumbai jurisdiction only';
-  const mode=normMode(j.payMode);
+  const mode=normMode(j.payMode); const tn=(STATE.staff||[]).find(x=>x.id===inv.techId)||(inv.techId===undefined?tech:null);
   const rowsH=K.rows.map(r=>`<tr><td>${esc(r.name)}</td><td class="r">${r.qty} ${esc(r.unit)}</td><td class="r">${r.rate.toLocaleString('en-IN')}</td><td class="r">${r.disc?r.disc.toLocaleString('en-IN')+'<div class="pc">('+r.pct+'%)</div>':''}</td><td class="r">${r.amt.toLocaleString('en-IN')}</td></tr>`).join('');
   return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title} ${esc(inv.no)}</title><style>
   *{box-sizing:border-box} body{font-family:Roboto,Arial,Helvetica,sans-serif;color:#1f2933;margin:0;padding:24px;max-width:820px;margin:0 auto;font-size:14px}
@@ -2049,7 +2049,7 @@ function invoiceDocHtml(j,c,inv,sig,techSig,tech){
   .muted{color:#667}
   @media print{button{display:none} body{padding:0}}</style></head><body>
   <div class="hd">${b.logo?`<img src="${b.logo}">`:''}<div><h1>${esc(b.name||'Super Air Cool')}</h1><div>${esc(b.address||'')}</div>${b.phone?`<div><b>Mobile:</b> &nbsp;${esc(b.phone)}</div>`:''}${b.email?`<div><b>Email:</b> ${esc(b.email)}</div>`:''}</div></div>
-  <div class="bar"><div><b>${title} No.:</b> &nbsp;${esc(inv.no)}</div><div><b>${title} Date:</b> &nbsp;${fmtDMY(inv.date)}</div>${isQ?`<div><b>Expiry Date:</b> &nbsp;${fmtDMY(ymd(new Date(new Date(inv.date+'T12:00:00').getTime()+7*864e5)))}</div>`:(mode?`<div><b>Payment:</b> &nbsp;${MODE_L[mode]}</div>`:'')}</div>
+  <div class="bar"><div><b>${title} No.:</b> &nbsp;${esc(inv.no)}</div><div><b>${title} Date:</b> &nbsp;${fmtDMY(inv.date)}</div>${isQ?`<div><b>Expiry Date:</b> &nbsp;${fmtDMY(ymd(new Date(new Date(inv.date+'T12:00:00').getTime()+7*864e5)))}</div>`:(mode?`<div><b>Payment:</b> &nbsp;${MODE_L[mode]}</div>`:'')}${tn?`<div><b>Technician:</b> &nbsp;${esc(tn.name)}</div>`:''}</div>
   <div class="bt">BILL TO</div><div class="nm">${esc(c?c.name:'—')}</div><div>${esc(c?(c.address||''):'')}</div>${c&&c.phone?`<div>Mobile: &nbsp;${esc(c.phone)}</div>`:''}${c&&c.email?`<div>Email: &nbsp;${esc(c.email)}</div>`:''}
   <table><tr><th>ITEMS/SERVICES</th><th class="r">QTY.</th><th class="r">RATE</th><th class="r">DISC.</th><th class="r">AMOUNT</th></tr>${rowsH}<tr class="fill"><td colspan="5"></td></tr>
   <tr class="sub"><td>SUBTOTAL</td><td class="r">${K.qty}</td><td></td><td class="r">₹ ${K.disc.toLocaleString('en-IN')}</td><td class="r">₹ ${K.total.toLocaleString('en-IN')}</td></tr></table>
@@ -2092,8 +2092,8 @@ async function finishBill(jid,inv0){
     if(ch){ await saveKey(SKEY.CUSTOMERS,STATE.customers); linkBillsToCustomer(c); } }
 }
 async function createBillJob(cid,bill,payMode){
-  const me=(STATE.session&&STATE.session.name)||'', now=Date.now(), q=bill.inv.kind==='quotation', amt=q?0:bill.T.grand, due=(!q&&payMode==='due')?amt:0;
-  const j={id:uid(),customerId:cid,title:(q?'Quotation: ':'')+bill.inv.items[0].name+(bill.inv.items.length>1?' +'+(bill.inv.items.length-1)+' aur':''),tag:'Bill',amcVisit:false,assignedTo:'',status:'done',date:todayStr(),notes:'',amount:amt,travelAmount:0,checklist:[],due,payMode:(q||payMode==='due')?'':(normMode(payMode)||''),completedAt:now,closedAt:now,createdAt:now,billOnly:true,history:[{s:'done',t:now,by:me,why:q?'Quotation banaya':'Bill banaya'}]};
+  const me=(STATE.session&&STATE.session.name)||'', now=Date.now(), bd=bill.inv.date||todayStr(), wts=bd===todayStr()?now:new Date(bd+'T12:00:00').getTime(), q=bill.inv.kind==='quotation', amt=q?0:bill.T.grand, due=(!q&&payMode==='due')?amt:0;
+  const j={id:uid(),customerId:cid,title:(q?'Quotation: ':'')+bill.inv.items[0].name+(bill.inv.items.length>1?' +'+(bill.inv.items.length-1)+' aur':''),tag:'Bill',amcVisit:false,assignedTo:bill.inv.techId||'',status:'done',date:bd,notes:'',amount:amt,travelAmount:0,checklist:[],due,payMode:(q||payMode==='due')?'':(normMode(payMode)||''),completedAt:wts,closedAt:wts,createdAt:now,billOnly:true,history:[{s:'done',t:now,by:me,why:q?'Quotation banaya':'Bill banaya'}]};
   STATE.jobs.push(j); await saveKey(SKEY.JOBS,STATE.jobs); return j.id;
 }
 function billMakeInner(d){
@@ -2108,7 +2108,7 @@ function billMakeInner(d){
 }
 function billHistLine(j){
   const inv=j.invoice, T=invTotals(inv), tech=STATE.session.role==='technician';
-  return `<div style="margin-top:8px;padding:8px 10px;background:var(--sky-pale);border-radius:10px;"><div class="item-sub" style="font-weight:700;margin:0 0 4px;">🧾 Bill #${esc(inv.no||'')}${tech?'':' · ₹'+invMoney(T.grand)}${inv.sentLog&&inv.sentLog.length?' · ✅ bheja gaya':''}</div>${inv.items.map(it=>`<div class="item-sub" style="margin:0;">• ${esc(it.name)} — ${it.qty} × ${tech?'':'₹'+invMoney(it.rate)}${tech?'':' = ₹'+invMoney(it.qty*it.rate-(it.disc||0))}</div>`).join('')}${tech?'':`${T.ed>0?`<div class="item-sub" style="margin:2px 0 0;">Discount − ₹${invMoney(T.ed)}</div>`:''}${T.gstAmt>0?`<div class="item-sub" style="margin:0;">GST (${T.gstPct}%) ₹${invMoney(T.gstAmt)}</div>`:''}`}</div>`;
+  return `<div style="margin-top:8px;padding:8px 10px;background:var(--sky-pale);border-radius:10px;"><div class="item-sub" style="font-weight:700;margin:0 0 4px;">🧾 Bill #${esc(inv.no||'')}${tech?'':' · ₹'+invMoney(T.grand)}${inv.sentLog&&inv.sentLog.length?' · ✅ bheja gaya':''}${(()=>{ const t=(STATE.staff||[]).find(x=>x.id===inv.techId); return (t?' · 🧑‍🔧 '+esc(t.name):'')+(inv.date?' · '+fmtDate(inv.date):''); })()}</div>${inv.items.map(it=>`<div class="item-sub" style="margin:0;">• ${esc(it.name)} — ${it.qty} × ${tech?'':'₹'+invMoney(it.rate)}${tech?'':' = ₹'+invMoney(it.qty*it.rate-(it.disc||0))}</div>`).join('')}${tech?'':`${T.ed>0?`<div class="item-sub" style="margin:2px 0 0;">Discount − ₹${invMoney(T.ed)}</div>`:''}${T.gstAmt>0?`<div class="item-sub" style="margin:0;">GST (${T.gstPct}%) ₹${invMoney(T.gstAmt)}</div>`:''}`}</div>`;
 }
 function blRowHtml(i,it){ it=it||{};
   return `<div class="card" style="padding:8px;margin-bottom:6px;" data-blrow="${i}"><div class="field" style="margin:0 0 4px;"><input id="bl_n${i}" placeholder="Part / kaam ka naam (jaise Gas refill)" value="${esc(it.name||'')}"></div><div style="display:grid;grid-template-columns:1fr 1.3fr 1.2fr;gap:6px;align-items:center;"><input id="bl_q${i}" type="number" min="0" step="any" inputmode="decimal" placeholder="Qty" value="${it.qty===undefined||it.qty===''?'':it.qty}"><input id="bl_r${i}" type="number" min="0" step="any" inputmode="decimal" placeholder="Rate ₹" value="${it.rate===undefined||it.rate===''||it.rate===0?'':it.rate}"><div class="item-sub" id="bl_a${i}" style="text-align:right;margin:0;">₹ 0</div></div></div>`;
@@ -2124,6 +2124,7 @@ function billPanelHtml(d){
     :`<label class="item-sub" style="display:flex;gap:8px;align-items:center;margin:0 0 10px;font-weight:700;color:var(--teal-deep);"><input type="checkbox" id="f_makeBill" style="width:18px;height:18px;"> 🧾 Customer ko Bill banana hai</label>`;
   return head+`
     <div id="billPanel" style="display:${d.always?'block':'none'};margin-bottom:14px;padding:10px;border:1px solid var(--border);border-radius:12px;background:var(--sky-pale);">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px;"><div class="field" style="margin:0;"><label>Bill ki date</label><input type="date" id="bl_date" max="${todayStr()}" value="${esc((inv&&inv.date)||(j.completedAt?ymd(new Date(j.completedAt)):todayStr()))}"></div>${STATE.session.role==='technician'?`<input type="hidden" id="bl_tech" value="${esc((inv&&inv.techId)||j.assignedTo||STATE.session.staffId||'')}">`:`<div class="field" style="margin:0;"><label>Kaam kis technician ne kiya</label><select id="bl_tech"><option value="">— Koi nahi / pata nahi —</option>${(STATE.staff||[]).filter(x=>x.role==='technician').map(x=>`<option value="${esc(x.id)}" ${((inv&&inv.techId)||j.assignedTo||'')===x.id?'selected':''}>${esc(x.name)}</option>`).join('')}</select></div>`}</div>
       <div class="item-sub" style="font-weight:700;margin-bottom:6px;">👤 Customer (badal sakte hain)</div>
       <div class="field" style="margin-bottom:8px;"><input id="bl_name" placeholder="Naam" value="${esc(bt.name||c.name||'')}"></div>
       <div class="field" style="margin-bottom:8px;"><input id="bl_addr" placeholder="Address" value="${esc(bt.address!==undefined&&inv?bt.address:(c.address||''))}"></div>
@@ -2141,7 +2142,9 @@ function billCollect(){
   document.querySelectorAll('[data-blrow]').forEach(r=>{ const i=r.dataset.blrow, name=val('bl_n'+i).trim(), qty=Number(val('bl_q'+i))||0, rate=Number(val('bl_r'+i))||0; if(!name&&!qty&&!rate) return; if(!name){ bad='Item ka naam likhein'; return; } if(qty<=0){ bad='"'+name+'" ki Qty daalein'; return; } items.push({name,qty,unit:'QTY',rate,disc:0}); });
   const dt=val('bl_dt')||'amt', dv=Number(val('bl_dv'))||0, gstOn=!!(document.getElementById('bl_gst')&&document.getElementById('bl_gst').checked);
   const inv={items,kind:val('bl_kind')==='quotation'?'quotation':'invoice',extraDisc:dv>0?{type:dt,val:dv}:null,gst:{on:gstOn,pct:Number(val('bl_gp'))||18},billTo:{name:val('bl_name').trim(),address:val('bl_addr').trim(),phone:val('bl_phone').trim(),email:val('bl_email').trim()}};
+  inv.date=val('bl_date')||todayStr(); inv.techId=val('bl_tech')||'';
   const T=invTotals(inv);
+  if(!bad&&inv.date>todayStr()) bad='Bill ki date aage ki nahi ho sakti';
   if(!bad&&!items.length) bad='Kam se kam ek item likhein';
   if(!bad&&dv>0&&dt==='amt'&&dv>T.sub) bad='Discount total se zyada hai';
   if(!bad&&dv>0&&dt==='pct'&&dv>100) bad='Discount 100% se zyada nahi ho sakta';
@@ -2949,7 +2952,7 @@ function render(){
 function renderSetup(){
   return `
   <div class="login-wrap">
-    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v8.2</p></div>
+    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v8.4</p></div>
     <div class="setup-note">Yeh app ab Firebase (Google ka free real-time database) use karti hai — pehle se tez aur reliable. Firebase Console se apna config copy karke neeche paste karein.</div>
     <div class="field"><label>Firebase Config (poora object paste karein)</label><textarea id="setupConfig" rows="8" placeholder='{"apiKey": "...", "authDomain": "...", "projectId": "...", ...}'>${setupUrlInput}</textarea></div>
     <button class="primary-btn" id="connectBtn">Connect Karein</button>
@@ -3017,7 +3020,7 @@ function renderLogin(){
   }
   return `
   <div class="login-wrap">
-    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v8.2</p></div>
+    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v8.4</p></div>
     <div class="role-grid">
       <button class="role-opt ${loginRole==='admin'?'active':''}" data-role="admin"><span class="ic">🗝️</span>Admin</button>
       <button class="role-opt ${loginRole==='subadmin'?'active':''}" data-role="subadmin"><span class="ic">🧑‍💼</span>Office</button>
@@ -3286,6 +3289,13 @@ function renderReminders(){
     ${list.length===0?`<div class="empty-state"><span class="ic">✅</span><p>${f==='all'?'Koi due customer nahi hai.':'Is filter me koi customer nahi.'}</p></div>`:list.slice(0,STATE.remShown||50).map(card).join('')}${list.length>(STATE.remShown||50)?`<button class="ghost-btn" data-act="remmore">Aur dikhayein (${list.length-(STATE.remShown||50)} baaki)</button>`:''}
   `;
 }
+function billTabHtml(){
+  const rows=[]; (STATE.jobs||[]).forEach(j=>{ const inv=j.invoice; if(!inv||!inv.items||!inv.items.length) return; const T=invTotals(inv), c=STATE.customers.find(x=>x.id===j.customerId)||{}, t=(STATE.staff||[]).find(x=>x.id===(inv.techId!==undefined?inv.techId:j.assignedTo)); rows.push({q:inv.kind==='quotation',no:inv.no,date:inv.date||'',amt:T.grand,name:(inv.billTo&&inv.billTo.name)||c.name||'—',cid:c.id,tech:t?t.name:''}); });
+  rows.sort((a,b)=>String(b.date).localeCompare(String(a.date)));
+  const bl=rows.filter(r=>!r.q), qt=rows.filter(r=>r.q), tot=bl.reduce((x,r)=>x+r.amt,0), ym=todayStr().slice(0,7), mt=bl.filter(r=>r.date.slice(0,7)===ym).reduce((x,r)=>x+r.amt,0), sh=STATE.billShown||60;
+  return `<div class="card" style="background:var(--sky-pale);"><div class="row-between"><div><div class="item-sub" style="margin:0;">Kul Bill (${bl.length})</div><div class="item-name" style="font-size:22px;">${rupee(tot)}</div></div><div style="text-align:right;"><div class="item-sub" style="margin:0;">Is mahine</div><div class="item-name">${rupee(mt)}</div></div></div>${qt.length?`<div class="item-sub" style="margin-top:6px;">📄 Quotation: ${qt.length} (total me nahi ginti)</div>`:''}</div>`+
+    (rows.length?rows.slice(0,sh).map(r=>`<div class="card" ${r.cid?`data-viewcust="${esc(r.cid)}" style="cursor:pointer;"`:''}><div class="row-between"><div style="min-width:0;"><div class="item-name">${esc(r.name)} ›</div><div class="item-sub" style="margin:0;">${r.q?'📄 Quotation':'🧾 Bill'} #${esc(r.no||'')} · ${fmtDate(r.date)}${r.tech?' · 🧑‍🔧 '+esc(r.tech):''}</div></div><div class="item-name" style="flex:none;">${r.q?'<span class="item-sub">'+rupee(r.amt)+'</span>':rupee(r.amt)}</div></div></div>`).join('')+(rows.length>sh?`<button class="ghost-btn" data-act="billmore">Aur dikhayein (${rows.length-sh} baaki)</button>`:''):`<div class="empty-state"><span class="ic">🧾</span><p>Abhi koi bill nahi bana.</p></div>`);
+}
 function renderCustomers(){
   const q=STATE.custSearch.trim().toLowerCase();
   const filterType=STATE.custTypeFilter||'all';
@@ -3303,11 +3313,12 @@ function renderCustomers(){
       <button class="tabbtn ${filterType==='all'?'active':''}" data-typefilter="all">Sab (${typeCounts.all})</button>
       <button class="tabbtn ${filterType==='amc'?'active':''}" data-typefilter="amc">AMC (${typeCounts.amc})</button>
       <button class="tabbtn ${filterType==='onetime'?'active':''}" data-typefilter="onetime">One-time (${typeCounts.onetime})</button>
-      <button class="tabbtn ${filterType==='enquiry'?'active':''}" data-typefilter="enquiry">Enquiry (${typeCounts.enquiry})</button>
+      ${isMoneyRole()?`<button class="tabbtn ${filterType==='bill'?'active':''}" data-typefilter="bill">🧾 Bill</button>`:''}
       <button class="tabbtn ${filterType==='quotation'?'active':''}" data-typefilter="quotation">Quotation (${typeCounts.quotation})</button>
     </div>
     ${filterType==='amc'?`<div class="tabbar"><button class="tabbtn ${!STATE.custStatus?'active':''}" data-custstatus="">Sab AMC (${amcCnt.all})</button><button class="tabbtn ${STATE.custStatus==='active'?'active':''}" data-custstatus="active">✅ Chal rahi (${amcCnt.active})</button><button class="tabbtn ${STATE.custStatus==='expired'?'active':''}" data-custstatus="expired">⏳ Expired / Cancel (${amcCnt.exp})</button></div>`:''}
-    <div id="custListWrap">${list.length===0?`<div class="empty-state"><span class="ic">👥</span><p>${q?'Koi match nahi mila.':'Abhi tak koi customer add nahi hua.<br>Neeche + button se add karein.'}</p></div>`:
+    ${filterType==='bill'&&isMoneyRole()?billTabHtml():''}
+    <div id="custListWrap" style="${filterType==='bill'&&isMoneyRole()?'display:none;':''}">${list.length===0?`<div class="empty-state"><span class="ic">👥</span><p>${q?'Koi match nahi mila.':'Abhi tak koi customer add nahi hua.<br>Neeche + button se add karein.'}</p></div>`:
       list.slice(0,STATE.custShown||60).map(custCardX).join('')}${list.length>(STATE.custShown||60)?`<button class="ghost-btn" data-act="custmore">Aur dikhayein (${list.length-(STATE.custShown||60)} baaki)</button>`:''}</div>
     <button class="fab" id="addCustBtn">+</button>
   `;
@@ -4633,6 +4644,7 @@ function bindShellEvents(){
     else if(act==='billmkcust'){ await billsMakeCustomers(); }
     else if(act==='fixdate'){ if(!isMoneyRole()) return; const rw=moneyRows().find(r=>String(r.id)===id&&r.k===el.dataset.k); if(!rw){ showToast('Entry nahi mili'); return; } activeModal={type:'fixDate',data:{id:rw.id,k:rw.k,name:rw.name,title:rw.title,amount:rw.amount,date:rw.date}}; render(); }
     else if(act==='jobtab'){ STATE.jobTab=el.dataset.tab; STATE.jobsShown=60; render(); }
+    else if(act==='billmore'){ STATE.billShown=(STATE.billShown||60)+60; render(); }
     else if(act==='custmore'){ STATE.custShown=(STATE.custShown||60)+60; render(); }
     else if(act==='remmore'){ STATE.remShown=(STATE.remShown||50)+50; render(); }
     else if(act==='jobsmore'){ STATE.jobsShown=(STATE.jobsShown||60)+60; render(); }
