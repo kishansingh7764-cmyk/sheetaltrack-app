@@ -970,12 +970,12 @@ function startSharingLocation(){
   const staffId=STATE.session.staffId;
   STATE.watchId=navigator.geolocation.watchPosition(async (pos)=>{
     const {latitude,longitude}=pos.coords;
-    const nowTs=Date.now(); if(nowTs-(startSharingLocation.last||0)<60000) return; const pl=startSharingLocation.pl; if(pl&&nowTs-pl.ts<240000&&kmBetween([pl.lat,pl.lng],[latitude,longitude])<0.03){ startSharingLocation.last=nowTs-30000; return; } startSharingLocation.last=nowTs; startSharingLocation.pl={lat:latitude,lng:longitude,ts:nowTs}; STATE.locations[staffId]={lat:latitude,lng:longitude,ts:nowTs};
+    const nowTs=Date.now(); if(nowTs-(startSharingLocation.last||0)<60000) return; const pl=startSharingLocation.pl; if(pl&&nowTs-pl.ts<240000&&kmBetween([pl.lat,pl.lng],[latitude,longitude])<0.03){ startSharingLocation.last=nowTs-30000; return; } startSharingLocation.last=nowTs; startSharingLocation.pl={lat:latitude,lng:longitude,ts:nowTs}; STATE.locations[staffId]={lat:latitude,lng:longitude,ts:nowTs}; track(firestoreDB.collection('st_trail').doc(staffId+'_'+todayStr()).set({staffId,date:todayStr(),ls:nowTs,lp:[+latitude.toFixed(5),+longitude.toFixed(5)]},{merge:true}));
     saveKey(SKEY.LOCATIONS, STATE.locations);
     if(pos.coords.accuracy<=100){ const P=[+latitude.toFixed(5),+longitude.toFixed(5)], lp=startSharingLocation.lp; if(!lp||kmBetween(lp,P)>=0.04){ startSharingLocation.lp=P; track(firestoreDB.collection('st_trail').doc(staffId+'_'+todayStr()).set({staffId,date:todayStr(),p:{[Math.floor(nowTs/1000)]:P}},{merge:true})); } }
     const t=todayStr();
     if(!STATE.attendance[staffId]) STATE.attendance[staffId]={};
-    if(!STATE.attendance[staffId][t]){ STATE.attendance[staffId][t]=true; saveKey(SKEY.ATTENDANCE, STATE.attendance); notifSend(OFFICE_KEYS,'attendance','✅ Attendance lagi',(nStaff(staffId)||(STATE.session&&STATE.session.name)||'Staff')+' ne aaj location share ki',staffId+':'+t); }
+    if(!STATE.attendance[staffId][t]){ STATE.attendance[staffId][t]=nowTs; saveKey(SKEY.ATTENDANCE, STATE.attendance); notifSend(OFFICE_KEYS,'attendance','✅ Attendance lagi',(nStaff(staffId)||(STATE.session&&STATE.session.name)||'Staff')+' ne aaj location share ki',staffId+':'+t); }
     if(STATE.view==='location') bgRender();
   }, (err)=>{
     if(err.code===1){ STATE.locOK=false; showToast('Permission denied. Phone Settings → Chrome/Browser → Site Settings → Location mein "Allow" karein.'); }
@@ -2551,7 +2551,7 @@ async function convertLeadToOnetime(id,opt){ opt=opt||{};
   }
   cust.leadTelecaller=l.assignedName||cust.leadTelecaller||''; cust.leadCalledBy=l.calledBy||''; cust.leadId=l.id;
   STATE.customers=STATE.customers.filter(x=>x.id!==cust.id).concat(cust); await saveKey(SKEY.CUSTOMERS, STATE.customers);
-  const j={id:uid(), customerId:cust.id, title:'Service', tag:'', amcVisit:false, assignedTo:opt.tech||'', status:'pending', date:opt.date||today, notes:'Telecaller lead se bani (One-time) — '+(l.calledBy||l.assignedName||''), amount:0, checklist:[], createdAt:Date.now(), history:[{s:'pending',t:Date.now(),by:(STATE.session&&STATE.session.name)||'',why:'Telecaller lead se One-time service'}]};
+  const j={id:uid(), customerId:cust.id, title:'Service', tag:'', amcVisit:false, assignedTo:opt.tech||'', status:'pending', date:opt.date||today, notes:'Telecaller lead se bani (One-time) — '+(l.calledBy||l.assignedName||''), amount:0, checklist:[], assignN:(opt.tech?1:0), updAt:Date.now(), createdAt:Date.now(), history:[{s:'pending',t:Date.now(),by:(STATE.session&&STATE.session.name)||'',why:'Telecaller lead se One-time service'}]};
   STATE.jobs.push(j); await saveKey(SKEY.JOBS, STATE.jobs);
   l.convertedJobId=j.id; l.convertedType='onetime'; l.convertedBy=(STATE.session&&STATE.session.name)||''; l.convertedAt=Date.now();
   await saveKey(SKEY.LEADS, STATE.leads);
@@ -2627,7 +2627,7 @@ async function convertLeadToJob(id,opt){ opt=opt||{};
   }
   cust.leadTelecaller=l.assignedName||cust.leadTelecaller||''; cust.leadCalledBy=l.calledBy||''; cust.leadId=l.id; if(!cust.installDate&&l.purchaseDate) cust.installDate=l.purchaseDate;
   STATE.customers=STATE.customers.filter(x=>x.id!==cust.id).concat(cust); await saveKey(SKEY.CUSTOMERS, STATE.customers);
-  const j={id:uid(), customerId:cust.id, title:'AMC Renewal Visit', tag:'AMC', amcVisit:false, assignedTo:opt.tech||'', status:'pending', date:opt.date||today, notes:'Telecaller lead se bani — '+(l.calledBy||''), amount:0, checklist:[], createdAt:Date.now(), history:[{s:'pending',t:Date.now(),by:(STATE.session&&STATE.session.name)||'',why:'Telecaller lead se AMC'}]};
+  const j={id:uid(), customerId:cust.id, title:'AMC Renewal Visit', tag:'AMC', amcVisit:false, assignedTo:opt.tech||'', status:'pending', date:opt.date||today, notes:'Telecaller lead se bani — '+(l.calledBy||''), amount:0, checklist:[], assignN:(opt.tech?1:0), updAt:Date.now(), createdAt:Date.now(), history:[{s:'pending',t:Date.now(),by:(STATE.session&&STATE.session.name)||'',why:'Telecaller lead se AMC'}]};
   STATE.jobs.push(j); await saveKey(SKEY.JOBS, STATE.jobs);
   l.convertedJobId=j.id; l.convertedBy=(STATE.session&&STATE.session.name)||''; l.convertedAt=Date.now();
   await saveKey(SKEY.LEADS, STATE.leads);
@@ -2641,6 +2641,7 @@ async function addJob(data){
   if(assignedTo && isOnLeaveOn(assignedTo,date)){ assignedTo=''; showToast('⚠️ Technician us din chhutti par hai — Job ban gayi, par Unassigned rakhi gayi hai'); }
   const vg=computeVisitGap(data.customerId, date);
   const j={id:uid(), customerId:data.customerId, title:data.title, tag:data.tag||'', amcVisit:!!data.amcVisit, assignedTo, status:'pending', date, notes:data.notes||'', amount:Number(data.amount)||0, checklist:checklistItems, visitGap:vg.flag, visitGapDays:vg.days, createdAt:Date.now()};
+  j.assignN=assignedTo?1:0; j.updAt=Date.now();
   STATE.jobs.push(j); await saveKey(SKEY.JOBS, STATE.jobs); if(assignedTo||!data.assignedTo) showToast('Job assign ho gaya');
 }
 function computeVisitGap(customerId, dateStr){
@@ -2692,6 +2693,7 @@ async function assignJobQuick(jobId, techId){
   const j=STATE.jobs.find(x=>x.id===jobId); if(!j) return;
   if(j.status==='done'){ showToast('Complete job mein technician nahi badal sakte'); render(); return; }
   if(techId && isOnLeaveOn(techId, j.date)){ showToast('⚠️ Ye technician us din chhutti par hai — assign nahi ho saka'); render(); return; }
+  if(techId!==(j.assignedTo||'')){ if(techId) j.assignN=(Number(j.assignN)||(j.assignedTo?1:0))+1; const tn=(STATE.staff.find(x=>x.id===techId)||{}).name||''; j.history=(j.history||[]).concat({s:'assign',t:Date.now(),by:(STATE.session&&STATE.session.name)||'',why:techId?'Assign: '+tn:'Unassign kiya'}); j.updAt=Date.now(); }
   j.assignedTo=techId; await saveKey(SKEY.JOBS, STATE.jobs); showToast(techId?'Job assign ho gaya':'Unassign ho gaya'); render();
 }
 
@@ -2952,7 +2954,7 @@ function render(){
 function renderSetup(){
   return `
   <div class="login-wrap">
-    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v8.5</p></div>
+    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v8.7</p></div>
     <div class="setup-note">Yeh app ab Firebase (Google ka free real-time database) use karti hai — pehle se tez aur reliable. Firebase Console se apna config copy karke neeche paste karein.</div>
     <div class="field"><label>Firebase Config (poora object paste karein)</label><textarea id="setupConfig" rows="8" placeholder='{"apiKey": "...", "authDomain": "...", "projectId": "...", ...}'>${setupUrlInput}</textarea></div>
     <button class="primary-btn" id="connectBtn">Connect Karein</button>
@@ -3020,7 +3022,7 @@ function renderLogin(){
   }
   return `
   <div class="login-wrap">
-    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v8.5</p></div>
+    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v8.7</p></div>
     <div class="role-grid">
       <button class="role-opt ${loginRole==='admin'?'active':''}" data-role="admin"><span class="ic">🗝️</span>Admin</button>
       <button class="role-opt ${loginRole==='subadmin'?'active':''}" data-role="subadmin"><span class="ic">🧑‍💼</span>Office</button>
@@ -3505,6 +3507,14 @@ function renderTelecallerProfile(){
 }
 const JT_TABS=[['today','📅 Aaj'],['other','🗓 Dusri date'],['unassigned','🔴 Unassigned'],['assigned','👷 Assigned'],['cancel','✖ Cancel'],['done','✅ Complete'],['all','Sab']];
 const jobIsOpen=j=>j.status!=='done'&&j.status!=='rejected';
+/* ===== v8.6: Job priority (3+ baar assign, kaam nahi hua) + last update time ===== */
+const jobAssignN=j=>Number(j.assignN)||(j.assignedTo?1:0);
+const jobPriority=j=>jobIsOpen(j)&&jobAssignN(j)>=3;
+function jobUpdAt(j){ let m=Math.max(Number(j.updAt)||0,Number(j.completedAt)||0,Number(j.closedAt)||0,Number(j.createdAt)||0); (j.history||[]).forEach(h=>{ if(h&&h.t>m) m=h.t; }); return m; }
+function jobUpdLine(j){ const t=jobUpdAt(j); if(!t) return ''; const h=(j.history||[]).slice().reverse().find(x=>x&&x.t===t); return `<div class="item-sub" style="margin-top:4px;">🕒 Update: ${fmtT(t)}${h&&h.by?' · '+esc(h.by):''}</div>`; }
+const jobPrioBadge=j=>jobPriority(j)?`<div style="margin:0 0 6px;"><span class="pill pill-red" style="font-weight:800;">🔥 PRIORITY — ${jobAssignN(j)} baar assign hui, kaam abhi nahi hua</span></div>`:'';
+const jobPrioStyle=j=>jobPriority(j)?'background:#fdecea;border:2px solid #c0392b;':'';
+const jobSortFn=(a,b)=>((jobPriority(b)?1:0)-(jobPriority(a)?1:0))||(jobUpdAt(b)-jobUpdAt(a));
 function jobsForTab(list,tab){
   const t=todayStr();
   if(tab==='today') return list.filter(j=>j.date===t&&j.status!=='rejected');
@@ -3545,9 +3555,9 @@ function jobCardCompact(j){
     more=''; 
   }
   if(!open) more='';
-  return `<div class="card" data-jexp="${j.id}" style="cursor:pointer;${cr?'border-left:4px solid #c0392b;':''}">
-    <div class="row-between" style="align-items:flex-start;gap:8px;"><div style="min-width:0;">${nameHtml}<div class="item-sub" style="margin-top:2px;">${esc(j.title||'Job')}${j.tag?` <span class="pill pill-sky">${esc(j.tag)}</span>`:''}</div></div><div style="text-align:right;flex:none;"><span class="pill ${statusPill(j.status)}">${statusLabel(j.status)}</span>${cr?'<div style="margin-top:4px;"><span class="pill pill-red">❗ Cancel request</span></div>':''}</div></div>
-    <div class="item-sub" style="margin-top:6px;">📅 ${fmtDate(j.date)}${late?' <span class="pill pill-red">Late</span>':''}${j.amount?' · '+rupee(j.amount):''}<span style="float:right;color:var(--teal);font-weight:600;">${open?'▲ Kam':'▼ Poora'}</span></div>
+  return `<div class="card" data-jexp="${j.id}" style="cursor:pointer;${cr?'border-left:4px solid #c0392b;':''}${jobPrioStyle(j)}">
+    ${jobPrioBadge(j)}<div class="row-between" style="align-items:flex-start;gap:8px;"><div style="min-width:0;">${nameHtml}<div class="item-sub" style="margin-top:2px;">${esc(j.title||'Job')}${j.tag?` <span class="pill pill-sky">${esc(j.tag)}</span>`:''}</div></div><div style="text-align:right;flex:none;"><span class="pill ${statusPill(j.status)}">${statusLabel(j.status)}</span>${cr?'<div style="margin-top:4px;"><span class="pill pill-red">❗ Cancel request</span></div>':''}</div></div>
+    <div class="item-sub" style="margin-top:6px;">📅 ${fmtDate(j.date)}${late?' <span class="pill pill-red">Late</span>':''}${j.amount?' · '+rupee(j.amount):''}<span style="float:right;color:var(--teal);font-weight:600;">${open?'▲ Kam':'▼ Poora'}</span></div>${jobUpdLine(j)}
     ${who}${open?more:''}</div>`;
 }
 function renderJobs(){
@@ -3560,9 +3570,8 @@ function renderJobs(){
   const tab=filt?'all':(STATE.jobTab||'today');
   let list=jobsForTab(base,tab);
   const dk=j=>String(j.date||'');
-  if(tab==='today') list.sort((a,b)=>(jobIsOpen(b)-jobIsOpen(a))||((b.createdAt||0)-(a.createdAt||0)));
-  else if(tab==='other'||tab==='unassigned'||tab==='assigned') list.sort((a,b)=>dk(a).localeCompare(dk(b)));
-  else list.sort((a,b)=>((b.completedAt||b.createdAt||0)-(a.completedAt||a.createdAt||0)));
+  if(tab==='today') list.sort((a,b)=>(jobIsOpen(b)-jobIsOpen(a))||jobSortFn(a,b));
+  else list.sort(jobSortFn);
   const lim=STATE.jobsShown||60, shown=list.slice(0,lim), techs=STATE.staff.filter(s=>s.role==='technician');
   let body='';
   if(!list.length) body=`<div class="empty-state"><span class="ic">🧾</span><p>${tab==='today'?'Aaj ki koi job nahi hai.':'Is tab me koi job nahi hai.'}</p></div>`;
@@ -3574,9 +3583,10 @@ function renderJobs(){
   if(list.length>lim) body+=`<button class="ghost-btn" data-act="jobsmore" style="margin-top:10px;">Aur dikhayein (${list.length-lim} baaki)</button>`;
   const cnt=t=>jobsForTab(base,t).length;
   const tabs=filt?'':`<div class="tabbar">${JT_TABS.map(t=>`<button class="tabbtn ${t[0]===tab?'active':''}" data-act="jobtab" data-tab="${t[0]}">${t[1]} (${cnt(t[0])})</button>`).join('')}</div>`;
-  const tsel=`<div class="field" style="margin:0 0 10px;"><select id="jobTechFilter"><option value="">👷 Sab technician</option>${techs.map(t=>`<option value="${t.id}" ${tf===t.id?'selected':''}>${esc(t.name)}</option>`).join('')}<option value="__none" ${tf==='__none'?'selected':''}>🔴 Jo kisi ko assign nahi</option></select></div>`;
+  const tsel=`<div class="field" style="margin:0 0 10px;"><select id="jobTechFilter"><option value="">👷 Sab technician</option>${techs.map(t=>`<option value="${t.id}" ${tf===t.id?'selected':''}>${esc(t.name)} (${STATE.jobs.filter(j=>j.assignedTo===t.id&&jobIsOpen(j)).length} baaki)</option>`).join('')}<option value="__none" ${tf==='__none'?'selected':''}>🔴 Jo kisi ko assign nahi</option></select></div>`;
   return `
     ${filt?`<div class="row-between" style="margin-bottom:12px;"><div class="pill pill-sky">Filter: ${statusLabel(filt)}${per&&perL[per]?' · '+perL[per]:''}</div><button class="mini-btn" style="flex:none;padding:6px 12px;" id="clearJobFilterBtn">Clear ✕</button></div>`:''}
+    ${(()=>{ const o=base.filter(jobIsOpen), pr=base.filter(jobPriority).length, ds=base.filter(j=>j.status==='done'), amt=isMoneyRole()?ds.reduce((x,j)=>x+(Number(j.amount)||0),0):0; return `<div class="stat-grid" style="margin-bottom:10px;"><div class="stat-card"><div class="stat-num">${base.length}</div><div class="stat-label">Kul Jobs</div></div><div class="stat-card"><div class="stat-num" style="color:var(--amber);">${o.length}</div><div class="stat-label">Baaki</div></div><div class="stat-card"><div class="stat-num" style="color:var(--green);">${ds.length}</div><div class="stat-label">Complete${amt?' · '+rupee(amt):''}</div></div>${pr?`<div class="stat-card" style="background:#fdecea;border:1px solid #c0392b;"><div class="stat-num" style="color:#c0392b;">${pr}</div><div class="stat-label">🔥 Priority</div></div>`:''}</div>`; })()}
     ${tabs}${tsel}
     <div class="section-title">${filt?'Jobs':(JT_TABS.find(t=>t[0]===tab)||[0,'Jobs'])[1]} (${list.length})</div>
     <div class="item-sub" style="margin:-4px 0 8px;">Job par tap karein — poori detail khulegi. Customer ke naam par tap karein — profile khulegi.</div>
@@ -3628,12 +3638,12 @@ function renderStaffProfile(){
       <div class="card-actions">${s.phone?`<a class="mini-btn primary" style="text-decoration:none;" href="tel:${s.phone}">📞 Call</a>`:''}${s.phone?`<a class="mini-btn" style="text-decoration:none;" href="https://wa.me/91${s.phone}">💬 WhatsApp</a>`:''}</div>
     </div>
     <div class="stat-grid">
-      <div class="stat-card"><div class="stat-num">${staffJobs.length}</div><div class="stat-label">Total Jobs</div></div>
-      <div class="stat-card"><div class="stat-num" style="color:var(--green);">${completedJobs.length}</div><div class="stat-label">Completed</div></div>
-      <div class="stat-card"><div class="stat-num" style="color:var(--amber);">${avgRating?avgRating.toFixed(1)+' ★':'—'}</div><div class="stat-label">Avg Rating</div></div>
-      ${STATE.session.role==='admin'?`<div class="stat-card"><div class="stat-num" style="color:var(--green);">${rupee(totalEarned)}</div><div class="stat-label">Total Earned</div></div>`:''}
+      <div class="stat-card" data-act="staffjobs" data-id="${s.id}" data-kind="all" style="cursor:pointer;"><div class="stat-num">${staffJobs.length}</div><div class="stat-label">Total Jobs ›</div></div>
+      <div class="stat-card" data-act="staffjobs" data-id="${s.id}" data-kind="done" style="cursor:pointer;"><div class="stat-num" style="color:var(--green);">${completedJobs.length}</div><div class="stat-label">Completed ›</div></div>
+      <div class="stat-card" data-act="staffjobs" data-id="${s.id}" data-kind="rated" style="cursor:pointer;"><div class="stat-num" style="color:var(--amber);">${avgRating?avgRating.toFixed(1)+' ★':'—'}</div><div class="stat-label">Avg Rating ›</div></div>
+      ${STATE.session.role==='admin'?`<div class="stat-card" data-act="staffjobs" data-id="${s.id}" data-kind="earned" style="cursor:pointer;"><div class="stat-num" style="color:var(--green);">${rupee(totalEarned)}</div><div class="stat-label">Total Earned ›</div></div>`:''}
     </div>
-    <div class="card"><div class="row-between"><div class="item-sub">Is mahine attendance</div><div class="item-name">${thisMonthCount} din</div></div></div>
+    <div class="card" data-act="attdetail" data-id="${s.id}" style="cursor:pointer;"><div class="row-between"><div class="item-sub">📅 Is mahine attendance (din-wise dekhein ›)</div><div class="item-name">${thisMonthCount} din</div></div></div>
     ${s.role==='technician'?techMonthHtml(s.id):''}
     ${(STATE.session.role==='admin'&&s.role!=='admin')?kycCardHtml(s.id):''}
     ${(STATE.session.role==='admin'&&s.role!=='admin')?auditHtml(s.id):''}
@@ -3722,6 +3732,80 @@ function custCardX(c){
     <div class="card-actions" style="margin-top:8px;">${c.phone?`<a class="mini-btn" style="text-decoration:none;" href="https://wa.me/${waNum(c.phone)}">💬 WhatsApp</a>`:''}<button class="mini-btn primary" data-act="service" data-id="${c.id}">Service ho gaya</button><button class="mini-btn" data-act="editcust" data-id="${c.id}">Edit</button><button class="mini-btn" data-act="viewcust" data-id="${c.id}">Profile</button>${STATE.session.role==='admin'?`<button class="mini-btn danger" data-act="delcust" data-id="${c.id}">Delete</button>`:''}</div>`;
   return xCard('cu:'+c.id,head,quick,more);
 }
+
+/* ===== v8.7: Attendance detail — kis din kab online, kab aakhri location, kahan tha, kya kaam kiya ===== */
+function hmT(ts){ return ts?new Date(ts).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true}):'—'; }
+function durTxt(ms){ const m=Math.round(ms/60000); return m>=60?Math.floor(m/60)+' ghanta '+(m%60?m%60+' min':''):m+' min'; }
+async function loadAttDetail(staffId,mk){
+  const key=staffId+'|'+mk; STATE.attDet=STATE.attDet||{};
+  const out={days:{},logins:[],err:0};
+  try{ const FP=firebase.firestore.FieldPath.documentId(); const snap=await firestoreDB.collection('st_trail').where(FP,'>=',staffId+'_'+mk+'-01').where(FP,'<=',staffId+'_'+mk+'-31').get(); snap.forEach(d=>{ const x=d.data(); if(x.date) out.days[x.date]=x; }); }catch(e){ console.error('attdet trail',e); out.err=1; }
+  try{ const snap=await firestoreDB.collection('st_audit').where('staffId','==',staffId).where('type','==','login').limit(400).get(); snap.forEach(d=>{ const r=d.data(); if(r&&r.ts&&ymd(new Date(r.ts)).startsWith(mk)) out.logins.push(r); }); out.logins.sort((a,b)=>a.ts-b.ts); }catch(e){ console.error('attdet login',e); }
+  STATE.attDet[key]=out; if(activeModal&&activeModal.type==='attDetail'&&activeModal.data.id===staffId&&activeModal.data.month===mk) render();
+}
+function jobWhen(j,st){ if(j.status==='done') return '✅ Ho gaya ('+(st?'Start '+hmT(st.t)+' → ':'')+hmT(j.completedAt)+')'; return '⏳ '+(j.status==='ongoing'?'Chal rahi':'Baaki'); }
+function attStops(p){
+  const ks=Object.keys(p||{}).map(Number).sort((a,b)=>a-b); if(!ks.length) return [];
+  const pts=ks.map(k=>({t:k*1000,ll:p[k]})), stops=[];
+  pts.forEach((x,i)=>{ const nx=pts[i+1]; const gap=nx?nx.t-x.t:0; if(i===0||!nx||gap>=10*60000) stops.push({t:x.t,ll:x.ll,stay:nx?gap:0,first:i===0,last:!nx}); });
+  return stops.slice(0,14);
+}
+function attDetailInner(d){
+  const s=(STATE.staff||[]).find(x=>x.id===d.id)||{name:'Staff'}, mk=d.month, key=d.id+'|'+mk, det=(STATE.attDet||{})[key], td=todayStr();
+  const att=((STATE.attendance||{})[d.id])||{}, money=isMoneyRole();
+  const now=new Date(), mopts=Array.from({length:6}).map((_,i)=>{ const x=new Date(now.getFullYear(),now.getMonth()-i,1), v=ymd(x).slice(0,7); return `<option value="${v}" ${v===mk?'selected':''}>${x.toLocaleString('en-IN',{month:'long',year:'numeric'})}</option>`; }).join('');
+  const head=`<div class="modal-head"><h3>📅 ${esc(s.name)} — Attendance</h3><button class="close-x" id="modalClose">×</button></div><div class="field"><select id="attMonthSel">${mopts}</select></div>`;
+  if(!det) return head+`<div class="item-sub" style="padding:20px 0;text-align:center;">⏳ Load ho raha hai…</div>`;
+  const y=+mk.slice(0,4), m=+mk.slice(5,7), last=mk===td.slice(0,7)?+td.slice(8,10):new Date(y,m,0).getDate();
+  const days=[]; for(let i=last;i>=1;i--) days.push(mk+'-'+String(i).padStart(2,'0'));
+  let pres=0, lv=0, ab=0, km=0;
+  const rows=days.map(dt=>{
+    const present=!!att[dt], leave=isOnLeaveOn(d.id,dt), tr=det.days[dt]||{}, lg=det.logins.filter(r=>ymd(new Date(r.ts))===dt);
+    const wd=new Date(dt+'T12:00:00').toLocaleDateString('en-IN',{weekday:'short'}), lab=wd+', '+fmtDate(dt);
+    if(!present&&!leave&&!tr.ls&&!lg.length){ if(dt!==td) ab++; return dt===td?`<div class="item-sub" style="padding:6px 0;border-bottom:1px solid var(--border);">${lab} — <span style="opacity:.7;">abhi tak nahi aaya</span></div>`:`<div class="item-sub" style="padding:6px 0;border-bottom:1px solid var(--border);color:#a12a20;">${lab} — ❌ Absent / Attendance nahi</div>`; }
+    if(leave&&!present){ lv++; return `<div class="item-sub" style="padding:6px 0;border-bottom:1px solid var(--border);">${lab} — 🏖 Chhutti</div>`; }
+    pres++; const dkm=trailKm(tr.p); km+=dkm;
+    const ks=Object.keys(tr.p||{}).map(Number).sort((a,b)=>a-b), firstLoc=ks.length?ks[0]*1000:0, lastLoc=Math.max(tr.ls||0,ks.length?ks[ks.length-1]*1000:0);
+    const attT=typeof att[dt]==='number'?att[dt]:0, firstOn=[attT,lg.length?lg[0].ts:0,firstLoc].filter(Boolean).sort((a,b)=>a-b)[0]||0;
+    const jobs=(STATE.jobs||[]).filter(j=>j.assignedTo===d.id&&j.status!=='rejected'&&((j.completedAt&&ymd(new Date(j.completedAt))===dt)||(j.date===dt&&j.status!=='done'))).sort((a,b)=>(a.completedAt||0)-(b.completedAt||0));
+    const jobH=jobs.map(j=>{ const c=(STATE.customers||[]).find(x=>x.id===j.customerId)||{}, st=(j.history||[]).find(h=>h.s==='ongoing');
+      return `<div class="item-sub" style="padding:3px 0;">🛠 <b>${esc(c.name||'Customer')}</b> — ${esc(j.title||'')} · ${jobWhen(j,st)}${money&&j.status==='done'&&j.amount?' · '+rupee(j.amount):''}${c.address?'<br><span style="opacity:.7;">📍 '+esc(c.address)+'</span>':''}</div>`; }).join('');
+    const stops=attStops(tr.p), stopH=stops.map((x,i)=>`<div class="item-sub" style="padding:3px 0;">🕒 ${hmT(x.t)} — <a href="https://www.google.com/maps?q=${x.ll[0]},${x.ll[1]}" target="_blank" rel="noopener">📍 Map</a>${x.stay>=10*60000?' · rukha '+durTxt(x.stay):''}${x.first?' · (shuruaat)':''}${x.last?' · (aakhri)':''}<br><span class="geoname" data-ll="${x.ll[0]},${x.ll[1]}" style="opacity:.75;">${esc((STATE.geo||{})[x.ll[0]+','+x.ll[1]]||'')}</span></div>`).join('');
+    const sumT=(firstOn?hmT(firstOn):'—')+' → '+(lastLoc?hmT(lastLoc):'—');
+    return `<details style="border-bottom:1px solid var(--border);padding:6px 0;"><summary class="item-sub" style="cursor:pointer;margin:0;"><b>${lab}</b> — ✅ Present · ${sumT}${dkm>=0.1?' · 🚗 '+dkm.toFixed(1)+' km':''}${jobs.length?' · 🛠 '+jobs.length:''}</summary>
+      <div style="padding:6px 4px;"><div class="item-sub">🟢 Online hua: <b>${firstOn?hmT(firstOn):'—'}</b>${lg.length?' · 🔑 App login: '+lg.map(r=>hmT(r.ts)).slice(0,4).join(', '):''}</div>
+      <div class="item-sub">🔴 Aakhri location / band: <b>${lastLoc?hmT(lastLoc):'—'}</b>${firstOn&&lastLoc&&lastLoc>firstOn?' · ⏱ '+durTxt(lastLoc-firstOn):''}</div>
+      ${tr.lp?`<div class="item-sub">📍 Aakhri jagah: <a href="https://www.google.com/maps?q=${tr.lp[0]},${tr.lp[1]}" target="_blank" rel="noopener">Map par dekhein</a></div>`:''}
+      ${jobH?`<div class="item-sub" style="font-weight:700;margin-top:6px;">Kaam (${jobs.length})</div>${jobH}`:`<div class="item-sub" style="margin-top:4px;">Is din koi job record nahi.</div>`}
+      ${stopH?`<div class="item-sub" style="font-weight:700;margin-top:6px;">📍 Kahan-kahan tha</div>${stopH}<button class="mini-btn" data-act="geoname" data-day="${dt}" style="margin-top:4px;">🏷 Jagah ke naam dikhayein</button>`:`<div class="item-sub" style="margin-top:4px;opacity:.7;">GPS location record nahi mili (app band ya location off rahi).</div>`}</div></details>`;
+  }).join('');
+  return head+`<div class="stat-grid"><div class="stat-card"><div class="stat-num" style="color:var(--green);">${pres}</div><div class="stat-label">Present</div></div><div class="stat-card"><div class="stat-num">${lv}</div><div class="stat-label">Chhutti</div></div><div class="stat-card"><div class="stat-num" style="color:#c0392b;">${ab}</div><div class="stat-label">Absent</div></div><div class="stat-card"><div class="stat-num">${km.toFixed(0)}</div><div class="stat-label">GPS km</div></div></div>${det.err?`<div class="item-sub" style="color:#a12a20;">⚠️ Location record load nahi ho paya, sirf attendance dikh rahi hai.</div>`:''}${rows}<div class="item-sub" style="opacity:.7;margin-top:8px;">Online time pehli location / login se aata hai. "Band" ka matlab aakhri location jab app se mili.</div>`;
+}
+async function geoNamesForDay(dt){
+  const spans=[...document.querySelectorAll('.modal-sheet details[open] .geoname')].filter(x=>x.dataset.ll); STATE.geo=STATE.geo||{}; let n=0;
+  for(const sp of spans){ if(n>=10) break; const k=sp.dataset.ll; if(STATE.geo[k]){ sp.textContent='🏷 '+STATE.geo[k]; continue; } const [la,lo]=k.split(',');
+    try{ if(n>0) await new Promise(r=>setTimeout(r,1100)); const r=await fetch('https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=17&lat='+la+'&lon='+lo); const j=await r.json(); const nm=String(j.display_name||'').split(',').slice(0,3).join(', '); STATE.geo[k]=nm; sp.textContent='🏷 '+nm; n++; }catch(e){ sp.textContent='(naam nahi mila — internet check karein)'; break; } }
+}
+
+/* ===== v8.7: Technician profile ke tiles par tap = poori list ===== */
+const SJ_LABEL={all:'Total Jobs',done:'Completed Jobs',rated:'Rating wali Jobs',earned:'Total Earned',active:'Active Jobs',mdone:'Is mahine complete',mcanc:'Is mahine Cancel',mrep:'Is mahine Repairing',minst:'Is mahine Installation',mamc:'Is mahine AMC',moth:'Is mahine Service / Anya'};
+function staffJobsFilter(id,kind){
+  const mk=todayStr().slice(0,7), mine=(STATE.jobs||[]).filter(j=>j.assignedTo===id), dOf=j=>j.completedAt?ymd(new Date(j.completedAt)):j.closedAt?ymd(new Date(j.closedAt)):(j.date||'');
+  const md=j=>j.status==='done'&&dOf(j).startsWith(mk);
+  if(kind==='done') return mine.filter(j=>j.status==='done'); if(kind==='rated') return mine.filter(j=>j.status==='done'&&j.rating>0); if(kind==='earned') return mine.filter(j=>j.status==='done'&&(j.amount||0)>0);
+  if(kind==='active') return mine.filter(jobIsOpen); if(kind==='mdone') return mine.filter(md); if(kind==='mcanc') return mine.filter(j=>j.status==='rejected'&&dOf(j).startsWith(mk));
+  if(kind==='mrep'||kind==='minst'||kind==='mamc'||kind==='moth') return mine.filter(j=>md(j)&&jobKind(j)===({mrep:'rep',minst:'inst',mamc:'amc',moth:'oth'})[kind]);
+  return mine;
+}
+function staffJobsInner(d){
+  const s=(STATE.staff||[]).find(x=>x.id===d.id)||{name:'Staff'}, list=staffJobsFilter(d.id,d.kind).sort((a,b)=>(b.completedAt||Date.parse(b.date)||0)-(a.completedAt||Date.parse(a.date)||0)), money=isMoneyRole()&&STATE.session.role!=='technician';
+  const tot=money?list.filter(j=>j.status==='done').reduce((x,j)=>x+(Number(j.amount)||0),0):0;
+  const stl=x=>x==='done'?'✅ Ho gaya':x==='ongoing'?'🔵 Chal rahi':x==='onhold'?'⏸ Hold':x==='rejected'?'✖ Cancel':'⏳ Baaki';
+  return `<div class="modal-head"><h3>${esc(s.name)} — ${esc(SJ_LABEL[d.kind]||'Jobs')}</h3><button class="close-x" id="modalClose">×</button></div>
+    <div class="item-sub" style="margin-bottom:8px;"><b>${list.length}</b> job${money&&tot?' · Total <b>'+rupee(tot)+'</b>':''}</div>
+    ${list.length?list.map(j=>{ const c=(STATE.customers||[]).find(x=>x.id===j.customerId)||{}, dt=j.completedAt?ymd(new Date(j.completedAt)):j.date;
+      return `<div class="card" style="padding:10px;margin-bottom:8px;"><div class="row-between" style="align-items:flex-start;gap:8px;"><div style="min-width:0;"><div class="item-name" ${c.id?`data-viewcust="${c.id}" style="cursor:pointer;color:var(--teal);text-decoration:underline;"`:''}>${esc(c.name||'Customer')}${c.id?' ›':''}</div><div class="item-sub" style="margin:2px 0 0;">${esc(j.title||'Job')}${j.tag?' · '+esc(j.tag):''}</div><div class="item-sub" style="margin:2px 0 0;">📅 ${fmtDate(dt)}${j.completedAt?' · '+hmT(j.completedAt):''}${j.rating?' · '+'★'.repeat(j.rating):''}</div>${c.address?`<div class="item-sub" style="margin:2px 0 0;">📍 ${esc(c.address)}</div>`:''}</div><div style="text-align:right;flex:none;"><div class="item-sub" style="margin:0;font-weight:700;">${stl(j.status)}</div>${money&&j.status==='done'&&j.amount?`<div class="item-name" style="color:var(--green);">${rupee(j.amount)}</div>`:''}</div></div></div>`; }).join(''):`<div class="empty-state"><span class="ic">🧾</span><p>Is list me koi job nahi hai.</p></div>`}`;
+}
 /* ----- Team / Attendance ----- */
 function staffSummaryHtml(t){
   const td=todayStr(), mk=td.slice(0,7), mine=STATE.jobs.filter(j=>j.assignedTo===t.id), dOf=j=>j.completedAt?ymd(new Date(j.completedAt)):(j.date||'');
@@ -3733,7 +3817,7 @@ function staffSummaryHtml(t){
     if(t.role==='technician'||mine.length) h+=`<div class="item-sub">🛠 Aaj ki jobs: <b>${today}</b> · Baaki: <b>${open}</b> · Is mahine complete: <b>${mDone}</b> · Cancel: <b>${canc}</b></div>`;
   }
   if(t.role==='telecaller'){ const m=(STATE.leads||[]).filter(l=>l.assignedTo===t.id&&!l.dismissed); h+=`<div class="item-sub">📇 Leads: <b>${m.length}</b> · Call hui: <b>${m.filter(l=>l.called).length}</b></div>`; }
-  h+=`<div class="item-sub">📅 Is mahine attendance: <b>${att} din</b> · Aaj: <b>${onLeave?'🏖 Chhutti':present?'✅ Present':'— abhi nahi'}</b></div>`;
+  h+=`<div class="item-sub">📅 Is mahine attendance: <b>${att} din</b> · Aaj: <b>${onLeave?'🏖 Chhutti':present?'✅ Present':'— abhi nahi'}</b> <button class="mini-btn" data-act="attdetail" data-id="${t.id}" style="padding:3px 10px;font-size:12px;">din-wise ›</button></div>`;
   if(t.role==='technician') h+=`<div class="item-sub">📍 Location: <b>${live?'🟢 Live hai':(loc&&loc.ts?'Aakhri: '+fmtT(loc.ts):'—')}</b></div>`;
   if(t.role==='technician'){ const rc=mine.slice().sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)).slice(0,5); if(rc.length) h+=`<div class="item-sub" style="margin-top:6px;font-weight:700;">Haal ki jobs</div>`+rc.map(j=>{ const c=STATE.customers.find(x=>x.id===j.customerId); return `<div class="item-sub" style="padding:3px 0;border-bottom:1px dashed var(--border);">${fmtDate(j.date)} · ${esc(j.title||'')} · ${esc(c?c.name:'')} · <b>${j.status==='done'?'Complete':j.status==='rejected'?'Cancel':j.status==='ongoing'?'Chal rahi':j.status==='onhold'?'Hold':'Pending'}</b></div>`; }).join(''); }
   return h;
@@ -3821,15 +3905,13 @@ function myJobCard(j){
     ${j.checklist&&j.checklist.length?`<div style="margin-top:8px;">${j.checklist.map((item,idx)=>`<label style="display:flex;align-items:center;gap:8px;padding:6px 0;font-size:13.5px;${item.done?'color:var(--ink-faint);text-decoration:line-through;':''}"><input type="checkbox" ${item.done?'checked':''} data-checklist="${j.id}:${idx}" style="width:17px;height:17px;">${esc(item.text)}</label>`).join('')}</div>`:''}
     ${mediaHtml(j.id)}
     <div class="card-actions" style="margin-top:8px;">${j.status==='ongoing'||j.status==='pending'?`<button class="mini-btn" data-act="holdjob" data-id="${j.id}">⏸ Hold</button>`:''}${(!cr)?`<button class="mini-btn danger" data-act="cancelreq" data-id="${j.id}">✖ Cancel Request</button>`:''}${j.status==='ongoing'?`<button class="mini-btn" data-act="recphoto" data-id="${j.id}">📷 Photo (Live)</button><button class="mini-btn" data-act="recvideo" data-id="${j.id}">🎥 Video (30s)</button>`:''}</div>`;
-  return xCard('mj:'+j.id,head,quick,more,cr?'border-left:4px solid #c0392b;':'');
+  return xCard('mj:'+j.id,jobPrioBadge(j)+head+jobUpdLine(j),quick,more,(cr?'border-left:4px solid #c0392b;':'')+jobPrioStyle(j));
 }
 function renderMyJobs(){
   const all=STATE.jobs.filter(j=>j.assignedTo===STATE.session.staffId);
   let tab=STATE.myJobsTab; if(!MJ_TABS.some(t=>t[0]===tab)) tab='today';
   const list=myJobsFor(all,tab);
-  if(tab==='today'||tab==='next') list.sort((a,b)=>String(a.date||'').localeCompare(String(b.date||''))||((a.createdAt||0)-(b.createdAt||0)));
-  else if(tab==='done') list.sort((a,b)=>(b.completedAt||0)-(a.completedAt||0));
-  else list.sort((a,b)=>String(b.date||'').localeCompare(String(a.date||'')));
+  list.sort(jobSortFn);
   const cur=MJ_TABS.find(t=>t[0]===tab);
   return `<div class="tabbar">${MJ_TABS.map(t=>`<button class="tabbtn ${tab===t[0]?'active':''}" data-myjobtab="${t[0]}">${t[1]} (${myJobsFor(all,t[0]).length})</button>`).join('')}</div>
     <div class="section-title">${cur[1]} (${list.length})</div>
@@ -4053,8 +4135,8 @@ function techMonthHtml(staffId){
   const mk=todayStr().slice(0,7), mine=STATE.jobs.filter(j=>j.assignedTo===staffId);
   const dOf=j=>j.completedAt?ymd(new Date(j.completedAt)):j.closedAt?ymd(new Date(j.closedAt)):(j.date||'');
   const done=mine.filter(j=>j.status==='done'&&dOf(j).startsWith(mk)), canc=mine.filter(j=>j.status==='rejected'&&dOf(j).startsWith(mk));
-  const c=k=>done.filter(j=>jobKind(j)===k).length, st=(n,l,col)=>`<div class="stat-card"><div class="stat-num"${col?' style="color:'+col+'"':''}>${n}</div><div class="stat-label">${l}</div></div>`;
-  return `<div class="card"><div class="section-title" style="margin:0 0 10px;">Is mahine ka kaam</div><div class="stat-grid">${st(done.length,'Total complete')}${st(canc.length,'Cancel','#c0392b')}${st(c('rep'),'Repairing')}${st(c('inst'),'Installation')}${st(c('amc'),'AMC')}${st(c('oth'),'Service / Anya')}</div>${travelHtml(staffId)}</div>`;
+  const c=k=>done.filter(j=>jobKind(j)===k).length, st=(n,l,col,k)=>`<div class="stat-card" data-act="staffjobs" data-id="${staffId}" data-kind="${k}" style="cursor:pointer;"><div class="stat-num"${col?' style="color:'+col+'"':''}>${n}</div><div class="stat-label">${l} ›</div></div>`;
+  return `<div class="card"><div class="section-title" style="margin:0 0 10px;">Is mahine ka kaam</div><div class="stat-grid">${st(done.length,'Total complete','','mdone')}${st(canc.length,'Cancel','#c0392b','mcanc')}${st(c('rep'),'Repairing','','mrep')}${st(c('inst'),'Installation','','minst')}${st(c('amc'),'AMC','','mamc')}${st(c('oth'),'Service / Anya','','moth')}</div>${travelHtml(staffId)}</div>`;
 }
 function leaveCardHtml(){
   const me=STATE.session.staffId, ls=(STATE.leaves||[]).filter(l=>l.staffId===me).sort((a,b)=>b.createdAt-a.createdAt);
@@ -4208,10 +4290,10 @@ function renderTechProfile(){
     </div>
     ${profTabsHtml([['overview','📊 Overview'],['leave','🏖 Chhutti'],['docs','🪪 Documents'],['info','ℹ️ Info']],PT)}
     ${PT==='overview'?`    <div class="stat-grid">
-      <div class="stat-card"><div class="stat-num">${done.length}</div><div class="stat-label">Jobs completed</div></div>
-      <div class="stat-card"><div class="stat-num">${rate}%</div><div class="stat-label">Completion rate</div></div>
-      <div class="stat-card"><div class="stat-num">${att}</div><div class="stat-label">Is mahine attendance (din)</div></div>
-      <div class="stat-card"><div class="stat-num">${active}</div><div class="stat-label">Active jobs${hold?' · '+hold+' on hold':''}</div></div>
+      <div class="stat-card" data-act="staffjobs" data-id="${s.id}" data-kind="done" style="cursor:pointer;"><div class="stat-num">${done.length}</div><div class="stat-label">Jobs completed ›</div></div>
+      <div class="stat-card" data-act="staffjobs" data-id="${s.id}" data-kind="all" style="cursor:pointer;"><div class="stat-num">${rate}%</div><div class="stat-label">Completion rate ›</div></div>
+      <div class="stat-card" data-act="attdetail" data-id="${s.id}" style="cursor:pointer;"><div class="stat-num">${att}</div><div class="stat-label">Is mahine attendance (din) ›</div></div>
+      <div class="stat-card" data-act="staffjobs" data-id="${s.id}" data-kind="active" style="cursor:pointer;"><div class="stat-num">${active}</div><div class="stat-label">Active jobs${hold?' · '+hold+' on hold':''}</div></div>
     </div>
     ${techMonthHtml(s.id)}
     ${revs.length?`<div class="section-title">Customer reviews</div>`+revs.map(j=>{ const c=STATE.customers.find(x=>x.id===j.customerId); return `<div class="card"><div class="row-between"><div class="item-name" style="font-size:13.5px;">${esc(c?c.name:'Customer')}</div><span style="color:var(--amber);">${stars(j.rating)}</span></div><div class="item-sub">${esc(j.title)} · ${fmtDate(dOf(j))}</div></div>`; }).join(''):''}`:''}
@@ -4364,6 +4446,10 @@ function modalHtml(){
   } else if(activeModal.type==='navMore'){
     const items=navItemsFor(STATE.session.role).slice(4);
     inner=`<div class="modal-head"><h3>☰ Aur Menu</h3><button class="close-x" id="modalClose">×</button></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">${items.map(n=>`<button class="ghost-btn" data-act="gonav" data-id="${n.v}" style="padding:16px 8px;font-size:14px;"><div style="font-size:24px;">${n.ic}</div>${n.label}</button>`).join('')}</div>`;
+  } else if(activeModal.type==='staffJobs'){
+    inner=staffJobsInner(activeModal.data);
+  } else if(activeModal.type==='attDetail'){
+    inner=attDetailInner(activeModal.data);
   } else if(activeModal.type==='leadDetail'){
     inner=leadDetailInner(activeModal.data);
   } else if(activeModal.type==='leadAssign'){
@@ -4637,6 +4723,8 @@ function bindShellEvents(){
   document.querySelectorAll('[data-amcday]').forEach(el=>el.onclick=()=>{ STATE.amcSelectedDay=(STATE.amcSelectedDay===el.dataset.amcday)?null:el.dataset.amcday; render(); });
   const taskPeriodSelect=document.getElementById('taskPeriodSelect');
   if(taskPeriodSelect) taskPeriodSelect.onchange=(e)=>{ STATE.taskPeriod=e.target.value; render(); };
+  const attMonthSel=document.getElementById('attMonthSel');
+  if(attMonthSel) attMonthSel.onchange=(e)=>{ const d=activeModal.data; d.month=e.target.value; render(); if(!(STATE.attDet||{})[d.id+'|'+d.month]) loadAttDetail(d.id,d.month); };
   const travelAmtMonthSel=document.getElementById('travelAmtMonthSel');
   if(travelAmtMonthSel) travelAmtMonthSel.onchange=(e)=>{ STATE.travelAmtMonth=e.target.value; render(); };
   document.querySelectorAll('[data-myjobtab]').forEach(el=>el.onclick=()=>{ STATE.myJobsTab=el.dataset.myjobtab; render(); });
@@ -4704,6 +4792,9 @@ function bindShellEvents(){
     else if(act==='leadundone'){ await undoLeadDone(id); }
     else if(act==='leadmarkdone'){ await markLeadAmcDone(id); }
     else if(act==='leadalldone'){ await markAllAlreadyDone(); }
+    else if(act==='staffjobs'){ activeModal={type:'staffJobs',data:{id,kind:el.dataset.kind}}; render(); }
+    else if(act==='attdetail'){ const mk=todayStr().slice(0,7); activeModal={type:'attDetail',data:{id,month:mk}}; render(); loadAttDetail(id,mk); }
+    else if(act==='geoname'){ el.disabled=true; el.textContent='⏳ Naam dhoondh rahe hain…'; geoNamesForDay(el.dataset.day).then(()=>{ el.disabled=false; el.textContent='🏷 Jagah ke naam dikhayein'; }); }
     else if(act==='leadopen'){ activeModal={type:'leadDetail',data:{id}}; render(); }
     else if(act==='leadonetime'){ leadAskAssign(id,'onetime'); }
     else if(act==='leadreopen'){ await reopenLead(id); }
