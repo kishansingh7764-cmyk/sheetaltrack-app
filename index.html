@@ -508,27 +508,52 @@ async function boot(){
 
 let LISTENING=false;
 function attachLeadsListener(){
-  try{ firestoreDB.collection('st_leads').onSnapshot(snap=>{ cntReads('st_leads',snap); const v=[], S=new Map(); snap.forEach(d=>{ const r=d.data(); if(r.deleted) return; r.id=r.id||d.id; v.push(r); S.set(r.id,JSON.stringify(r)); }); STATE.leads=v; SYNCED['st_leads']=S; bgRender(); }, e=>{ console.error('leads listen failed',e); showToast('⚠️ Leads sync ruk gaya — page reload karein'); }); }catch(e){ console.error(e); }
+  try{ HEAVY.unsubs.push(firestoreDB.collection('st_leads').onSnapshot(snap=>{ cntReads('st_leads',snap); const v=[], S=new Map(); snap.forEach(d=>{ const r=d.data(); if(r.deleted) return; r.id=r.id||d.id; v.push(r); S.set(r.id,JSON.stringify(r)); }); STATE.leads=v; SYNCED['st_leads']=S; bgRender(); }, e=>{ console.error('leads listen failed',e); showToast('⚠️ Leads sync ruk gaya — page reload karein'); })); }catch(e){ console.error(e); }
+}
+/* ===== v9.0: Heavy data (customers/jobs/locations/leads/bills) sirf login ke baad, role + device ke hisaab se ===== */
+const HEAVY={unsubs:[],sig:''};
+const HEAVY_PROP={st_customers:'customers',st_jobs:'jobs',st_locations:'locations'};
+function heavyPlan(){
+  const r=STATE.session&&STATE.session.role, full=!officeMobile(), CJ=['st_customers','st_jobs'];
+  if(r==='admin') return {cols:CJ.concat('st_locations'),bills:true,leads:true};
+  if(r==='subadmin') return full?{cols:CJ.concat('st_locations'),bills:true,leads:true}:{cols:[]};
+  if(r==='telecaller') return full?{cols:CJ,leads:true}:{cols:[]};
+  return {cols:CJ};
+}
+function teardownHeavy(){
+  HEAVY.unsubs.forEach(u=>{ try{ u(); }catch(e){} }); HEAVY.unsubs=[]; HEAVY.sig=''; STATE.heavyWait=false;
+  STATE.customers=[]; STATE.jobs=[]; STATE.bills=[]; STATE.leads=[]; STATE.locations={}; STATE.photos={}; STATE.signatures={}; STATE.techSignatures={}; STATE.amcSignatures={};
+  ['st_customers','st_jobs','st_bills','st_leads','st_locations'].forEach(k=>{ delete SYNCED[k]; });
 }
 function ensureLazyListeners(){
   const r=STATE.session&&STATE.session.role; if(!r||!firestoreDB) return;
-  if((r==='admin'||r==='subadmin')&&!LAZY.bills){ LAZY.bills=1; attachBillsListener(); }
-  if((r==='admin'||r==='subadmin'||r==='telecaller')&&!LAZY.leads){ LAZY.leads=1; attachLeadsListener(); }
+  const plan=heavyPlan(), sig=r+'|'+plan.cols.join()+(plan.bills?'|b':'')+(plan.leads?'|l':'');
+  if(HEAVY.sig===sig) return;
+  if(HEAVY.sig) teardownHeavy();
+  HEAVY.sig=sig; const P=[];
+  plan.cols.forEach(k=>P.push(listenColl(k,HEAVY_PROP[k],k==='st_locations'?'loc':'arr',true)));
+  if(plan.bills) attachBillsListener();
+  if(plan.leads) attachLeadsListener();
+  if(!plan.leads) STATE.leads=STATE.leads||[];
+  if(P.length){ STATE.heavyWait=true; Promise.all(P).then(()=>{ STATE.heavyWait=false; render(); }); }
 }
-function attachListeners(){
-  const noLoc=!(STATE.session&&isMoneyRole());
-  const cfg=[['st_staff','staff','arr'],['st_customers','customers','arr'],['st_jobs','jobs','arr'],['st_leave','leaves','arr'],['st_travel','travelLogs','arr'],['st_locations','locations','loc'],['st_attendance','attendance','att']].filter(x=>!(noLoc&&x[0]==='st_locations'));
-  return Promise.all(cfg.map(([key,prop,kind])=>new Promise((res,rej)=>{
+function listenColl(key,prop,kind,heavy){
+  return new Promise((res,rej)=>{
     let first=true;
-    firestoreDB.collection(COLL[key]||MAPK[key]).onSnapshot(snap=>{
+    const un=firestoreDB.collection(COLL[key]||MAPK[key]).onSnapshot(snap=>{
       cntReads(key,snap); const S=new Map(); const v=kind==='arr'?[]:{};
       snap.forEach(d=>{ const r=d.data(); if(r.deleted) return;
         if(kind==='arr'){ r.id=r.id||d.id; v.push(r); S.set(r.id,JSON.stringify(r)); }
         else{ const o=kind==='att'?(r.dates||{}):r; v[d.id]=o; S.set(d.id,JSON.stringify(o)); } });
       STATE[prop]=v; SYNCED[key]=S;
       if(first){ first=false; res(); } else bgRender();
-    },e=>{ console.error('listen failed',key,e); if(first){ first=false; rej(e); } else showToast('⚠️ Live sync ruk gaya — page reload karein'); });
-  })));
+    },e=>{ console.error('listen failed',key,e); if(first){ first=false; if(heavy){ showToast('⚠️ '+key+' load nahi hua — page reload karein'); res(); } else rej(e); } else showToast('⚠️ Live sync ruk gaya — page reload karein'); });
+    if(heavy) HEAVY.unsubs.push(un);
+  });
+}
+function attachListeners(){
+  const cfg=[['st_staff','staff','arr'],['st_leave','leaves','arr'],['st_travel','travelLogs','arr'],['st_attendance','attendance','att']];
+  return Promise.all(cfg.map(([key,prop,kind])=>listenColl(key,prop,kind,false)));
 }
 async function migrateLegacy(){
   const db=firestoreDB, flagRef=db.collection('sheetaltrack_data').doc('st_migrated_v2');
@@ -560,6 +585,7 @@ async function init(){
     if(!LISTENING){ await attachListeners(); LISTENING=true; STATE.leads=STATE.leads||[]; }
     await migrateLegacy();
     STATE.businessInfo=await loadKey(SKEY.BUSINESS,{name:'Super Air Cool', phone:'', address:'', terms:''});
+    await refreshDevices();
     const pc=await loadKey(SKEY.PHOTO_COUNTS,{});
     STATE.photos={}; STATE.signatures={}; STATE.techSignatures={}; STATE.amcSignatures={};
     STATE.loading=false; STATE.loadFailed=false; restoreSession(); render();
@@ -634,7 +660,7 @@ function renderPermScreen(){
   return `<div class="login-wrap" style="padding-bottom:30px;"><div class="login-hero"><div class="brand-mark">🔐</div><h1>${first?'Namaste, '+esc(STATE.session.name||'')+'!':'Permissions Check'}</h1><p>App theek se chalane ke liye ye permissions chahiye</p></div>
     ${permRow('📍','Location','Attendance, live map aur kaam ke liye. Bina iske kaam shuru nahi hoga.',P.loc,'pmLoc',true)}
     ${permRow('🔔','Notification','Nayi job, cancel ya office ke message par awaaz aur alert ke liye.',P.notif==='na'?'':P.notif,'pmNotif',false)}
-    ${permRow('📷','Camera aur Mic','Job ki photo aur video (30 second) lene ke liye. Pehli baar yahin allow kar lein.',P.cam,'pmCam',false)}
+    ${permRow('📷','Camera aur Mic','QR scan, job ki photo aur video (30 second) ke liye. Pehli baar yahin allow kar lein.',P.cam,'pmCam',false)}
     <div class="card"><div class="item-name">📲 Home Screen par add karein</div><div class="item-sub" style="margin-top:3px;">Chrome ke ⋮ menu me <b>"Add to Home screen"</b> ya <b>"Install app"</b> dabayein. App seedha icon se full-screen khulegi.</div></div>
     <div class="card"><div class="item-name">🔋 Battery setting (zaroori)</div><div class="item-sub" style="margin-top:3px;">Browser permission se ye nahi ho sakta, isliye khud karein: Phone Settings → Apps → Chrome → Battery → <b>Unrestricted / Don't optimise</b>. Warna phone app band kar de to location ruk jaati hai.</div></div>
     <button class="primary-btn" id="pmDone" style="margin-top:6px;">${first?'Aage badhein':'Wapas jayein'}</button></div>`;
@@ -644,7 +670,7 @@ function bindPermScreen(){
   on('pmLoc',()=>{ if(!navigator.geolocation){ showToast('Is browser me location nahi hai'); return; } navigator.geolocation.getCurrentPosition(()=>{ STATE.perm.loc='granted'; render(); },()=>{ STATE.perm.loc='denied'; render(); },{enableHighAccuracy:true,timeout:20000,maximumAge:0}); });
   on('pmNotif',()=>{ try{ Notification.requestPermission().then(r=>{ STATE.perm.notif=r==='default'?'prompt':r; render(); }); }catch(e){ showToast('Is browser me notification nahi hai'); } });
   on('pmCam',async()=>{ try{ const st=await navigator.mediaDevices.getUserMedia({video:true,audio:true}); st.getTracks().forEach(t=>t.stop()); STATE.perm.cam='granted'; }catch(e){ STATE.perm.cam=(e&&e.name==='NotFoundError')?'prompt':'denied'; if(e&&e.name==='NotFoundError') showToast('Camera/Mic nahi mila'); } render(); });
-  on('pmDone',()=>{ const first=STATE.permScreen==='first', id=STATE.session&&STATE.session.staffId; try{ localStorage.setItem('st_perm_seen_'+id,'1'); }catch(e){} STATE.permScreen=false; if(first){ STATE.locOK=undefined; render(); initTechLocation(); } else render(); });
+  on('pmDone',()=>{ const first=STATE.permScreen==='first', id=STATE.session&&STATE.session.staffId; try{ localStorage.setItem('st_perm_seen_'+id,'1'); }catch(e){} STATE.permScreen=false; if(first&&STATE.session.role==='technician'){ STATE.locOK=undefined; render(); initTechLocation(); } else render(); });
 }
 
 /* ============ Auth ============ */
@@ -681,11 +707,14 @@ async function doStaffLogin(staffId, pin){
   const s=STATE.staff.find(x=>x.id===staffId);
   if(!s){ loginError='Select karein'; render(); return; }
   if(s.pin===pin){
-    STATE.session={staffId:s.id, role:s.role, name:s.name}; auditLogin(s.id,s.name,s.role); linkAuthUid(s.id,s.role,s.name);
-    loginError='';
+    if(s.role==='subadmin'||s.role==='telecaller') await refreshDevices();
+    STATE.session={staffId:s.id, role:s.role, name:s.name, at:Date.now()}; auditLogin(s.id,s.name,s.role); linkAuthUid(s.id,s.role,s.name);
+    loginError=''; let seenP=false; try{ seenP=!!localStorage.getItem('st_perm_seen_'+s.id); }catch(e){}
     if(s.role==='technician'){
-      STATE.view='techhome'; STATE.locOK=undefined; let seenP=false; try{ seenP=!!localStorage.getItem('st_perm_seen_'+s.id); }catch(e){}
+      STATE.view='techhome'; STATE.locOK=undefined;
       if(!seenP){ STATE.permScreen='first'; permRefresh().then(render); render(); } else { render(); initTechLocation(); }
+    } else if(officeMobile()){
+      STATE.view='mhome'; if(!seenP){ STATE.permScreen='first'; permRefresh().then(render); } render();
     } else if(s.role==='telecaller'){
       STATE.view='leads'; render();
     } else {
@@ -694,8 +723,8 @@ async function doStaffLogin(staffId, pin){
   }else{ loginError='Galat PIN'; render(); }
 }
 function logout(){
-  stopSharingLocation();
-  clearSessionLocal(); STATE.session=null; navReady=false; loginPin=''; loginError=''; loginSelectedStaff=null; loginRole='admin'; forgotFlow=null;
+  stopSharingLocation(); presenceStop(); stopScan(); activeModal=null; STATE.permScreen=false;
+  clearSessionLocal(); STATE.session=null; teardownHeavy(); STATE.stats=null; STATE.statsAt=0; STATE.statsPub=''; navReady=false; loginPin=''; loginError=''; loginSelectedStaff=null; loginRole='admin'; forgotFlow=null;
   render();
   /* Shared laptop/device par agle banda ka role purane (admin) mapping se na mil jaye, isliye is device ka
      Firebase-auth identity yahin reset kar dete hain — naya anonymous user, koi role-mapping nahi. */
@@ -1780,11 +1809,11 @@ function teleIncentiveHtml(){
   const months=new Map();
   R.forEach(r=>{ const k=r.date.slice(0,7), o=months.get(k)||{amt:0,n:0,t:new Map()}; o.amt+=r.amount; o.n++; const nm=String(r.teli||'').trim(), key=nm.toLowerCase()||'-'; const x=o.t.get(key)||{name:nm||'Bina telecaller (Office / Own)',n:0,amt:0,nt:!nm}; x.n++; x.amt+=r.amount; o.t.set(key,x); months.set(k,o); });
   const keys=[...months.keys()].sort().reverse(); let totalInc=0, totalAmt=0;
-  keys.forEach(k=>{ const o=months.get(k); totalAmt+=o.amt; o.t.forEach(x=>{ if(!x.nt) totalInc+=Math.round(x.amt*0.04); }); });
-  const head=`<div class="card" style="background:var(--sky-pale);"><div class="item-sub" style="margin:0;">Naya AMC (is period me)</div><div class="item-name" style="font-size:22px;">${rupee(totalAmt)}</div><div class="item-sub" style="margin:2px 0 0;">Telecaller ka 4% incentive: <b>${rupee(totalInc)}</b> · Purane (OLD) customers isme nahi gine gaye</div></div>`;
+  keys.forEach(k=>{ const o=months.get(k); totalAmt+=o.amt; o.t.forEach(x=>{ if(!x.nt) totalInc+=incFor(k,x.amt); }); });
+  const head=`<div class="card" style="background:var(--sky-pale);"><div class="item-sub" style="margin:0;">Naya AMC (is period me)</div><div class="item-name" style="font-size:22px;">${rupee(totalAmt)}</div><div class="item-sub" style="margin:2px 0 0;">Telecaller incentive: <b>${rupee(totalInc)}</b> · Oct 2026 se: mahine ka naya AMC ₹1 lakh pura hone par poori rakam ka 4% (usse kam par 0) · Purane (OLD) customers isme nahi gine gaye</div></div>`;
   if(!keys.length) return head+'<div class="item-sub">Is period me koi naya AMC nahi.</div>';
   return head+keys.map(k=>{ const o=months.get(k); return `<div class="card"><div class="row-between"><div class="item-name">${monthLabel(k)}</div><div class="item-name" style="color:var(--green);">${rupee(o.amt)} <span class="item-sub" style="display:inline;">(${o.n} AMC)</span></div></div>
-    ${[...o.t.values()].sort((x,y)=>y.amt-x.amt).map(x=>`<div class="row-between" style="padding:4px 0;"><div class="item-sub" style="margin:0;"><b>${esc(x.name)}</b> · ${x.n} AMC · ${rupee(x.amt)}</div><div class="item-sub" style="margin:0;">${x.nt?'—':'💰 '+rupee(Math.round(x.amt*0.04))}</div></div>`).join('')}</div>`; }).join('');
+    ${[...o.t.values()].sort((x,y)=>y.amt-x.amt).map(x=>`<div class="row-between" style="padding:4px 0;"><div class="item-sub" style="margin:0;"><b>${esc(x.name)}</b> · ${x.n} AMC · ${rupee(x.amt)}</div><div class="item-sub" style="margin:0;">${x.nt?'—':(k<INC_FROM||x.amt>=INC_TARGET?'💰 '+rupee(incFor(k,x.amt)):rupee(INC_TARGET-x.amt)+' baaki')}</div></div>`).join('')}</div>`; }).join('');
 }
 function techExtraData(){
   const [a,b]=moneyBounds(), out=[];
@@ -2248,7 +2277,7 @@ function imgToDataUrl(file,maxW,cb){
   const fr=new FileReader(); fr.onload=()=>{ const im=new Image(); im.onload=()=>{ const s=Math.min(1,maxW/Math.max(im.width,im.height)), cv=document.createElement('canvas'); cv.width=Math.max(1,Math.round(im.width*s)); cv.height=Math.max(1,Math.round(im.height*s)); const g=cv.getContext('2d'); g.drawImage(im,0,0,cv.width,cv.height); cb(cv.toDataURL('image/png')); }; im.onerror=()=>showToast('Image khul nahi payi'); im.src=fr.result; }; fr.readAsDataURL(file);
 }
 function attachBillsListener(){
-  try{ firestoreDB.collection('st_bills').onSnapshot(snap=>{ cntReads('st_bills',snap); const v=[], S=new Map(); snap.forEach(d=>{ const r=d.data(); if(r.deleted) return; r.id=r.id||d.id; v.push(r); S.set(r.id,JSON.stringify(r)); }); STATE.bills=v; SYNCED['st_bills']=S; STATE.billsOK=true; bgRender(); }, e=>{ console.error('bills listen failed',e); STATE.billsOK=false; }); }catch(e){ STATE.billsOK=false; }
+  try{ HEAVY.unsubs.push(firestoreDB.collection('st_bills').onSnapshot(snap=>{ cntReads('st_bills',snap); const v=[], S=new Map(); snap.forEach(d=>{ const r=d.data(); if(r.deleted) return; r.id=r.id||d.id; v.push(r); S.set(r.id,JSON.stringify(r)); }); STATE.bills=v; SYNCED['st_bills']=S; STATE.billsOK=true; bgRender(); }, e=>{ console.error('bills listen failed',e); STATE.billsOK=false; })); }catch(e){ STATE.billsOK=false; }
 }
 
 /* ===== v6.5: Notifications (free, in-app) + Login log ===== */
@@ -2840,30 +2869,30 @@ function renderTechHome(){
     <button class="ghost-btn" data-navto="myjobs" style="margin-top:10px;">Sab jobs dekhein</button>`;
 }
 /* Auto logout: screen band/app background mein 5 min se zyada, ya chalu app par 15 min koi activity nahi */
-const HIDDEN_LIMIT_MS=5*60*1000, IDLE_LIMIT_MS=15*60*1000, SEEN_KEY='st_seen_v1';
+const SEEN_KEY='st_seen_v1';
 let lastActiveTs=Date.now(), hiddenAtTs=0;
 function markSeen(){ try{ localStorage.setItem(SEEN_KEY,String(Date.now())); }catch(e){} }
 function autoLogout(msg){ if(!STATE.session) return; logout(); setTimeout(()=>showToast(msg),300); }
 ['click','touchstart','keydown','scroll'].forEach(ev=>document.addEventListener(ev,()=>{ lastActiveTs=Date.now(); },{passive:true,capture:true}));
 document.addEventListener('visibilitychange',()=>{
   if(document.hidden){ hiddenAtTs=Date.now(); markSeen(); }
-  else { if(STATE.session && hiddenAtTs && Date.now()-hiddenAtTs>HIDDEN_LIMIT_MS) autoLogout('Kaafi der app use nahi hui, isliye logout ho gaya'); hiddenAtTs=0; lastActiveTs=Date.now(); markSeen(); }
+  else { if(STATE.session&&cutoffPassed(STATE.session.role,STATE.session.at)) autoLogout('Raat ho gayi, isliye logout ho gaya'); else if(STATE.session && hiddenAtTs && Date.now()-hiddenAtTs>limitsFor(STATE.session.role).hid) autoLogout('Kaafi der app use nahi hui, isliye logout ho gaya'); hiddenAtTs=0; lastActiveTs=Date.now(); markSeen(); }
 });
 window.addEventListener('pagehide',markSeen);
 setInterval(()=>{ if(STATE.session&&STATE.view==='leads'&&!document.hidden) autoPullOwn(); },60000);
-setInterval(()=>{ if(!STATE.session||document.hidden) return; markSeen(); if(Date.now()-lastActiveTs>IDLE_LIMIT_MS) autoLogout('Koi activity nahi hui, isliye logout ho gaya'); },30000);
+setInterval(()=>{ if(!STATE.session||document.hidden) return; markSeen(); if(cutoffPassed(STATE.session.role,STATE.session.at)) autoLogout('Raat ho gayi, isliye logout ho gaya'); else if(Date.now()-lastActiveTs>limitsFor(STATE.session.role).idle) autoLogout('Koi activity nahi hui, isliye logout ho gaya'); },30000);
 /* Refresh par login na maange: session is device ke localStorage mein 30 din tak rehta hai (PIN save nahi hota). Logout dabane par hat jata hai. */
 const SESS_KEY='st_session_v1', SESS_DAYS=30;
-function saveSessionLocal(){ try{ if(!STATE.session) return; const _sv=JSON.stringify({s:STATE.session, view:(STATE.view&&STATE.view!=='customerProfile')?STATE.view:'', ts:Date.now()}); try{ sessionStorage.setItem(SESS_KEY,_sv); }catch(_){} localStorage.setItem(SESS_KEY,_sv); }catch(e){} }
+function saveSessionLocal(){ try{ if(!STATE.session) return; if(!STATE.session.at) STATE.session.at=Date.now(); const _sv=JSON.stringify({s:STATE.session, view:(STATE.view&&STATE.view!=='customerProfile')?STATE.view:'', ts:Date.now()}); try{ sessionStorage.setItem(SESS_KEY,_sv); }catch(_){} localStorage.setItem(SESS_KEY,_sv); }catch(e){} }
 function clearSessionLocal(){ try{ sessionStorage.removeItem(SESS_KEY); }catch(e){} try{ localStorage.removeItem(SESS_KEY); }catch(e){} }
 function restoreSession(){
   if(STATE.session) return;
   try{
     let raw=null; try{ raw=sessionStorage.getItem(SESS_KEY); }catch(_){} if(!raw) raw=localStorage.getItem(SESS_KEY); if(!raw) return;
-    const o=JSON.parse(raw), seen=Number(localStorage.getItem(SEEN_KEY))||o.ts||0; if(!o||!o.s||!o.ts||Date.now()-o.ts>SESS_DAYS*86400000||Date.now()-seen>HIDDEN_LIMIT_MS){ clearSessionLocal(); return; }
+    const o=JSON.parse(raw), seen=Number(localStorage.getItem(SEEN_KEY))||o.ts||0; if(!o||!o.s||!o.ts||Date.now()-o.ts>SESS_DAYS*86400000||Date.now()-seen>limitsFor(o.s.role).hid||cutoffPassed(o.s.role,o.s.at||o.ts)){ clearSessionLocal(); return; }
     const st=(STATE.staff||[]).find(x=>x.id===o.s.staffId);
     if(!st||st.role!==o.s.role||st.deleted){ clearSessionLocal(); return; }
-    STATE.session={staffId:st.id, role:st.role, name:st.name};
+    STATE.session={staffId:st.id, role:st.role, name:st.name, at:o.s.at||o.ts};
     STATE.view=o.view||homeViewFor(st.role);
     if(st.role==='technician'){ if(!o.view||o.view==='location') STATE.view='techhome'; STATE.locOK=undefined; setTimeout(initTechLocation,0); }
     linkAuthUid(st.id,st.role,st.name);
@@ -2871,7 +2900,7 @@ function restoreSession(){
 }
 /* Mobile Back button: app ke andar wapas jaye (modal band -> profile se list -> home). Home par 2 baar back dabane par hi app band hoga. */
 let navReady=false, navListening=false, exitArmed=false;
-function homeViewFor(role){ return role==='telecaller'?'leads':role==='technician'?'techhome':'dashboard'; }
+function homeViewFor(role){ if((role==='subadmin'||role==='telecaller')&&!isRegDev()) return 'mhome'; return role==='telecaller'?'leads':role==='technician'?'techhome':'dashboard'; }
 function syncNavHistory(){
   if(navReady||!STATE.session) return;
   navReady=true;
@@ -2923,6 +2952,7 @@ function scrollUxInit(){
 function render(){
   const isCam=activeModal&&(activeModal.type==='recVideo'||activeModal.type==='recPhoto');
   if(REC.stream&&isCam) return;
+  if(QRS.live&&activeModal&&activeModal.type==='qrScan') return;
   if(!isCam) stopRecStream();
   const app=document.getElementById('app');
   if(STATE.booting){ app.innerHTML=`<div class="loading-screen"><div class="brand-mark" style="width:56px;height:56px;border-radius:16px;font-size:28px;margin-bottom:4px;">❄️</div><div class="spinner"></div><div>Check ho raha hai…</div></div>`; return; }
@@ -2933,14 +2963,16 @@ function render(){
     const btn=document.getElementById('retryLoadBtn'); if(btn) btn.onclick=()=>init();
     return;
   }
+  if(VERIFY_ID&&!STATE.verifyClosed){ app.innerHTML=renderVerify(); return; }
   if(!STATE.session){ notifStop(); app.innerHTML=renderLogin(); bindLoginEvents(); return; }
   ensureLazyListeners();
-  if(STATE.session.role==='technician' && STATE.permScreen){ app.innerHTML=renderPermScreen(); bindPermScreen(); return; }
+  if((STATE.session.role==='technician'||officeMobile()) && STATE.permScreen){ app.innerHTML=renderPermScreen(); bindPermScreen(); return; }
   if(STATE.session.role==='technician' && STATE.locOK!==true){ app.innerHTML=renderLocationGate(); bindLocationGate(); return; }
+  if(STATE.heavyWait){ app.innerHTML=`<div class="loading-screen"><div class="spinner"></div><div>Data load ho raha hai…</div></div>`; return; }
   notifEnsure();
   /* scroll yaad rakho: profile se wapas aane par list wahin khule jahan chhodi thi */
   const _y=window.scrollY||document.documentElement.scrollTop||0, _pv=render._v, _mem=(render._mem=render._mem||{});
-  app.innerHTML=renderShell(); bindShellEvents();
+  app.innerHTML=renderShell(); bindShellEvents(); v9PostRender();
   { const nv=STATE.view; let target=0;
     if(_pv===nv) target=_y;
     else { if(_pv) _mem[_pv]=_y; if(_pv==='customerProfile'&&nv!=='customerProfile'&&_mem[nv]!==undefined) target=_mem[nv]; if(nv!=='customerProfile'&&_pv!=='customerProfile') delete _mem[nv]; }
@@ -2954,7 +2986,7 @@ function render(){
 function renderSetup(){
   return `
   <div class="login-wrap">
-    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v8.7</p></div>
+    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v9.0</p></div>
     <div class="setup-note">Yeh app ab Firebase (Google ka free real-time database) use karti hai — pehle se tez aur reliable. Firebase Console se apna config copy karke neeche paste karein.</div>
     <div class="field"><label>Firebase Config (poora object paste karein)</label><textarea id="setupConfig" rows="8" placeholder='{"apiKey": "...", "authDomain": "...", "projectId": "...", ...}'>${setupUrlInput}</textarea></div>
     <button class="primary-btn" id="connectBtn">Connect Karein</button>
@@ -3022,7 +3054,7 @@ function renderLogin(){
   }
   return `
   <div class="login-wrap">
-    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v8.7</p></div>
+    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v9.0</p></div>
     <div class="role-grid">
       <button class="role-opt ${loginRole==='admin'?'active':''}" data-role="admin"><span class="ic">🗝️</span>Admin</button>
       <button class="role-opt ${loginRole==='subadmin'?'active':''}" data-role="subadmin"><span class="ic">🧑‍💼</span>Office</button>
@@ -3057,6 +3089,7 @@ function bindLoginEvents(){
 
 /* ============ App shell ============ */
 function navItemsFor(role){
+  if(officeMobile()) return [{v:'mhome',ic:'🏠',label:'Home'},{v:'mattend',ic:'📅',label:'Attend.'},{v:'mprofile',ic:'👤',label:'Profile'}];
   if(role==='admin') return [{v:'dashboard',ic:'🏠',label:'Home'},{v:'customers',ic:'🛡️',label:'AMC'},{v:'jobs',ic:'🧾',label:'Jobs'},{v:'money',ic:'💰',label:'Kamai'},{v:'leads',ic:'📇',label:'Leads'},{v:'staff',ic:'🧑‍🔧',label:'Team'},{v:'attendance',ic:'📅',label:'Attend.'},{v:'map',ic:'📍',label:'Map'},{v:'settings',ic:'⚙️',label:'Settings'}];
   if(role==='subadmin') return [{v:'dashboard',ic:'🏠',label:'Home'},{v:'customers',ic:'🛡️',label:'AMC'},{v:'jobs',ic:'🧾',label:'Jobs'},{v:'leads',ic:'📇',label:'Leads'},{v:'attendance',ic:'📅',label:'Attend.'},{v:'map',ic:'📍',label:'Map'},{v:'settings',ic:'⚙️',label:'Settings'}];
   if(role==='telecaller') return [{v:'leads',ic:'📇',label:'Leads'},{v:'attendance',ic:'📅',label:'Attend.'},{v:'settings',ic:'⚙️',label:'Profile'}];
@@ -3067,7 +3100,9 @@ function roleLabel(r){ return r==='admin'?'Admin':r==='subadmin'?'Office':r==='t
 function renderShell(){
   const nav=navItemsFor(STATE.session.role);
   if(STATE.view==='money'&&STATE.session.role!=='admin') STATE.view=homeViewFor(STATE.session.role);
+  if(officeMobile()){ if(!MV.includes(STATE.view)) STATE.view='mhome'; } else if(MV.includes(STATE.view)) STATE.view=homeViewFor(STATE.session.role);
   let body='';
+  if(STATE.view==='mhome') body=renderMHome(); else if(STATE.view==='mattend') body=renderMAttend(); else if(STATE.view==='mprofile') body=renderMProfile(); else
   if(STATE.view==='dashboard') body=renderDashboard();
   else if(STATE.view==='customers') body=renderCustomers();
   else if(STATE.view==='reminders') body=renderReminders();
@@ -3085,7 +3120,7 @@ function renderShell(){
   else if(STATE.view==='attendance') body = (STATE.session.role==='technician'||STATE.session.role==='telecaller') ? renderMyAttendance() : renderAdminAttendance();
   else if(STATE.view==='settings') body=STATE.session.role==='technician'?renderTechProfile():STATE.session.role==='telecaller'?renderTelecallerProfile():renderSettings();
   return `
-  <div class="topbar"><div class="brand"><div class="brand-mark" style="width:30px;height:30px;font-size:15px;">❄️</div><div class="brand-text"><div class="name">SheetalTrack</div><div class="who">${esc(STATE.session.name)} · ${roleLabel(STATE.session.role)} · <span id="syncBadge">${PENDING>0?'⏳ Sync ho raha hai':'✅ Saved'}</span></div></div></div>${(STATE.session.role==='admin'||STATE.session.role==='subadmin')?`<button class="mini-btn" id="globalSearchBtn" style="margin-right:8px;padding:8px 11px;flex:none;">🔍</button>`:''}${bellHtml()}<button class="logout-btn" id="logoutBtn">Logout</button></div>
+  <div class="topbar"><div class="brand"><div class="brand-mark" style="width:30px;height:30px;font-size:15px;">❄️</div><div class="brand-text"><div class="name">SheetalTrack</div><div class="who">${esc(STATE.session.name)} · ${roleLabel(STATE.session.role)} · <span id="syncBadge">${PENDING>0?'⏳ Sync ho raha hai':'✅ Saved'}</span></div></div></div>${((STATE.session.role==='admin'||STATE.session.role==='subadmin')&&!officeMobile())?`<button class="mini-btn" id="globalSearchBtn" style="margin-right:8px;padding:8px 11px;flex:none;">🔍</button>`:''}${bellHtml()}<button class="logout-btn" id="logoutBtn">Logout</button></div>
   <div class="content">${body}</div>
   ${STATE.toast?`<div class="toast">${STATE.toast}</div>`:''}
   ${modalHtml()}
@@ -3472,7 +3507,7 @@ function renderLeadsInner(){
   const action=leads.filter(l=>l.called&&!l.dismissed&&!l.convertedJobId).sort((a,b)=>(a.calledAt||0)-(b.calledAt||0));
   const fuList=leads.filter(l=>!l.called&&!l.dismissed&&!l.convertedJobId&&l.followUpDate).sort((a,b)=>a.followUpDate.localeCompare(b.followUpDate)), fuDue=fuList.filter(l=>l.followUpDate<=todayStr()).length;
   const summary=callers.map(t=>{ const m=leads.filter(l=>l.assignedTo===t.id&&!l.dismissed), c=m.filter(l=>l.called), j=m.filter(l=>l.convertedJobId||l.markedDone);
-    const inc=STATE.customers.filter(cu=>cu.autoIncentive&&cu.incentiveTo===t.name).reduce((s,cu)=>s+(cu.incentiveAmount||0),0);
+    const inc=teleIncTotal(t.id);
     return `<div class="row-between" style="padding:5px 0;"><div class="item-sub"><b>${esc(t.name)}</b>${(t.sheetUrls&&t.sheetUrls.length)?' 🔗x'+t.sheetUrls.length:''}</div><div class="item-sub">${m.length} diye · ${c.length} call hui · ${j.length} AMC bani${inc?' · 💰 '+rupee(inc)+' incentive':''}</div><div style="width:100%;">${leadBucketLine(leads0.filter(l=>l.assignedTo===t.id))}</div><div style="display:flex;gap:6px;flex-wrap:wrap;">${(t.sheetUrls&&t.sheetUrls.length)?`<button class="mini-btn primary" data-act="leadsheetpull" data-id="${t.id}">🔄 Layein</button>`:''}<button class="mini-btn" data-act="leadsheeturl" data-id="${t.id}">${(t.sheetUrls&&t.sheetUrls.length)?'🔗 Sheets ('+t.sheetUrls.length+')':'+ Sheet Link'}</button></div></div>`; }).join('');
   const monthKey=l=>(l.purchaseDate||ymd(new Date(l.createdAt))).slice(0,7);
   const months=[...new Set(leads.filter(l=>!l.dismissed).map(monthKey))].sort().reverse().slice(0,6);
@@ -3632,6 +3667,7 @@ function renderStaffProfile(){
         <div style="flex:1;">
       <div class="item-name" style="font-size:18px;">${s.name} <span class="pill ${s.role==='technician'?'pill-sky':'pill-amber'}">${s.role==='technician'?'Technician':'Office'}</span></div>
       <div class="item-sub" style="margin-top:6px;">${s.phone||'no phone'}${s.email?' · '+s.email:''}</div>
+      ${ID_PFX[s.role]&&STATE.session.role==='admin'?`<div style="margin-top:6px;"><button class="mini-btn" data-v9="idcard" data-id="${s.id}">🪪 ID Card${s.idNo?' · '+esc(s.idNo)+(s.idBlocked?' ⛔':''):''}</button></div>`:''}
       <div class="item-sub">${s.role==='technician'?(live?'📍 Live abhi':loc?'📍 Last seen: '+new Date(loc.ts).toLocaleString('en-IN'):'📍 Location share nahi ki'):''}</div>
         </div>
       </div>
@@ -3657,17 +3693,18 @@ function renderStaffProfile(){
 }
 
 /* ============ Map ============ */
+function locStaff(){ return STATE.staff.filter(s=>s.role==='technician'||s.role==='subadmin'||s.role==='telecaller'); }
 function renderMap(){
-  const techs=STATE.staff.filter(s=>s.role==='technician');
+  const techs=locStaff();
   const techsWithLoc=techs.filter(t=>STATE.locations[t.id]);
   return `
-    <div class="section-title">Technician Locations</div>
+    <div class="section-title">Staff Locations</div>
     ${techsWithLoc.length>0?`<div id="liveMapBox" style="height:280px;border-radius:10px;overflow:hidden;border:1px solid var(--border);margin-bottom:6px;"></div><div class="item-sub" style="margin-bottom:14px;"><span style="color:#1faa59;">●</span> Live (10 min ke andar) &nbsp; <span style="color:#8a979b;">●</span> Offline / purani location</div>`:''}
     ${techs.length===0?`<div class="empty-state"><span class="ic">📍</span><p>Koi technician nahi hai.</p></div>`:
       techs.map(t=>{ const loc=STATE.locations[t.id]; const age=loc?Date.now()-loc.ts:null; let dot='dot-off', label='Location off / kabhi share nahi ki';
         if(loc){ if(age<10*60*1000){ dot='dot-live'; label='Live · '+Math.round(age/60000)+' min pehle'; } else{ dot='dot-stale'; label='Last seen · '+new Date(loc.ts).toLocaleString('en-IN'); } }
         const mapLink=loc?`https://www.google.com/maps?q=${loc.lat},${loc.lng}`:'';
-        return `<div class="card"><div class="row-between"><div><div class="item-name"><span class="status-dot ${dot}"></span>${t.name}</div><div class="item-sub">${label}</div></div></div>${loc?`<div class="card-actions"><a class="mini-btn primary" style="text-decoration:none;display:block;" href="${mapLink}" target="_blank">Google Maps mein dekhein</a></div>`:''}</div>`; }).join('')}
+        return `<div class="card"><div class="row-between"><div><div class="item-name"><span class="status-dot ${dot}"></span>${t.name}${t.role!=='technician'?' <span class="pill pill-grey">'+roleLabel(t.role)+'</span>':''}</div><div class="item-sub">${label}</div></div></div>${loc?`<div class="card-actions"><a class="mini-btn primary" style="text-decoration:none;display:block;" href="${mapLink}" target="_blank">Google Maps mein dekhein</a></div>`:''}</div>`; }).join('')}
   `;
 }
 let liveMapInstance=null;
@@ -3675,7 +3712,7 @@ function initLiveMap(){
   const container=document.getElementById('liveMapBox');
   if(!container || typeof L==='undefined') return;
   if(liveMapInstance){ liveMapInstance.remove(); liveMapInstance=null; }
-  const techs=STATE.staff.filter(s=>s.role==='technician').filter(t=>STATE.locations[t.id]);
+  const techs=locStaff().filter(t=>STATE.locations[t.id]);
   if(techs.length===0) return;
   const first=STATE.locations[techs[0].id];
   liveMapInstance=L.map('liveMapBox').setView([first.lat, first.lng], 12);
@@ -3765,8 +3802,8 @@ function attDetailInner(d){
     if(!present&&!leave&&!tr.ls&&!lg.length){ if(dt!==td) ab++; return dt===td?`<div class="item-sub" style="padding:6px 0;border-bottom:1px solid var(--border);">${lab} — <span style="opacity:.7;">abhi tak nahi aaya</span></div>`:`<div class="item-sub" style="padding:6px 0;border-bottom:1px solid var(--border);color:#a12a20;">${lab} — ❌ Absent / Attendance nahi</div>`; }
     if(leave&&!present){ lv++; return `<div class="item-sub" style="padding:6px 0;border-bottom:1px solid var(--border);">${lab} — 🏖 Chhutti</div>`; }
     pres++; const dkm=trailKm(tr.p); km+=dkm;
-    const ks=Object.keys(tr.p||{}).map(Number).sort((a,b)=>a-b), firstLoc=ks.length?ks[0]*1000:0, lastLoc=Math.max(tr.ls||0,ks.length?ks[ks.length-1]*1000:0);
-    const attT=typeof att[dt]==='number'?att[dt]:0, firstOn=[attT,lg.length?lg[0].ts:0,firstLoc].filter(Boolean).sort((a,b)=>a-b)[0]||0;
+    const ks=Object.keys(tr.p||{}).map(Number).sort((a,b)=>a-b), firstLoc=ks.length?ks[0]*1000:0, aR0=attRec(d.id,dt)||{}, lastLoc=Math.max(tr.ls||0,ks.length?ks[ks.length-1]*1000:0,aR0.out||0);
+    const attT=aR0.in||0, firstOn=[attT,lg.length?lg[0].ts:0,firstLoc].filter(Boolean).sort((a,b)=>a-b)[0]||0;
     const jobs=(STATE.jobs||[]).filter(j=>j.assignedTo===d.id&&j.status!=='rejected'&&((j.completedAt&&ymd(new Date(j.completedAt))===dt)||(j.date===dt&&j.status!=='done'))).sort((a,b)=>(a.completedAt||0)-(b.completedAt||0));
     const jobH=jobs.map(j=>{ const c=(STATE.customers||[]).find(x=>x.id===j.customerId)||{}, st=(j.history||[]).find(h=>h.s==='ongoing');
       return `<div class="item-sub" style="padding:3px 0;">🛠 <b>${esc(c.name||'Customer')}</b> — ${esc(j.title||'')} · ${jobWhen(j,st)}${money&&j.status==='done'&&j.amount?' · '+rupee(j.amount):''}${c.address?'<br><span style="opacity:.7;">📍 '+esc(c.address)+'</span>':''}</div>`; }).join('');
@@ -3775,6 +3812,7 @@ function attDetailInner(d){
     return `<details style="border-bottom:1px solid var(--border);padding:6px 0;"><summary class="item-sub" style="cursor:pointer;margin:0;"><b>${lab}</b> — ✅ Present · ${sumT}${dkm>=0.1?' · 🚗 '+dkm.toFixed(1)+' km':''}${jobs.length?' · 🛠 '+jobs.length:''}</summary>
       <div style="padding:6px 4px;"><div class="item-sub">🟢 Online hua: <b>${firstOn?hmT(firstOn):'—'}</b>${lg.length?' · 🔑 App login: '+lg.map(r=>hmT(r.ts)).slice(0,4).join(', '):''}</div>
       <div class="item-sub">🔴 Aakhri location / band: <b>${lastLoc?hmT(lastLoc):'—'}</b>${firstOn&&lastLoc&&lastLoc>firstOn?' · ⏱ '+durTxt(lastLoc-firstOn):''}</div>
+      ${aR0.src==='qr'?`<div class="item-sub">📷 QR attendance: IN <b>${hmOrDash(aR0.in)}</b> · OUT <b>${hmOrDash(aR0.out)}</b>${aR0.in&&aR0.out?' · ⏱ '+durTxt(aR0.out-aR0.in):''}</div><div class="item-sub">📱 ${esc(aR0.dev||'')}${aR0.dist!=null?' · office se '+aR0.dist+' m':''}${aR0.la?` · <a href="https://www.google.com/maps?q=${aR0.la},${aR0.lo}" target="_blank" rel="noopener">📍 IN jagah</a>`:''}${aR0.oLa?` · <a href="https://www.google.com/maps?q=${aR0.oLa},${aR0.oLo}" target="_blank" rel="noopener">📍 OUT jagah</a>`:''}</div><div class="item-sub">👤 ${esc((aR0.who||{}).n||'')} · 📞 ${esc((aR0.who||{}).m||'')} · ✉️ ${esc((aR0.who||{}).e||'')}</div>`:''}
       ${tr.lp?`<div class="item-sub">📍 Aakhri jagah: <a href="https://www.google.com/maps?q=${tr.lp[0]},${tr.lp[1]}" target="_blank" rel="noopener">Map par dekhein</a></div>`:''}
       ${jobH?`<div class="item-sub" style="font-weight:700;margin-top:6px;">Kaam (${jobs.length})</div>${jobH}`:`<div class="item-sub" style="margin-top:4px;">Is din koi job record nahi.</div>`}
       ${stopH?`<div class="item-sub" style="font-weight:700;margin-top:6px;">📍 Kahan-kahan tha</div>${stopH}<button class="mini-btn" data-act="geoname" data-day="${dt}" style="margin-top:4px;">🏷 Jagah ke naam dikhayein</button>`:`<div class="item-sub" style="margin-top:4px;opacity:.7;">GPS location record nahi mili (app band ya location off rahi).</div>`}</div></details>`;
@@ -3831,7 +3869,7 @@ function staffCardX(t,delAct){
 function attCardX(t){
   const td=todayStr(), mk=td.slice(0,7), rec=(STATE.attendance||{})[t.id]||{}, dates=Object.keys(rec).sort().reverse(), cnt=dates.filter(d=>d.startsWith(mk)).length;
   const onLeave=isOnLeaveOn(t.id,td), present=dates.includes(td);
-  const head=`<div class="row-between" style="align-items:flex-start;gap:8px;"><div style="min-width:0;"><span data-viewstaff="${t.id}" class="item-name" style="cursor:pointer;text-decoration:underline;color:var(--teal);">${esc(t.name)} ›</span><div class="item-sub">${esc(roleLabel(t.role))} · Aaj: <b>${onLeave?'🏖 Chhutti':present?'✅ Present':'— abhi nahi'}</b></div></div><span class="pill pill-sky" style="flex:none;">${cnt} din</span></div>`;
+  const head=`<div class="row-between" style="align-items:flex-start;gap:8px;"><div style="min-width:0;"><span data-viewstaff="${t.id}" class="item-name" style="cursor:pointer;text-decoration:underline;color:var(--teal);">${esc(t.name)} ›</span><div class="item-sub">${esc(roleLabel(t.role))} · Aaj: <b>${onLeave?'🏖 Chhutti':present?'✅ Present':'— abhi nahi'}</b>${present&&attRec(t.id,td)&&attRec(t.id,td).src==='qr'?' · '+esc(attLine(attRec(t.id,td))):''}</div></div><span class="pill pill-sky" style="flex:none;">${cnt} din</span></div>`;
   const lv=(STATE.leaves||[]).filter(l=>l.staffId===t.id).sort((a,b)=>String(b.from).localeCompare(String(a.from))).slice(0,5);
   const more=`<div class="item-sub">${dates.length?'Recent: '+dates.slice(0,8).map(fmtDate).join(', '):'Abhi tak location share nahi ki'}</div>${lv.length?`<div class="item-sub" style="margin-top:6px;font-weight:700;">Chhutti</div>`+lv.map(l=>`<div class="item-sub">🗓 ${fmtDate(l.from)}${l.to!==l.from?' → '+fmtDate(l.to):''} · ${l.status==='approved'?'✅ Manzoor':l.status==='rejected'?'✖ Nakaara':'⏳ Intezaar'}${l.reason?' · '+esc(l.reason):''}</div>`).join(''):''}`;
   return xCard('at:'+t.id,head,'',more);
@@ -3968,7 +4006,7 @@ function renderAdminAttendance(){
 
 function settingsTabs(role){
   if(role!=='admin') return '';
-  const t=[['account','Account'],['biz','Business'],['team','Team PIN'],['data','Data'],['backup','Backup'],['mail','Email'],['adv','Advanced']], cur=STATE.setTab||'account';
+  const t=[['account','Account'],['biz','Business'],['team','Team PIN'],['dev','💻 Laptop/QR'],['data','Data'],['backup','Backup'],['mail','Email'],['adv','Advanced']], cur=STATE.setTab||'account';
   return `<div class="tabbar">${t.map(([k,l])=>`<button class="tabbtn ${cur===k?'active':''}" data-settab="${k}">${l}</button>`).join('')}</div>`;
 }
 function settingsBody(role,extra){
@@ -3983,6 +4021,7 @@ function settingsBody0(role,extra){
   const cur=STATE.setTab||'account';
   const acc={admin:['Sab kuch dekh aur badal sakte hain','Team, PIN, customers, jobs, attendance, map, kamai, backup'],subadmin:['Customers add/edit, jobs assign, attendance aur map dekh sakte hain','Delete, kamai ke total, team PIN aur data settings nahi dikhti']}[role];
   if(role!=='admin'||cur==='account') return (acc?`<div class="card"><div class="item-name">Aapki access</div><div class="item-sub">${acc[0]}<br>${acc[1]}</div></div>`:'')+(role==='admin'?recoveryCardHtml():'');
+  if(cur==='dev') return devicesTabHtml();
   if(cur==='backup') return backupCenterHtml();
   const secs=extra.split('<div class="section-title" style="margin-top:20px;">').slice(1).map(x=>'<div class="section-title" style="margin-top:0;">'+x);
   const map={biz:[0],team:[1,5],data:[3,4,7],mail:[2,6],adv:[8]};
@@ -4053,6 +4092,7 @@ function profilePhotoCardHtml(staffId){
     <div class="card-actions" style="justify-content:center;">
       <label class="mini-btn" style="display:inline-block;">📷 ${s.profilePhoto?'Badlein':'Daalein'}<input type="file" accept="image/*" capture="user" class="hidden" data-profilephotofor="${s.id}"></label>
       ${s.profilePhoto?`<button class="mini-btn" data-act="removeprofilephoto" data-id="${s.id}">🗑 Hataayein</button>`:''}
+      ${ID_PFX[s.role]?`<button class="mini-btn" data-v9="idcard" data-id="${s.id}">🪪 ID Card</button>`:''}
     </div>
   </div>`;
 }
@@ -4364,7 +4404,9 @@ function lightboxHtml(){
 function modalHtml(){
   if(!activeModal) return '';
   let inner='';
-  if(activeModal.type==='addCustomer' || activeModal.type==='editCustomer'){
+  const _m9=v9ModalHtml();
+  if(_m9!==null){ inner=_m9;
+  } else if(activeModal.type==='addCustomer' || activeModal.type==='editCustomer'){
     const c=escObj(activeModal.data || {name:'',type:'amc',phone:'',phone2:'',email:'',address:'',landmark:'',city:'',state:'',pincode:'',lastService:todayStr(),intervalMonths:3,amcName:'',brand:'',model:'',serialNo:'',underWarranty:false,activationDate:todayStr(),expiryDate:addMonths(todayStr(),12),totalServices:4,source:'',amcAmount:0,notes:''});
     inner=`<div class="modal-head"><h3>${activeModal.type==='editCustomer'?'Customer Edit Karein':'Naya Customer'}</h3><button class="close-x" id="modalClose">×</button></div>
       <div class="field"><label>Naam</label><input id="f_name" value="${c.name}" placeholder="Customer ka naam"></div>
@@ -5239,6 +5281,327 @@ function val(id){ const el=document.getElementById(id); return el?el.value.trim(
 if('serviceWorker' in navigator){
   navigator.serviceWorker.getRegistrations().then(regs=>{ regs.forEach(reg=>reg.unregister()); }).catch(()=>{});
 }
+/* ================================================================
+   v9.0 — Registered laptop, mobile (limited) view, QR attendance,
+   location ping, monthly telecaller incentive, ID card
+   ================================================================ */
+const MV=['mhome','mattend','mprofile'];
+function myDevId(){ return devInfo().id; }
+function devList(){ return ((STATE.devices||{}).list)||[]; }
+function isRegDev(){ return devList().some(d=>d.id===myDevId()); }
+function officeMobile(){ const r=STATE.session&&STATE.session.role; return (r==='subadmin'||r==='telecaller')&&!isRegDev(); }
+async function refreshDevices(){ try{ const v=await loadKey('st_devices',{list:[]}); STATE.devices=(v&&v.list)?v:{list:[]}; }catch(e){ STATE.devices=STATE.devices||{list:[]}; } }
+async function saveDevices(){ await saveKey('st_devices',STATE.devices); }
+function hash53(str,seed){ seed=seed||0; let h1=0xdeadbeef^seed,h2=0x41c6ce57^seed; for(let i=0,ch;i<str.length;i++){ ch=str.charCodeAt(i); h1=Math.imul(h1^ch,2654435761); h2=Math.imul(h2^ch,1597334677); } h1=Math.imul(h1^(h1>>>16),2246822507)^Math.imul(h2^(h2>>>13),3266489909); h2=Math.imul(h2^(h2>>>16),2246822507)^Math.imul(h1^(h1>>>13),3266489909); return 4294967296*(2097151&h2)+(h1>>>0); }
+const bizCfg=()=>STATE.businessInfo||{};
+const officeCfg=()=>bizCfg().office||{};
+function qrToken(date){ return hash53((bizCfg().qrSecret||'')+'|'+date).toString(36).slice(0,8); }
+function qrPayload(date){ return 'SAC1|'+date+'|'+qrToken(date); }
+function qrShortCode(date){ return String(hash53('c|'+(bizCfg().qrSecret||'')+'|'+date)%1000000).padStart(6,'0'); }
+function qrCheck(text){ const p=String(text||'').trim().split('|'); if(p.length!==3||p[0]!=='SAC1') return 'bad'; const t=todayStr(); if(p[1]!==t) return 'old'; return p[2]===qrToken(t)?'ok':'bad'; }
+const LIBS={};
+function loadScript(key,url,test){ if(test()) return Promise.resolve(); if(LIBS[key]) return LIBS[key]; LIBS[key]=new Promise((res,rej)=>{ const sc=document.createElement('script'); sc.src=url; sc.onload=()=>res(); sc.onerror=()=>{ LIBS[key]=null; rej(new Error('lib load fail')); }; document.head.appendChild(sc); }); return LIBS[key]; }
+const loadQrLib=()=>loadScript('qr','https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js',()=>!!window.qrcode);
+const loadJsQr=()=>loadScript('jsqr','https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js',()=>!!window.jsQR);
+function qrSvg(text,px){ const q=window.qrcode(0,'M'); q.addData(text); q.make(); return q.createSvgTag({cellSize:4,margin:2,scalable:true}).replace('<svg','<svg style="width:'+(px||240)+'px;height:'+(px||240)+'px;display:block;margin:0 auto;"'); }
+
+/* ---------- positions ---------- */
+function getPos(opts){ return new Promise((res,rej)=>{ if(!navigator.geolocation) return rej({code:0,message:'Is browser me location nahi hai'}); navigator.geolocation.getCurrentPosition(p=>res(p),e=>rej(e),Object.assign({enableHighAccuracy:true,timeout:20000,maximumAge:0},opts||{})); }); }
+function distM(a,b){ return Math.round(kmBetween(a,b)*1000); }
+function attRec(sid,d){ const v=((STATE.attendance||{})[sid]||{})[d]; if(!v) return null; return typeof v==='number'?{in:v}:v; }
+const hmOrDash=ts=>ts?hmT(ts):'—';
+function attLine(a){ if(!a) return ''; const dur=a.in&&a.out?durTxt(a.out-a.in):''; return '🟢 IN '+hmOrDash(a.in)+(a.out?' · 🔴 OUT '+hmT(a.out)+(dur?' · ⏱ '+dur:''):' · OUT baaki'); }
+
+/* ---------- presence (location jab app khula ho) ---------- */
+const PRES={t:0,iv:0};
+function writeMyLoc(p,src){
+  const sid=STATE.session&&STATE.session.staffId; if(!sid) return; const la=p.coords.latitude, lo=p.coords.longitude, now=Date.now();
+  STATE.locations=STATE.locations||{}; STATE.locations[sid]={lat:la,lng:lo,ts:now,acc:Math.round(p.coords.accuracy||0),src:src||'app'}; saveKey(SKEY.LOCATIONS,STATE.locations);
+  try{ const P=[+la.toFixed(5),+lo.toFixed(5)], t=todayStr(), upd={staffId:sid,date:t,ls:now,lp:P}; if(!PRES.lp||kmBetween(PRES.lp,P)>=0.04){ PRES.lp=P; upd.p={[Math.floor(now/1000)]:P}; } track(firestoreDB.collection('st_trail').doc(sid+'_'+t).set(upd,{merge:true})); }catch(e){}
+}
+async function presenceTick(force){
+  if(!STATE.session||!officeMobile()||(document.hidden&&!force)) return;
+  if(!force&&Date.now()-PRES.t<9*60000) return; PRES.t=Date.now();
+  try{ const p=await getPos({maximumAge:60000}); STATE.locDenied=false; writeMyLoc(p,'app'); }catch(e){ if(e&&e.code===1){ if(!STATE.locDenied){ STATE.locDenied=true; bgRender(); } } }
+}
+function presenceStart(){
+  if(PRES.iv||!officeMobile()) return;
+  PRES.iv=setInterval(()=>presenceTick(false),60000); presenceTick(true);
+  document.addEventListener('visibilitychange',()=>{ if(!document.hidden) presenceTick(false); });
+}
+function presenceStop(){ if(PRES.iv){ clearInterval(PRES.iv); PRES.iv=0; } PRES.t=0; }
+
+/* ---------- Monthly new-AMC stats + incentive (v9: har mahine 1 lakh pe 4%) ---------- */
+const INC_FROM='2026-10', INC_TARGET=100000, INC_PCT=0.04;
+const teliKey=n=>String(n||'').trim().toLowerCase().replace(/^telecaller\s*[—-]\s*/,'');
+let _ams={k:null,v:null};
+function amcMonthStats(){
+  const k=[STATE.customers,STATE.jobs,STATE.bills,STATE.staff]; if(_ams.k&&k.every((x,i)=>x===_ams.k[i])) return _ams.v;
+  const out={}, idByName=new Map((STATE.staff||[]).filter(s=>s.role==='telecaller').map(s=>[teliKey(s.name),s.id]));
+  moneyRows().forEach(r=>{ if(r.cat!=='amcnew'||!(r.amount>0)||!r.date) return; const ym=String(r.date).slice(0,7), o=out[ym]||(out[ym]={all:{n:0,amt:0},by:{}}); o.all.n++; o.all.amt+=r.amount;
+    const sid=idByName.get(teliKey(r.teli)); if(sid){ const b=o.by[sid]||(o.by[sid]={n:0,amt:0}); b.n++; b.amt+=r.amount; } });
+  _ams={k,v:out}; return out;
+}
+function statsMonths(){ return (!officeMobile()&&(STATE.customers||[]).length)?amcMonthStats():((STATE.stats&&STATE.stats.m)||{}); }
+function myMonth(ym){ const m=statsMonths()[ym]||{all:{n:0,amt:0},by:{}}, sid=STATE.session.staffId; return STATE.session.role==='telecaller'?(m.by[sid]||{n:0,amt:0}):m.all; }
+function incMonth(amt){ return amt>=INC_TARGET?Math.round(amt*INC_PCT):0; }
+function statsLoad(force){ if(!firestoreDB||!STATE.session) return; if(!force&&Date.now()-(STATE.statsAt||0)<5*60000) return; STATE.statsAt=Date.now(); loadKey('st_stat',null).then(v=>{ STATE.stats=v; bgRender(); }).catch(()=>{}); }
+let _pubT=0;
+function statsPublishSoon(){
+  const r=STATE.session&&STATE.session.role; if((r!=='admin'&&r!=='subadmin')||officeMobile()||!firestoreDB) return;
+  clearTimeout(_pubT); _pubT=setTimeout(()=>{ try{
+    if(STATE.heavyWait||!(STATE.customers||[]).length) return;
+    const all=amcMonthStats(), keep={}, t=todayStr(); [t.slice(0,7),addMonths(t,-1).slice(0,7),addMonths(t,-2).slice(0,7)].forEach(k=>{ keep[k]=all[k]||{all:{n:0,amt:0},by:{}}; });
+    const js=JSON.stringify(keep); if(js===STATE.statsPub) return; STATE.statsPub=js; saveKey('st_stat',{m:keep,at:Date.now()});
+  }catch(e){ console.error('stats',e); } },8000);
+}
+function incCardHtml(){
+  const ym=todayStr().slice(0,7), cur=myMonth(ym), amt=cur.amt||0, left=Math.max(0,INC_TARGET-amt), pct=Math.min(100,Math.round(amt*100/INC_TARGET));
+  const done=amt>=INC_TARGET;
+  return `<div class="card"><div class="item-name">🎯 Is mahine ka Incentive</div>
+    ${done?`<div style="font-size:26px;font-weight:800;color:var(--green);margin:6px 0;">${rupee(incMonth(amt))}</div><div class="item-sub">🎉 ₹1 lakh ka target pura! Kul new AMC ${rupee(amt)} ka 4%.</div>`
+    :`<div class="item-sub" style="margin:4px 0 6px;">${rupee(amt)} / ${rupee(INC_TARGET)} ho chuka</div><div style="height:12px;background:#e3edf0;border-radius:8px;overflow:hidden;"><div style="height:100%;width:${pct}%;background:linear-gradient(90deg,var(--teal),var(--frost));"></div></div><div style="margin-top:8px;font-size:18px;font-weight:800;color:#c0392b;">${rupee(left)} baaki</div><div class="item-sub">Target pura hote hi poori rakam par 4% incentive milega.</div>`}
+    <div class="item-sub" style="opacity:.7;margin-top:6px;">Sirf naye AMC (renewal / repair / one-time / purane nahi). Har mahine nayi ginti.</div></div>`;
+}
+
+/* ---------- Mobile views (Office / Telecaller phone) ---------- */
+function renderMHome(){
+  const sid=STATE.session.staffId, s=STATE.staff.find(x=>x.id===sid)||{name:STATE.session.name}, t=todayStr(), a=attRec(sid,t), ym=t.slice(0,7);
+  statsLoad(false);
+  const cur=myMonth(ym), tele=STATE.session.role==='telecaller';
+  const inDone=!!(a&&a.in), outDone=!!(a&&a.out);
+  return `<div class="section-title">Namaste, ${esc(s.name||'')}</div>
+    <div class="card"><div class="row-between"><div class="item-name">📅 Aaj ki Attendance</div><span class="pill ${inDone?(outDone?'pill-green':'pill-sky'):'pill-amber'}">${inDone?(outDone?'Poori':'IN lagi'):'Baaki'}</span></div>
+      <div class="item-sub" style="margin:6px 0 10px;">${a?esc(attLine(a)):'Abhi tak IN nahi lagi. Office ka QR scan karein.'}</div>
+      <div class="card-actions"><button class="primary-btn" data-v9="scan" data-k="in" ${inDone?'disabled':''} style="${inDone?'opacity:.5;':''}">📷 IN Scan</button><button class="primary-btn" data-v9="scan" data-k="out" ${(!inDone||outDone)?'disabled':''} style="background:#c0392b;${(!inDone||outDone)?'opacity:.5;':''}">📷 OUT Scan</button></div>
+      <div class="item-sub" style="opacity:.7;margin-top:8px;">Subah aate samay IN aur jaate samay OUT — office me laga QR scan karein. Location on honi chahiye.</div></div>
+    ${STATE.locDenied?`<div class="card" style="border:2px solid #c0392b;"><div class="item-name" style="color:#c0392b;">📍 Location band hai</div><div class="item-sub">Phone Settings → Chrome → Site settings → Location → Allow karein, tabhi attendance lagegi.</div></div>`:''}
+    <div class="stat-grid"><div class="stat-card"><div class="stat-num">${cur.n||0}</div><div class="stat-label">${tele?'Is mahine mere naye AMC':'Is mahine naye AMC (office)'}</div></div><div class="stat-card"><div class="stat-num" style="font-size:18px;">${STATE.locDenied?'❌':'✅'}</div><div class="stat-label">${STATE.locDenied?'Location band':'Location chalu'}</div></div></div>
+    ${tele?incCardHtml():''}
+    <div class="card-actions" style="margin-top:8px;"><button class="mini-btn" data-navto="mattend" style="flex:1;">🗓 Chhutti / Attendance</button><button class="mini-btn" data-act="traveladd" style="flex:1;">🚗 Travel Add</button></div>`;
+}
+function renderMAttend(){
+  const sid=STATE.session.staffId, rec=(STATE.attendance||{})[sid]||{}, dates=Object.keys(rec).sort().reverse().slice(0,45);
+  const cards=dates.map(d=>{ const a=attRec(sid,d); return `<div class="card"><div class="row-between"><div class="item-name" style="font-size:14px;">${fmtDate(d)}</div><span class="pill ${a.out?'pill-green':'pill-sky'}">${a.out?'Poori':'Present'}</span></div><div class="item-sub">${esc(attLine(a)||'Present')}</div>${a.dev?`<div class="item-sub" style="opacity:.7;">📱 ${esc(a.dev)}</div>`:''}</div>`; }).join('');
+  return `${leaveCardHtml()}<div class="card">${travelHtml(sid)}</div><div class="section-title">Meri Attendance</div>${cards||`<div class="empty-state"><span class="ic">📅</span><p>Abhi koi attendance nahi hai.</p></div>`}`;
+}
+function renderMProfile(){
+  const sid=STATE.session.staffId, s=STATE.staff.find(x=>x.id===sid)||{name:STATE.session.name};
+  return `${profilePhotoCardHtml(sid)}
+    <div class="card" style="text-align:center;padding:16px;"><div class="item-name" style="font-size:18px;">${esc(s.name||'')}</div><div class="item-sub">${roleLabel(STATE.session.role)}${s.phone?' · 📞 '+esc(s.phone):''}</div>${s.email?`<div class="item-sub">✉️ ${esc(s.email)}</div>`:''}</div>
+    <div class="card"><div class="item-name">🔑 PIN badlein</div><div class="field" style="margin-top:8px;"><input id="v9_newpin" type="password" inputmode="numeric" maxlength="6" placeholder="Naya 4-6 digit PIN"></div><button class="mini-btn primary" data-v9="chpin">PIN Save</button></div>`;
+}
+
+/* ---------- QR scan + attendance ---------- */
+const QRS={stream:null,raf:0,live:false,busy:false};
+function stopScan(){ QRS.live=false; if(QRS.raf) cancelAnimationFrame(QRS.raf); QRS.raf=0; if(QRS.stream){ try{ QRS.stream.getTracks().forEach(t=>t.stop()); }catch(e){} QRS.stream=null; } }
+function profDone(){ try{ return !!localStorage.getItem('st_prof_'+STATE.session.staffId); }catch(e){ return true; } }
+function qrScanModalHtml(d){
+  return `<div class="modal-head"><h3>📷 ${d.kind==='out'?'OUT':'IN'} — QR Scan</h3><button class="close-x" id="modalClose">×</button></div>
+    <div style="background:#000;border-radius:12px;overflow:hidden;position:relative;min-height:220px;"><video id="v9Video" playsinline muted autoplay style="width:100%;display:block;max-height:46vh;object-fit:cover;"></video></div>
+    <div class="item-sub" id="v9ScanMsg" style="margin:8px 0;text-align:center;">Camera khul raha hai… office ke QR par camera rakhein</div>
+    <div class="field"><label>Camera na chale to 6 digit code (QR ke neeche likha)</label><div style="display:flex;gap:8px;"><input id="v9Code" inputmode="numeric" maxlength="6" placeholder="123456"><button class="mini-btn primary" data-v9="codego" style="flex:none;">OK</button></div></div>`;
+}
+async function startScan(kind){
+  stopScan(); QRS.live=true; QRS.busy=false;
+  const msg=t=>{ const e=document.getElementById('v9ScanMsg'); if(e) e.textContent=t; };
+  try{
+    QRS.stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false});
+    const v=document.getElementById('v9Video'); if(!v||!QRS.live){ stopScan(); return; } v.srcObject=QRS.stream; try{ await v.play(); }catch(e){} msg('QR par camera rakhein…');
+    let det=null; if('BarcodeDetector' in window){ try{ det=new BarcodeDetector({formats:['qr_code']}); }catch(e){ det=null; } }
+    if(!det){ try{ await loadJsQr(); }catch(e){ msg('Scanner load nahi hua — neeche 6 digit code daalein'); return; } }
+    const cv=document.createElement('canvas'), cx=cv.getContext('2d',{willReadFrequently:true});
+    const loop=async()=>{ if(!QRS.live) return; try{
+        if(v.readyState>=2&&!QRS.busy){ let txt='';
+          if(det){ const r=await det.detect(v); if(r&&r[0]) txt=r[0].rawValue; }
+          else { cv.width=v.videoWidth; cv.height=v.videoHeight; if(cv.width){ cx.drawImage(v,0,0); const im=cx.getImageData(0,0,cv.width,cv.height), r=window.jsQR(im.data,im.width,im.height); if(r) txt=r.data; } }
+          if(txt){ QRS.busy=true; await onQrText(txt,kind); QRS.busy=false; }
+        } }catch(e){ QRS.busy=false; } QRS.raf=requestAnimationFrame(()=>setTimeout(loop,120)); };
+    loop();
+  }catch(e){ msg(e&&e.name==='NotAllowedError'?'Camera permission band hai — Allow karein ya neeche 6 digit code daalein':'Camera nahi mila — neeche 6 digit code daalein'); }
+}
+async function onQrText(txt,kind){
+  const r=qrCheck(txt);
+  if(r==='ok'){ stopScan(); await qrMark(kind); }
+  else { const e=document.getElementById('v9ScanMsg'); if(e) e.textContent=r==='old'?'❌ Ye purana QR hai — aaj ka QR scan karein':'❌ Ye office ka QR nahi hai'; }
+}
+async function codeEntered(kind){
+  const v=((document.getElementById('v9Code')||{}).value||'').trim();
+  if(v&&v===qrShortCode(todayStr())){ stopScan(); await qrMark(kind); } else showToast('Code galat hai');
+}
+function profSetupHtml(d){
+  const s=STATE.staff.find(x=>x.id===STATE.session.staffId)||{};
+  return `<div class="modal-head"><h3>👤 Pehli baar — jaankari</h3><button class="close-x" id="modalClose">×</button></div>
+    <div class="item-sub" style="margin-bottom:10px;">Ye ek hi baar poochhi jayegi. Uske baad attendance me apne aap bhar jayegi.</div>
+    <div class="field"><label>Naam</label><input id="v9_pn" value="${esc(s.name||STATE.session.name||'')}"></div>
+    <div class="field"><label>Email</label><input id="v9_pe" type="email" value="${esc(s.email||'')}" placeholder="aap@gmail.com"></div>
+    <div class="field"><label>Mobile number</label><input id="v9_pm" inputmode="numeric" maxlength="10" value="${esc(s.phone||'')}" placeholder="10 digit"></div>
+    <button class="primary-btn" data-v9="profsave">Save karke aage badhein</button>`;
+}
+async function profSave(){
+  const n=document.getElementById('v9_pn').value.trim(), e=document.getElementById('v9_pe').value.trim(), m=document.getElementById('v9_pm').value.replace(/\D/g,'');
+  if(n.length<2){ showToast('Naam likhein'); return; } if(!/^\S+@\S+\.\S+$/.test(e)){ showToast('Sahi email likhein'); return; } if(!/^\d{10}$/.test(m)){ showToast('10 digit mobile number likhein'); return; }
+  const s=STATE.staff.find(x=>x.id===STATE.session.staffId); if(s){ s.name=n; s.email=e; s.phone=m; await saveKey(SKEY.STAFF,STATE.staff); STATE.session.name=n; }
+  try{ localStorage.setItem('st_prof_'+STATE.session.staffId,'1'); }catch(x){}
+  const k=(activeModal&&activeModal.data&&activeModal.data.kind)||'in'; activeModal=null; render(); scanOpen(k);
+}
+function scanOpen(kind){
+  if(!profDone()){ activeModal={type:'profSetup',data:{kind}}; render(); return; }
+  activeModal={type:'qrScan',data:{kind}}; render();
+}
+async function qrMark(kind){
+  const me=STATE.session, sid=me.staffId, t=todayStr(), A=(STATE.attendance=STATE.attendance||{}), cfg=officeCfg();
+  const fail=m=>{ activeModal=null; render(); showToast(m); };
+  activeModal={type:'qrBusy',data:{}}; render();
+  let pos; try{ pos=await getPos(); }catch(e){ return fail('❌ Location nahi mili — location Allow karke dobara try karein'); }
+  const la=pos.coords.latitude, lo=pos.coords.longitude, ac=Math.round(pos.coords.accuracy||0); let dist=null;
+  if(cfg.lat!=null&&cfg.lng!=null){ dist=distM([cfg.lat,cfg.lng],[la,lo]); if(cfg.on&&!(dist<=(Number(cfg.r)||150))) return fail('❌ Aap office se '+dist+' meter door hain — office me aakar scan karein'); }
+  const cur=attRec(sid,t), now=Date.now(), s=STATE.staff.find(x=>x.id===sid)||{}, who={n:s.name||me.name||'',e:s.email||'',m:s.phone||''}, dv=devInfo();
+  if(kind==='in'){ if(cur&&cur.in) return fail('✅ IN pehle se lagi hai ('+hmT(cur.in)+')'); A[sid]=A[sid]||{}; A[sid][t]=Object.assign({},cur||{},{in:now,src:'qr',dev:dv.label,devId:dv.id,who,la,lo,ac,dist}); }
+  else { if(!cur||!cur.in) return fail('Pehle IN lagayein'); if(cur.out) return fail('✅ OUT pehle se lagi hai ('+hmT(cur.out)+')'); A[sid][t]=Object.assign({},cur,{out:now,oDev:dv.label,oLa:la,oLo:lo,oAc:ac,oDist:dist}); }
+  await saveKey(SKEY.ATTENDANCE,STATE.attendance); writeMyLoc(pos,'qr');
+  try{ notifSend(OFFICE_KEYS,'attendance',(kind==='in'?'✅ IN lagi':'🔴 OUT lagi'),(who.n||'Staff')+' — '+hmT(now),sid+':'+t+':'+kind); }catch(e){}
+  activeModal=null; render(); showToast(kind==='in'?'✅ IN lag gayi — '+hmT(now):'✅ OUT lag gayi — '+hmT(now));
+}
+
+/* ---------- Admin: Laptop & QR tab ---------- */
+function devicesTabHtml(){
+  const o=officeCfg(), me=devInfo(), reg=isRegDev(), L=devList(), b=bizCfg();
+  const phoneLike=/Android|iPhone|iPad|Mobile/i.test(navigator.userAgent||'');
+  return `<div class="section-title">💻 Registered Laptop</div>
+    <div class="card"><div class="item-sub" style="margin-bottom:8px;">Office / Telecaller ko poori app (customers, jobs, leads, bill) sirf yahan register hue laptop par milti hai. Baaki har device (phone, "Desktop site") par sirf chhota mobile view — koi customer data download nahi hota.</div>
+      ${L.length?L.map(d=>`<div class="row-between" style="padding:8px 0;border-top:1px solid #e3edf0;"><div><div class="item-name" style="font-size:14px;">💻 ${esc(d.name)} ${d.id===me.id?'<span class="pill pill-green">Ye device</span>':''}</div><div class="item-sub">${esc(d.label||'')} · ${fmtDate(d.at)}</div></div><button class="mini-btn danger" data-v9="deldev" data-id="${esc(d.id)}">Hatayein</button></div>`).join(''):`<div class="item-sub" style="color:#c0392b;font-weight:600;">⚠️ Abhi koi laptop registered nahi — Office/Telecaller ko sirf mobile view milega.</div>`}
+      ${reg?`<div class="item-sub" style="margin-top:8px;">✅ Ye device registered hai.</div>`:`<div class="field" style="margin-top:10px;"><label>Is device ka naam</label><input id="v9_devname" placeholder="jaise Office Laptop"></div>${phoneLike?`<div class="item-sub" style="color:#c0392b;margin-bottom:6px;">⚠️ Ye phone jaisa device lag raha hai. Laptop par jaakar register karein.</div>`:''}<button class="primary-btn" data-v9="regdev">💻 Is device ko register karein</button>`}
+      <div class="item-sub" style="opacity:.7;margin-top:8px;">Laptop ka browser data (site data) clear karne par ye device dobara register karna padega.</div></div>
+    <div class="section-title" style="margin-top:20px;">📍 Office Location (QR attendance)</div>
+    <div class="card"><div class="item-sub" style="margin-bottom:8px;">${o.lat!=null?'Set hai: '+Number(o.lat).toFixed(5)+', '+Number(o.lng).toFixed(5):'Abhi set nahi.'}</div>
+      <button class="mini-btn" data-v9="setoff">📍 Abhi yahan ko office set karein</button>
+      <div class="field" style="margin-top:10px;"><label>Kitni door tak attendance (meter)</label><input id="v9_rad" type="number" min="30" value="${esc(o.r||150)}"></div>
+      <label style="display:flex;gap:8px;align-items:center;margin:6px 0 10px;"><input type="checkbox" id="v9_geo" ${o.on?'checked':''}> Office ke bahar se attendance na lagne dein</label>
+      <button class="mini-btn primary" data-v9="saveoff">Save</button></div>
+    <div class="section-title" style="margin-top:20px;">📷 Aaj ka QR</div>
+    <div class="card"><div class="item-sub" style="margin-bottom:8px;">QR roz apne aap badalta hai. Isse laptop par full screen khol kar office me rakhein; staff apne phone se scan karke IN / OUT lagayega.</div><div class="card-actions"><button class="mini-btn primary" data-v9="showqr">📺 QR dikhayein</button><button class="mini-btn" data-v9="newsecret">🔄 QR secret badlein</button></div></div>
+    <div class="section-title" style="margin-top:20px;">⏱ Auto logout (registered laptop)</div>
+    <div class="card"><div class="item-sub" style="margin-bottom:8px;">Phone par hamesha 15 minute. Registered laptop par neeche ka time + raat ko fixed samay par logout.</div>
+      <div class="field"><label>Laptop par kitne minute bina kaam ke logout</label><input id="v9_lidle" type="number" min="5" value="${esc(b.laptopIdleMin||60)}"></div>
+      <div class="field"><label>Raat ko kitne baje (24 ghanta, 20 = 8 PM) auto logout</label><input id="v9_lhour" type="number" min="0" max="23" value="${esc(b.laptopOutHour==null?20:b.laptopOutHour)}"></div>
+      <button class="mini-btn primary" data-v9="savelim">Save</button></div>`;
+}
+function qrShowHtml(){
+  const t=todayStr();
+  return `<div class="modal-head"><h3>📺 Aaj ka QR — ${fmtDate(t)}</h3><button class="close-x" id="modalClose">×</button></div>
+    <div id="v9QrBox" style="text-align:center;padding:12px 0;"><div class="item-sub">QR ban raha hai…</div></div>
+    <div style="text-align:center;font-size:22px;font-weight:800;letter-spacing:4px;">${qrShortCode(t)}</div><div class="item-sub" style="text-align:center;margin-top:4px;">Agar camera na chale to staff ye 6 digit code daal sakta hai.</div>`;
+}
+
+/* ---------- ID Card ---------- */
+const ID_PFX={technician:'T',subadmin:'O',telecaller:'C'};
+const ID_ROLE={technician:'Technician',subadmin:'Office Staff',telecaller:'Telecaller'};
+function idPrefix(s){ return 'SAC-'+(ID_PFX[s.role]||'S')+'-'; }
+function nextIdNo(s){ const pf=idPrefix(s); let mx=0; (STATE.staff||[]).forEach(x=>{ if(x.idNo&&x.idNo.startsWith(pf)){ const n=parseInt(x.idNo.slice(pf.length),10); if(n>mx) mx=n; } }); return pf+String(mx+1).padStart(3,'0'); }
+function verifyUrl(s){ const base=(location.origin&&location.origin!=='null'?location.origin:'')+location.pathname; return base+'?verify='+encodeURIComponent(s.idNo||''); }
+function idCardCanIssue(s){ return !!s&&!!s.profilePhoto&&['technician','subadmin','telecaller'].includes(s.role); }
+async function idEnsure(s){ if(!s.idNo&&idCardCanIssue(s)){ s.idNo=nextIdNo(s); s.idAt=Date.now(); await saveKey(SKEY.STAFF,STATE.staff); } }
+function idCardInner(d){
+  const s=STATE.staff.find(x=>x.id===d.id)||null, b=bizCfg(), isA=STATE.session.role==='admin', own=STATE.session.staffId===d.id;
+  const head=`<div class="modal-head"><h3>🪪 ID Card</h3><button class="close-x" id="modalClose">×</button></div>`;
+  if(!s||!ID_PFX[s.role]) return head+`<div class="item-sub">Is role ka ID card nahi banta.</div>`;
+  if(!s.profilePhoto) return head+`<div class="card" style="text-align:center;"><div class="item-name">📷 Pehle profile photo lagayein</div><div class="item-sub" style="margin:6px 0 10px;">ID card ke liye photo zaroori hai.</div>${own?`<label class="primary-btn" style="display:block;text-align:center;">📷 Photo daalein<input type="file" accept="image/*" capture="user" class="hidden" data-profilephotofor="${s.id}"></label>`:'<div class="item-sub">Staff se photo lagwayein.</div>'}</div>`;
+  if(!s.idNo) return head+`<div class="item-sub" style="padding:20px;text-align:center;">⏳ ID ban raha hai…</div>`;
+  const blocked=!!s.idBlocked, lg=b.logo?`<img src="${b.logo}" style="height:22px;max-width:60px;object-fit:contain;background:#fff;border-radius:4px;">`:`<span style="font-size:18px;">❄️</span>`;
+  const front=`<div class="idc" id="idFront"><div class="idc-top">${lg}<div><div class="idc-co">${esc(b.name||'Super Air Cool')}</div><div class="idc-sub">AC Sales · Service · AMC</div></div></div>
+      <div class="idc-mid"><img class="idc-ph" src="${s.profilePhoto}"><div class="idc-info"><div class="idc-nm">${esc(s.name)}</div><div class="idc-rl">${ID_ROLE[s.role]}</div><div class="idc-ln">ID: <b>${esc(s.idNo)}</b></div><div class="idc-ln">📞 ${esc(s.phone||'—')}</div><div class="idc-ln">Joining: ${fmtDate(s.joinedAt)}</div></div><div class="idc-qr" id="v9IdQr"></div></div>${blocked?`<div class="idc-block">VALID NAHI</div>`:''}</div>`;
+  const back=`<div class="idc idc-back" id="idBack"><div class="idc-bh">${esc(b.name||'Super Air Cool')}</div><div class="idc-ln">${esc(b.address||'')}</div><div class="idc-ln">${b.phone?'📞 '+esc(b.phone):''}</div><div class="idc-ln" style="margin-top:6px;">${s.bloodGroup?'🩸 Blood Group: <b>'+esc(s.bloodGroup)+'</b>':''}</div><div class="idc-ln">${s.emergency?'🚨 Emergency: <b>'+esc(s.emergency)+'</b>':''}</div><div class="idc-tm">Ye card company ki sampatti hai. Milne par kripya upar ke pate par wapas karein. Card ka QR scan karke pehchan verify karein.</div></div>`;
+  return head+`<style>.idc{width:100%;max-width:340px;aspect-ratio:86/54;margin:0 auto 10px;border-radius:12px;border:1px solid #cfdde1;background:linear-gradient(160deg,#fff 55%,#e7f4f6);padding:10px;box-sizing:border-box;position:relative;overflow:hidden;font-family:var(--font-body,sans-serif);color:#12343b;}.idc-top{display:flex;gap:8px;align-items:center;border-bottom:2px solid var(--teal,#0e7c86);padding-bottom:5px;}.idc-co{font-weight:800;font-size:14px;color:var(--teal,#0e7c86);line-height:1.1}.idc-sub{font-size:8px;opacity:.7}.idc-mid{display:flex;gap:8px;margin-top:8px;align-items:flex-start}.idc-ph{width:64px;height:78px;object-fit:cover;border-radius:6px;border:1px solid #cfdde1;flex:none}.idc-info{flex:1;min-width:0}.idc-nm{font-weight:800;font-size:14px;line-height:1.15}.idc-rl{font-size:11px;color:var(--teal,#0e7c86);font-weight:700;margin-bottom:3px}.idc-ln{font-size:10px;line-height:1.5}.idc-qr{width:54px;height:54px;flex:none;align-self:flex-end}.idc-block{position:absolute;inset:0;background:rgba(192,57,43,.82);color:#fff;display:flex;align-items:center;justify-content:center;font-size:26px;font-weight:900;transform:rotate(-12deg)}.idc-back{display:flex;flex-direction:column;gap:2px}.idc-bh{font-weight:800;font-size:13px;color:var(--teal,#0e7c86)}.idc-tm{font-size:8px;opacity:.75;margin-top:auto}</style>
+    ${blocked?`<div class="error-msg" style="margin-bottom:8px;">❌ Ye ID abhi valid nahi hai (admin ne block kiya).</div>`:''}
+    ${front}${back}
+    ${(own||isA)?`<div class="field"><label>Blood group (optional)</label><input id="v9_bg" value="${esc(s.bloodGroup||'')}" placeholder="jaise B+"></div><div class="field"><label>Emergency number (optional)</label><input id="v9_em" inputmode="numeric" value="${esc(s.emergency||'')}"></div><button class="mini-btn" data-v9="idsave" data-id="${s.id}">Save details</button>`:''}
+    <div class="card-actions" style="margin-top:10px;flex-wrap:wrap;"><button class="mini-btn primary" data-v9="idpdf" data-id="${s.id}">⬇ PDF</button><button class="mini-btn" data-v9="idimg" data-id="${s.id}">🖼 Image</button><button class="mini-btn" data-v9="idprint" data-id="${s.id}">🖨 Print</button></div>
+    <div class="field" style="margin-top:12px;"><label>Customer ko bhejein (WhatsApp, optional)</label><input id="v9_idwa" inputmode="numeric" maxlength="10" placeholder="Customer ka 10 digit number"></div><button class="mini-btn" data-v9="idwa" data-id="${s.id}">💬 WhatsApp par bhejein</button>
+    ${isA?`<div class="card-actions" style="margin-top:12px;"><button class="mini-btn ${blocked?'primary':'danger'}" data-v9="idblock" data-id="${s.id}">${blocked?'✅ ID valid karein':'⛔ ID block karein'}</button></div>`:''}`;
+}
+async function idQrFill(){ const el=document.getElementById('v9IdQr'); if(!el||!activeModal||activeModal.type!=='idCard') return; try{ await loadQrLib(); const s=STATE.staff.find(x=>x.id===activeModal.data.id); if(s&&s.idNo&&document.getElementById('v9IdQr')){ const q=window.qrcode(0,'M'); q.addData(verifyUrl(s)); q.make(); el.innerHTML=q.createSvgTag({cellSize:3,margin:0,scalable:true}).replace('<svg','<svg style="width:100%;height:100%"'); } }catch(e){} }
+function idDoc(s){ return {f:document.getElementById('idFront'),bk:document.getElementById('idBack')}; }
+async function idRender(kind,s){
+  await loadPdfLib(); const st=document.querySelector('#modalOverlay style'), {f,bk}=idDoc(s); if(!f||!bk) return;
+  const host=document.createElement('div'); host.style.cssText='position:fixed;left:-9000px;top:0;width:340px;background:#fff;';
+  host.innerHTML=(st?st.outerHTML:'')+'<style>.idc{width:340px!important;height:213px!important;max-width:none!important;margin:0!important;border-radius:0!important;border:0!important;aspect-ratio:auto!important;page-break-after:always;}</style>'+f.outerHTML+bk.outerHTML; document.body.appendChild(host);
+  try{
+    const opt={margin:0,filename:s.idNo+'.pdf',image:{type:'jpeg',quality:0.95},html2canvas:{scale:3,useCORS:true},jsPDF:{unit:'mm',format:[86,54],orientation:'landscape'},pagebreak:{mode:['css']}};
+    if(kind==='pdf'){ const cards=host.querySelectorAll('.idc'); const cB=await window.html2pdf().set(opt).from(cards[1]).toCanvas().get('canvas').then(c=>c); const pdf=await window.html2pdf().set(opt).from(cards[0]).toPdf().get('pdf').then(x=>x); while(pdf.getNumberOfPages()>1) pdf.deletePage(pdf.getNumberOfPages()); pdf.addPage([86,54],'landscape'); pdf.addImage(cB.toDataURL('image/jpeg',0.95),'JPEG',0,0,86,54); pdf.save(s.idNo+'.pdf'); }
+    else { const cv=await window.html2pdf().set(opt).from(host.querySelector('.idc')).toCanvas().get('canvas').then(c=>c); const a=document.createElement('a'); a.href=cv.toDataURL('image/png'); a.download=s.idNo+'.png'; document.body.appendChild(a); a.click(); a.remove(); }
+  } finally { host.remove(); }
+}
+function idPrint(s){
+  const st=document.querySelector('#modalOverlay style'), {f,bk}=idDoc(s); if(!f) return; const w=window.open('','_blank'); if(!w){ showToast('Popup block hai — allow karein'); return; }
+  w.document.write('<html><head><title>'+esc(s.idNo)+'</title>'+(st?st.outerHTML:'')+'<style>@page{size:86mm 54mm;margin:0}body{margin:0}.idc{width:86mm!important;height:54mm!important;max-width:none!important;margin:0!important;border-radius:0!important;page-break-after:always;aspect-ratio:auto!important}</style></head><body>'+f.outerHTML+bk.outerHTML+'</body></html>'); w.document.close(); setTimeout(()=>{ try{ w.focus(); w.print(); }catch(e){} },400);
+}
+const VERIFY_ID=(()=>{ try{ return new URLSearchParams(location.search).get('verify')||''; }catch(e){ return ''; } })();
+function renderVerify(){
+  const s=(STATE.staff||[]).find(x=>x.idNo===VERIFY_ID&&!x.deleted), b=bizCfg(), ok=s&&!s.idBlocked;
+  return `<div class="login-wrap"><div class="login-hero"><div class="brand-mark">🪪</div><h1>${esc(b.name||'Super Air Cool')}</h1><p>ID verification</p></div>
+    ${ok?`<div class="card" style="text-align:center;border:2px solid var(--green);"><div style="font-size:30px;">✅</div><div class="item-name" style="color:var(--green);">Valid Staff</div>${s.profilePhoto?`<img src="${s.profilePhoto}" style="width:96px;height:112px;object-fit:cover;border-radius:10px;margin:10px auto;display:block;">`:''}<div class="item-name" style="font-size:18px;">${esc(s.name)}</div><div class="item-sub">${ID_ROLE[s.role]||''} · ID ${esc(s.idNo)}</div></div>`
+    :`<div class="card" style="text-align:center;border:2px solid #c0392b;"><div style="font-size:30px;">❌</div><div class="item-name" style="color:#c0392b;">Valid nahi</div><div class="item-sub">${s?'Ye ID block hai.':'Ye ID hamare record me nahi mili.'}</div></div>`}
+    <button class="ghost-btn" data-v9="verclose" style="margin-top:12px;">Band karein</button></div>`;
+}
+
+/* ---------- click handler (delegated) ---------- */
+document.addEventListener('click',async ev=>{
+  const el=ev.target.closest&&ev.target.closest('[data-v9]'); if(!el) return; const a=el.dataset.v9, id=el.dataset.id; const val=i=>((document.getElementById(i)||{}).value||'').trim();
+  try{
+  if(a==='scan'){ if(el.disabled) return; scanOpen(el.dataset.k); }
+  else if(a==='codego'){ await codeEntered((activeModal&&activeModal.data&&activeModal.data.kind)||'in'); }
+  else if(a==='profsave'){ await profSave(); }
+  else if(a==='verclose'){ STATE.verifyClosed=true; try{ history.replaceState({},'',location.pathname); }catch(e){} render(); }
+  else if(a==='regdev'){ const n=val('v9_devname')||'Office Laptop', d=devInfo(); STATE.devices=STATE.devices||{list:[]}; if(!devList().some(x=>x.id===d.id)) STATE.devices.list.push({id:d.id,name:n,label:d.label,at:Date.now(),by:STATE.session.name}); await saveDevices(); showToast('Laptop register ho gaya'); render(); }
+  else if(a==='deldev'){ if(!confirm('Ye laptop hata dein? Is par Office/Telecaller ko sirf mobile view milega.')) return; STATE.devices.list=devList().filter(x=>x.id!==id); await saveDevices(); render(); }
+  else if(a==='setoff'){ try{ const p=await getPos(); STATE.businessInfo=Object.assign({},STATE.businessInfo,{office:Object.assign({},officeCfg(),{lat:+p.coords.latitude.toFixed(6),lng:+p.coords.longitude.toFixed(6),r:officeCfg().r||150})}); await saveKey(SKEY.BUSINESS,STATE.businessInfo); showToast('Office location set ho gayi (accuracy '+Math.round(p.coords.accuracy)+' m)'); render(); }catch(e){ showToast('Location nahi mili — allow karein'); } }
+  else if(a==='saveoff'){ const r=Math.max(30,Number(val('v9_rad'))||150), on=!!document.getElementById('v9_geo').checked; if(on&&officeCfg().lat==null){ showToast('Pehle office location set karein'); return; } STATE.businessInfo=Object.assign({},STATE.businessInfo,{office:Object.assign({},officeCfg(),{r,on})}); await saveKey(SKEY.BUSINESS,STATE.businessInfo); showToast('Save ho gaya'); render(); }
+  else if(a==='savelim'){ const m=Math.max(5,Number(val('v9_lidle'))||60), h=Math.min(23,Math.max(0,Number(val('v9_lhour'))||0)); STATE.businessInfo=Object.assign({},STATE.businessInfo,{laptopIdleMin:m,laptopOutHour:h}); await saveKey(SKEY.BUSINESS,STATE.businessInfo); showToast('Save ho gaya'); render(); }
+  else if(a==='showqr'){ if(!bizCfg().qrSecret){ STATE.businessInfo=Object.assign({},STATE.businessInfo,{qrSecret:uid()+uid()}); await saveKey(SKEY.BUSINESS,STATE.businessInfo); } activeModal={type:'qrShow',data:{}}; render(); }
+  else if(a==='newsecret'){ if(!confirm('Naya secret banane par purana QR kaam nahi karega. Aage badhein?')) return; STATE.businessInfo=Object.assign({},STATE.businessInfo,{qrSecret:uid()+uid()}); await saveKey(SKEY.BUSINESS,STATE.businessInfo); showToast('QR secret badal gaya'); render(); }
+  else if(a==='chpin'){ const v=val('v9_newpin'); await changeOwnPin(v); const e=document.getElementById('v9_newpin'); if(e&&v.length>=4) e.value=''; }
+  else if(a==='idcard'){ const s=STATE.staff.find(x=>x.id===id); if(s) await idEnsure(s); activeModal={type:'idCard',data:{id}}; render(); }
+  else if(a==='idsave'){ const s=STATE.staff.find(x=>x.id===id); if(s){ s.bloodGroup=val('v9_bg').slice(0,5); s.emergency=val('v9_em').replace(/\D/g,'').slice(0,10); await saveKey(SKEY.STAFF,STATE.staff); showToast('Save ho gaya'); render(); } }
+  else if(a==='idblock'){ const s=STATE.staff.find(x=>x.id===id); if(s){ s.idBlocked=!s.idBlocked; await saveKey(SKEY.STAFF,STATE.staff); showToast(s.idBlocked?'ID block ho gaya':'ID valid ho gaya'); render(); } }
+  else if(a==='idpdf'||a==='idimg'){ const s=STATE.staff.find(x=>x.id===id); if(s){ showToast('Tayyar ho raha hai…'); try{ await idRender(a==='idpdf'?'pdf':'img',s); }catch(e){ console.error(e); showToast('Download nahi ho paya — internet check karein'); } } }
+  else if(a==='idprint'){ const s=STATE.staff.find(x=>x.id===id); if(s) idPrint(s); }
+  else if(a==='idwa'){ const s=STATE.staff.find(x=>x.id===id), n=val('v9_idwa').replace(/\D/g,''); if(!s) return; if(n.length!==10){ showToast('Customer ka 10 digit number likhein'); return; } const txt='Namaste, '+(bizCfg().name||'Super Air Cool')+' ki taraf se '+s.name+' ('+ID_ROLE[s.role]+', ID '+s.idNo+') aapke yahan aa rahe hain. Pehchan verify karein: '+verifyUrl(s); window.open('https://wa.me/91'+n+'?text='+encodeURIComponent(txt),'_blank'); }
+  }catch(e){ console.error('v9 act',a,e); showToast('Error: '+(e&&e.message||e)); }
+});
+/* modal close par camera band */
+document.addEventListener('click',ev=>{ if(ev.target&&(ev.target.id==='modalClose'||ev.target.id==='modalOverlay')) stopScan(); },true);
+
+function v9ModalHtml(){
+  const t=activeModal&&activeModal.type, d=(activeModal&&activeModal.data)||{};
+  if(t==='qrScan') return qrScanModalHtml(d);
+  if(t==='qrBusy') return `<div class="modal-head"><h3>📍 Location check…</h3></div><div class="item-sub" style="padding:24px;text-align:center;">Attendance lag rahi hai, ruk jayein…</div>`;
+  if(t==='profSetup') return profSetupHtml(d);
+  if(t==='qrShow') return qrShowHtml();
+  if(t==='idCard') return idCardInner(d);
+  return null;
+}
+function v9PostRender(){
+  const t=activeModal&&activeModal.type;
+  if(t==='qrScan'&&!QRS.live) startScan(activeModal.data.kind);
+  else if(t!=='qrScan'&&QRS.live) stopScan();
+  if(t==='qrShow'){ const box=document.getElementById('v9QrBox'); if(box) loadQrLib().then(()=>{ const b=document.getElementById('v9QrBox'); if(b) b.innerHTML=qrSvg(qrPayload(todayStr()),Math.min(300,window.innerWidth-80)); }).catch(()=>{ const b=document.getElementById('v9QrBox'); if(b) b.innerHTML='<div class="error-msg">QR library load nahi hui — internet check karein. 6 digit code neeche hai.</div>'; }); }
+  if(t==='idCard') idQrFill();
+  if(STATE.session&&officeMobile()) presenceStart(); else presenceStop();
+  statsPublishSoon();
+}
+
+/* ---------- Auto logout limits (device ke hisaab se) ---------- */
+function limitsFor(role){
+  const lap=isRegDev(), b=bizCfg(), m=60000;
+  if(lap){ const idle=(Number(b.laptopIdleMin)||60)*m; return {hid:idle,idle,hour:(b.laptopOutHour==null?20:Number(b.laptopOutHour)),lap:true}; }
+  return {hid:15*m,idle:15*m,hour:null,lap:false};
+}
+function cutoffPassed(role,at){ const L=limitsFor(role); if(!L.lap||L.hour==null) return false; const now=new Date(), c=new Date(now.getFullYear(),now.getMonth(),now.getDate(),L.hour,0,0).getTime(); return Date.now()>=c&&(Number(at)||0)<c; }
+
+const incFor=(ym,amt)=>ym<INC_FROM?Math.round(amt*INC_PCT):incMonth(amt);
+function teleIncTotal(sid){ let t=0; const M=amcMonthStats(); Object.keys(M).forEach(k=>{ const b=M[k].by[sid]; if(b) t+=incFor(k,b.amt); }); return t; }
+
 boot();
 </script>
 
