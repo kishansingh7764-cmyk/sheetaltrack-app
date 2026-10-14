@@ -238,6 +238,32 @@ html{scroll-padding-top:120px;}
   .loading-screen{min-height:70vh;}
 }
 @media (min-width:1700px){ body.desk .content,body.desk .content :is(div,section):has(>.card~.card){grid-template-columns:repeat(auto-fill,minmax(480px,1fr));} }
+/* ===== v9.2c Laptop compact (thoda chhota) ===== */
+@media (min-width:1024px){
+  :root{--sbw:214px;--tbh:52px;}
+  body.desk button,body.desk input,body.desk select,body.desk textarea{font-size:13px;}
+  body.desk input,body.desk select,body.desk textarea{padding:9px 12px;}
+  body.desk label{font-size:12px;}
+  body.desk .brand-text .name{font-size:16px;} body.desk .brand-text .who{font-size:11px;}
+  body.desk .topbar{padding:0 22px;} body.desk .topbar .brand-mark{width:30px!important;height:30px!important;font-size:15px!important;}
+  body.desk .logout-btn{padding:7px 13px;font-size:12px;}
+  body.desk .bottomnav{padding:14px 10px;gap:2px;}
+  body.desk .navbtn,body.desk .bottomnav.dense .navbtn{padding:9px 12px;gap:11px;font-size:13px;}
+  body.desk .bottomnav .navbtn .nl{font-size:13px;} body.desk .navbtn .ic,body.desk .bottomnav.dense .navbtn .ic{font-size:16px;width:22px;}
+  body.desk .content{padding:22px 32px 60px;}
+  body.desk .content,body.desk .content :is(div,section):has(>.card~.card){grid-template-columns:repeat(auto-fill,minmax(380px,1fr));gap:12px 16px;}
+  body.desk .card{padding:13px 16px;border-radius:14px;}
+  body.desk .stat-card{padding:15px 18px;} body.desk .stat-num{font-size:26px;} body.desk .stat-label{font-size:11.5px;}
+  body.desk .section-title{font-size:17px;} body.desk .section-sub{font-size:12px;}
+  body.desk .item-name{font-size:14px;} body.desk .item-sub{font-size:12.5px;}
+  body.desk .pill{font-size:10.5px;padding:2px 9px;}
+  body.desk .tabbtn{padding:7px 14px;font-size:12.5px;}
+  body.desk .mini-btn{padding:7px 11px;font-size:12px;min-width:0;}
+  body.desk .primary-btn{padding:11px;font-size:13.5px;} body.desk .ghost-btn{padding:10px;font-size:13px;}
+  body.desk .modal-sheet{max-width:660px;padding:20px 24px;} body.desk .modal-head{top:-20px;margin:-20px -24px 14px;padding:20px 24px 12px;} body.desk .modal-head h3{font-size:17px;}
+  body.desk .fab{width:52px;height:52px;border-radius:16px;}
+}
+
 </style>
 </head>
 <body>
@@ -783,11 +809,11 @@ async function doAdminLogin(pin, recoveryA){
     const newAdmin={id:uid(),name:'Admin',phone:'',role:'admin',pin,recoveryA:recoveryA.trim().toLowerCase()};
     STATE.staff.push(newAdmin);
     await saveKey(SKEY.STAFF, STATE.staff);
-    STATE.session={staffId:newAdmin.id, role:'admin', name:'Admin'}; auditLogin(newAdmin.id,'Admin','admin'); linkAuthUid(newAdmin.id,'admin','Admin');
+    STATE.sessClaim=true; STATE.session={staffId:newAdmin.id, role:'admin', name:'Admin'}; auditLogin(newAdmin.id,'Admin','admin'); linkAuthUid(newAdmin.id,'admin','Admin');
     loginError=''; STATE.view='dashboard'; render(); return;
   }
   if(admin.pin===pin){
-    STATE.session={staffId:admin.id, role:'admin', name:admin.name}; auditLogin(admin.id,admin.name,'admin'); linkAuthUid(admin.id,'admin',admin.name);
+    STATE.sessClaim=true; STATE.session={staffId:admin.id, role:'admin', name:admin.name}; auditLogin(admin.id,admin.name,'admin'); linkAuthUid(admin.id,'admin',admin.name);
     loginError=''; STATE.view='dashboard'; render();
   }else{ loginError='Galat PIN'; render(); }
 }
@@ -805,7 +831,7 @@ async function doStaffLogin(staffId, pin){
   if(!s){ loginError='Select karein'; render(); return; }
   if(s.pin===pin){
     if(s.role==='subadmin'||s.role==='telecaller') await refreshDevices();
-    STATE.session={staffId:s.id, role:s.role, name:s.name, at:Date.now()}; auditLogin(s.id,s.name,s.role); linkAuthUid(s.id,s.role,s.name);
+    STATE.sessClaim=true; STATE.session={staffId:s.id, role:s.role, name:s.name, at:Date.now()}; auditLogin(s.id,s.name,s.role); linkAuthUid(s.id,s.role,s.name);
     loginError=''; let seenP=false; try{ seenP=!!localStorage.getItem('st_perm_seen_'+s.id); }catch(e){}
     if(s.role==='technician'){
       STATE.view='techhome'; STATE.locOK=undefined;
@@ -2991,8 +3017,15 @@ setInterval(()=>{ if(STATE.session&&STATE.view==='leads'&&!document.hidden) auto
 setInterval(()=>{ if(!STATE.session||document.hidden) return; markSeen(); if(cutoffPassed(STATE.session.role,STATE.session.at)) autoLogout('Raat ho gayi, isliye logout ho gaya'); else if(Date.now()-lastActiveTs>limitsFor(STATE.session.role).idle) autoLogout('Koi activity nahi hui, isliye logout ho gaya'); },30000);
 /* Refresh par login na maange: session is device ke localStorage mein 30 din tak rehta hai (PIN save nahi hota). Logout dabane par hat jata hai. */
 const SESS_KEY='st_session_v1', SESS_DAYS=30;
-function saveSessionLocal(){ try{ if(!STATE.session) return; if(!STATE.session.at) STATE.session.at=Date.now(); const _sv=JSON.stringify({s:STATE.session, view:(STATE.view&&STATE.view!=='customerProfile')?STATE.view:'', ts:Date.now()}); try{ sessionStorage.setItem(SESS_KEY,_sv); }catch(_){} localStorage.setItem(SESS_KEY,_sv); }catch(e){} }
-function clearSessionLocal(){ try{ sessionStorage.removeItem(SESS_KEY); }catch(e){} try{ localStorage.removeItem(SESS_KEY); }catch(e){} }
+const TAB_ID=(()=>{ try{ let t=sessionStorage.getItem('st_tab'); if(!t){ t='T'+Math.random().toString(36).slice(2,10); sessionStorage.setItem('st_tab',t); } return t; }catch(e){ return 'T'+Math.random().toString(36).slice(2,10); } })();
+function saveSessionLocal(claim){ try{ if(!STATE.session) return; if(!STATE.session.at) STATE.session.at=Date.now(); if(claim===true) STATE.sessClaim=true;
+  const _sv=JSON.stringify({s:STATE.session, view:(STATE.view&&STATE.view!=='customerProfile')?STATE.view:'', ts:Date.now(), tid:TAB_ID});
+  try{ sessionStorage.setItem(SESS_KEY,_sv); }catch(_){}
+  /* localStorage: doosre tab/user ka session overwrite na ho — sirf login karne wala tab (claim) ya wahi user likhe */
+  let cur=null; try{ cur=JSON.parse(localStorage.getItem(SESS_KEY)||'null'); }catch(_){}
+  if(STATE.sessClaim||!cur||!cur.s||cur.tid===TAB_ID||cur.s.staffId===STATE.session.staffId){ localStorage.setItem(SESS_KEY,_sv); STATE.sessClaim=false; }
+ }catch(e){} }
+function clearSessionLocal(){ try{ sessionStorage.removeItem(SESS_KEY); }catch(e){} try{ const cur=JSON.parse(localStorage.getItem(SESS_KEY)||'null'); if(!cur||!cur.s||cur.tid===TAB_ID||!STATE.session||cur.s.staffId===STATE.session.staffId) localStorage.removeItem(SESS_KEY); }catch(e){ try{ localStorage.removeItem(SESS_KEY); }catch(_){} } }
 function restoreSession(){
   if(STATE.session) return;
   try{
@@ -3536,7 +3569,7 @@ function renderCustomerProfile(){
     ${convertBtnsHtml(c)}
       <div class="item-sub" style="margin-top:6px;">${c.phone||''}${c.phone2?' / '+c.phone2:''}${c.email?' · '+c.email:''}</div>
       <div class="item-sub">${c.address||''}${c.landmark?', '+c.landmark:''}${c.city?', '+c.city:''}${c.state?', '+c.state:''}${c.pincode?' - '+c.pincode:''}</div>
-      <div class="card-actions" style="margin-top:10px;">${c.phone?`<a class="mini-btn primary" style="text-decoration:none;" href="tel:${c.phone}">📞 Call</a>`:''}${c.phone?`<a class="mini-btn" style="text-decoration:none;" href="https://wa.me/${waNum(c.phone)}">💬 WhatsApp</a>`:''}${STATE.session.role==='technician'?'':`<button class="mini-btn" data-act="editcust" data-id="${c.id}">✏️ Details Badlein</button><button class="mini-btn primary" data-act="newjobfor" data-id="${c.id}">➕ Job Banao</button>${isMoneyRole()?`<button class="mini-btn" data-act="newbill" data-id="${c.id}">🧾 Bill Banao</button>`:''}${c.type==='amc'?`<button class="mini-btn" data-act="renewamc" data-id="${c.id}">🔁 Renewal Karein</button>`:''}`}</div>
+      <div class="card-actions" style="margin-top:10px;">${c.phone?`<a class="mini-btn primary" style="text-decoration:none;" href="tel:${c.phone}">📞 Call</a>`:''}${c.phone?`<a class="mini-btn" style="text-decoration:none;" href="https://wa.me/${waNum(c.phone)}">💬 WhatsApp</a>`:''}${STATE.session.role==='technician'?'':`<button class="mini-btn" data-act="editcust" data-id="${c.id}">✏️ Details Badlein</button><button class="mini-btn primary" data-act="newjobfor" data-id="${c.id}">➕ Job Banao</button>${isMoneyRole()?`<button class="mini-btn" data-act="newbill" data-id="${c.id}">🧾 Bill Banao</button>`:''}${canNewAmc(c)?`<button class="mini-btn primary" data-act="newamc" data-id="${c.id}">🆕 Naya AMC</button>`:''}${c.type==='amc'?`<button class="mini-btn" data-act="renewamc" data-id="${c.id}">🔁 Renewal Karein</button>`:''}`}</div>
     </div>
     ${STATE.session.role==='technician'?'':amcDetailsHtml(c)+acCardHtml(c)+amcHistoryHtml(c)+(STATE.session.role==='admin'?billHistoryHtml(c):'')}
     ${c.type==='amc'?`<div class="card">
@@ -3878,9 +3911,9 @@ function custCardX(c){
   else if(c.lastService){ const due=addMonths(c.lastService,c.intervalMonths); const d=daysUntil(due); pillClass=d<0?'pill-red':d<=7?'pill-amber':'pill-green'; pillText=d<0?Math.abs(d)+'d overdue':d+'d left'; }
   const head=`<div class="row-between" style="align-items:flex-start;gap:8px;"><div style="min-width:0;"><span data-viewcust="${c.id}" class="item-name" style="cursor:pointer;text-decoration:underline;color:var(--teal);">${esc(c.name)} ›</span> <span class="pill ${customerTypePill(c.type)}" style="margin-left:4px;">${customerTypeLabel(c.type)}</span><div class="item-sub">${esc(c.phone||'no phone')}${c.phone2?' / '+esc(c.phone2):''}</div>${amcStatusOf(c)==='lapsed'?`<div class="item-sub" style="color:#c0392b;font-weight:600;">🔴 Renewal nahi hui / Cancel</div>`:amcStatusOf(c)==='inactive'?`<div class="item-sub" style="color:var(--amber);font-weight:600;">⚪ Inactive — renewal baaki</div>`:amcStatusOf(c)==='active'?`<div class="item-sub" style="color:#1e8e5a;font-weight:600;">🟢 Active</div>`:''}</div>${pillText?`<span class="pill ${pillClass}" style="flex:none;">${pillText}</span>`:''}</div>`;
   const navU=(c.address||c.pincode)?'https://www.google.com/maps/dir/?api=1&destination='+encodeURIComponent([c.address,c.city,c.pincode].filter(Boolean).join(', ')):'';
-  const quick=`${c.phone?`<a class="mini-btn" style="text-decoration:none;" href="tel:${esc(c.phone)}">📞 Call</a>`:''}${navU?`<a class="mini-btn" style="text-decoration:none;" target="_blank" rel="noopener" href="${esc(navU)}">🧭 Navigate</a>`:''}${STATE.session.role!=='technician'?`<button class="mini-btn" data-act="newjobfor" data-id="${c.id}">➕ Job Banao</button>`:''}`;
+  const quick=`${c.phone?`<a class="mini-btn" style="text-decoration:none;" href="tel:${esc(c.phone)}">📞 Call</a>`:''}${navU?`<a class="mini-btn" style="text-decoration:none;" target="_blank" rel="noopener" href="${esc(navU)}">🧭 Navigate</a>`:''}${STATE.session.role!=='technician'?`<button class="mini-btn" data-act="newjobfor" data-id="${c.id}">➕ Job Banao</button>`:''}${canNewAmc(c)?`<button class="mini-btn primary" data-act="newamc" data-id="${c.id}">🆕 Naya AMC</button>`:''}`;
   const more=`<div class="item-sub">📍 ${esc(c.address||'no address')}${c.pincode?' - '+esc(c.pincode):''}</div>${c.type==='amc'&&c.brand?`<div class="item-sub">❄️ ${esc(c.brand)} ${esc(c.model||'')}</div>`:''}${c.installDate?`<div class="item-sub">🛠 Install: ${fmtDate(c.installDate)}${c.leadTelecaller?' · 📞 '+esc(c.leadTelecaller):''}</div>`:(c.leadTelecaller?`<div class="item-sub">📞 Telecaller: ${esc(c.leadTelecaller)}</div>`:'')}${c.amcHistory&&c.amcHistory.length>1?`<div class="item-sub">🔁 ${c.amcHistory.length-1} baar renewal</div>`:''}
-    <div class="card-actions" style="margin-top:8px;">${c.phone?`<a class="mini-btn" style="text-decoration:none;" href="https://wa.me/${waNum(c.phone)}">💬 WhatsApp</a>`:''}<button class="mini-btn primary" data-act="service" data-id="${c.id}">Service ho gaya</button><button class="mini-btn" data-act="editcust" data-id="${c.id}">Edit</button><button class="mini-btn" data-act="viewcust" data-id="${c.id}">Profile</button>${STATE.session.role==='admin'?`<button class="mini-btn danger" data-act="delcust" data-id="${c.id}">Delete</button>`:''}</div>`;
+    <div class="card-actions" style="margin-top:8px;">${c.phone?`<a class="mini-btn" style="text-decoration:none;" href="https://wa.me/${waNum(c.phone)}">💬 WhatsApp</a>`:''}<button class="mini-btn primary" data-act="service" data-id="${c.id}">Service ho gaya</button><button class="mini-btn" data-v9="cshare" data-id="${c.id}">📤 Share</button><button class="mini-btn" data-act="viewcust" data-id="${c.id}">Profile</button>${STATE.session.role==='admin'?`<button class="mini-btn danger" data-act="delcust" data-id="${c.id}">Delete</button>`:''}</div>`;
   return xCard('cu:'+c.id,head,quick,more);
 }
 
@@ -4609,7 +4642,7 @@ function modalHtml(){
   } else if(activeModal.type==='leadDetail'){
     inner=leadDetailInner(activeModal.data);
   } else if(activeModal.type==='leadAssign'){
-    const d=activeModal.data, l=(STATE.leads||[]).find(x=>x.id===d.id)||{};
+    const d=activeModal.data, l=d.custId?custAsLead(d.custId):((STATE.leads||[]).find(x=>x.id===d.id)||{});
     inner=`<div class="modal-head"><h3>${d.kind==='amc'?'✅ AMC Bana Do':'🔧 One-time Service'}</h3><button class="close-x" id="modalClose">×</button></div><div class="card"><div class="item-name">${esc(l.customer||'')}</div><div class="item-sub">📞 ${esc(l.mobile||'')}</div></div>${d.kind==='amc'?`<div class="field"><label>Ye AMC kab ki hai?</label><select id="f_laWhen"><option value="new">Nayi AMC — technician ko job dena hai</option><option value="past">Purani date ki — AMC ho chuki hai (sirf record, job nahi banegi)</option></select></div>`:''}<div id="laNew"><div class="field"><label>Technician abhi chunein (job me dobara nahi poochhenge)</label><select id="f_ltech"><option value="">-- Baad me / Unassigned --</option>${techOptionsHtml(todayStr(),'')}</select></div><div class="field"><label>Job ki Date</label>${dmyPickHtml('la',todayStr())}</div></div>${d.kind==='amc'?`<div id="laPast" style="display:none;"><div class="field"><label>AMC kis date se shuru hui?</label>${dmyPickHtml('pa','')}</div><div style="display:flex;gap:8px;"><div class="field" style="flex:1;"><label>Kitne saal</label><select id="f_paYears"><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option></select></div><div class="field" style="flex:1;"><label>Kul services</label><input id="f_paTotal" type="number" min="1" max="60" value="4" inputmode="numeric"></div></div><div style="display:flex;gap:8px;"><div class="field" style="flex:1;"><label>Amount (₹)</label><input id="f_paAmt" type="number" min="0" inputmode="numeric" placeholder="jaise 3500"></div><div class="field" style="flex:1;"><label>Payment</label><select id="f_paMode"><option value="cash">Cash</option><option value="online">Online</option><option value="cheque">Cheque</option><option value="">Pata nahi</option></select></div></div><div class="field"><label>Ab tak kitni service ho chuki?</label><select id="f_paDone">${[0,1,2,3,4,5,6,7,8,9,10,11,12].map(n=>`<option value="${n}">${n}</option>`).join('')}</select></div><div id="paRows"></div><div class="item-sub" id="paLeft" style="margin-bottom:8px;"></div><div class="field"><label>Details / Note (optional)</label><textarea id="f_paNote" rows="2" placeholder="AC, brand, koi khas baat"></textarea></div></div>`:''}<button class="primary-btn" id="modalSave">Job Banao</button>`;
     setTimeout(wireLeadAssign,0);
   } else if(activeModal.type==='nameMerge'){
@@ -4943,6 +4976,7 @@ function bindShellEvents(){
     else if(act==='duerecv'){ if(STATE.session.role==='admin'){ activeModal={type:'dueRecv',data:{ref:id}}; render(); } }
     else if(act==='billimport'){ if(STATE.session.role==='admin'){ activeModal={type:'billImport',data:{}}; render(); } }
     else if(act==='billlink'){ if(isMoneyRole()){ activeModal={type:'billLink',data:{id}}; render(); } }
+    else if(act==='newamc'){ if(isMoneyRole()){ activeModal={type:'leadAssign',data:{custId:id,kind:'amc'}}; render(); } }
     else if(act==='renewamc'){ if(isMoneyRole()){ activeModal={type:'amcRenew',data:{id}}; render(); } }
     else if(act==='bulkdone'){ activeModal={type:'bulkDone',data:{text:'',date:todayStr(),preview:null}}; render(); }
     else if(act==='leadundone'){ await undoLeadDone(id); }
@@ -5207,6 +5241,8 @@ function bindShellEvents(){
         activeModal=null; jobCustQuery=''; jobCustSelectedId=''; render();
       } else if(activeModal.type==='leadAssign'){
         const d=activeModal.data, tech=val('f_ltech'), date=dmyVal('la');
+        if(d.custId){ if(val('f_laWhen')==='past'){ const pf=readPastAmcForm(); if(pf.err){ showToast(pf.err); resetBtn(); return; } activeModal=null; render(); await customerNewAmc(d.custId,{past:pf}); return; }
+          if(!date){ showToast('Sahi date chunein'); return; } if(tech&&isOnLeaveOn(tech,date)){ showToast('⚠️ Ye technician us din chhutti par hai — dusra chunein'); return; } activeModal=null; render(); await customerNewAmc(d.custId,{tech,date}); return; }
         if(d.kind==='amc'&&val('f_laWhen')==='past'){ const pf=readPastAmcForm(); if(pf.err){ showToast(pf.err); resetBtn(); return; } activeModal=null; render(); await convertLeadToPastAmc(d.id,pf); return; }
         if(!date){ showToast('Sahi date chunein'); return; }
         if(tech&&isOnLeaveOn(tech,date)){ showToast('⚠️ Ye technician us din chhutti par hai — dusra chunein'); return; }
@@ -5364,6 +5400,66 @@ async function convertLeadToPastAmc(id,f){
   await saveKey(SKEY.LEADS, STATE.leads);
   showToast('✅ Purani AMC record ho gayi — '+f.done+'/'+f.total+' service, koi job nahi bani');
   STATE.customerDetailId=cust.id; STATE.backView=STATE.view; STATE.view='customerProfile'; render();
+}
+
+/* ===== v9.2: One-time / Inactive / Cancel customer ko Naya AMC (technician job ya purani date ki entry) ===== */
+function canNewAmc(c){ if(!isMoneyRole()) return false; const t=c.type||'amc'; return t==='amc'?amcStatusOf(c)!=='active':true; }
+function custAsLead(id){ const c=STATE.customers.find(x=>x.id===id)||{}; return {customer:c.name||'',mobile:c.phone||''}; }
+function seedLegacyHist(c){ if(c.type==='amc'&&!(c.amcHistory&&c.amcHistory.length)&&c.activationDate){ c.amcHistory=[{start:c.activationDate,end:c.expiryDate||'',years:1,units:c.units||0,amount:Number(c.amcAmount)||0,services:(c.serviceLog||[]).map(x=>ymd(new Date(x.date))),tech:'',teli:String(c.leadTelecaller||((c.autoIncentive||c.sourceType==='telecaller')?c.incentiveTo:'')||''),desc:'',renewalNote:'',status:'active',srcRow:0}]; } }
+function closePrevContract(c,start){ const h=c.amcHistory; if(h&&h.length){ const last=h[h.length-1]; if(last.status!=='lapsed'){ last.status='renewed'; last.renewedOn=start; } } }
+async function customerNewAmc(cid,opt){
+  const c=STATE.customers.find(x=>x.id===cid); if(!c) return; const by=(STATE.session&&STATE.session.name)||'', now=Date.now();
+  seedLegacyHist(c);
+  if(opt.past){
+    const f=opt.past, end=addMonths(f.start,12*f.years), lastSvc=f.svcs.length?f.svcs[f.svcs.length-1].date:'';
+    const hist={start:f.start,end,years:f.years,units:0,amount:f.amount,services:f.svcs.map(x=>x.date),svcDetails:f.svcs.map(x=>({date:x.date,tech:x.tech,note:x.note})),tech:'',teli:'',desc:f.note,renewalNote:'',status:end<todayStr()?'expired':'active',mode:normMode(f.mode),srcRow:0,inApp:true,pastEntry:true,by,at:now};
+    const log=f.svcs.map((x,i)=>({date:new Date(x.date+'T12:00:00').getTime(),visitNo:i+1,manual:false,pastEntry:true,tech:x.tech,note:x.note,by:x.tech||'(purani entry)'}));
+    const newer=!c.activationDate||c.type!=='amc'||f.start>=c.activationDate;
+    if(newer) closePrevContract(c,f.start);
+    c.type='amc'; c.amcHistory=(c.amcHistory||[]).concat(hist);
+    if(newer){ c.activationDate=f.start; c.expiryDate=end; c.totalServices=f.total; c.servicesDone=f.done; c.amcAmount=f.amount||0; c.serviceLog=log; if(lastSvc) c.lastService=lastSvc; c.amcStatus='active'; }
+    if(!c.amcName) c.amcName='AMC'; if(f.note) c.notes=(c.notes?c.notes+'\n':'')+f.note;
+    await saveKey(SKEY.CUSTOMERS,STATE.customers);
+    showToast('✅ Purani AMC record ho gayi — '+f.done+'/'+f.total+' service, koi job nahi bani');
+  } else {
+    const date=opt.date||todayStr(), end=addMonths(date,12);
+    closePrevContract(c,date);
+    c.amcHistory=(c.amcHistory||[]).concat({start:date,end,years:1,units:c.units||0,amount:0,services:[],tech:'',teli:'',desc:'Naya AMC (customer profile se)',renewalNote:'',status:'active',srcRow:0,inApp:true,by,at:now});
+    c.type='amc'; c.activationDate=date; c.expiryDate=end; c.totalServices=4; c.servicesDone=0; c.amcAmount=0; c.amcStatus='active'; c.serviceLog=[]; if(!c.amcName) c.amcName='AMC';
+    await saveKey(SKEY.CUSTOMERS,STATE.customers);
+    const j={id:uid(),customerId:c.id,title:'New AMC Visit',tag:'AMC',amcVisit:false,assignedTo:opt.tech||'',status:'pending',date,notes:'Customer profile se naya AMC',amount:0,checklist:[],assignN:(opt.tech?1:0),updAt:now,createdAt:now,history:[{s:'pending',t:now,by,why:'Naya AMC (customer profile se)'}]};
+    STATE.jobs.push(j); await saveKey(SKEY.JOBS,STATE.jobs);
+    showToast(opt.tech?'✅ Naya AMC + Job ban gayi — '+nStaff(opt.tech)+' ko assign ho gayi':'✅ Naya AMC + Job ban gayi (technician baad me assign karein)');
+  }
+  STATE.customerDetailId=c.id; STATE.backView=(STATE.view!=='customerProfile'?STATE.view:STATE.backView); STATE.view='customerProfile'; render();
+}
+
+/* ===== v9.2c: Customer / AMC details Share (staff ya kisi bhi number par) ===== */
+function custShareText(c){
+  const b=bizCfg(), st=amcStatusOf(c), addr=[c.address,c.landmark,c.city,c.pincode].filter(Boolean).join(', ');
+  const L=['*'+(b.name||'Super Air Cool')+' — Customer Details*','','Naam: '+(c.name||''),'Phone: '+(c.phone||'')+(c.phone2?' / '+c.phone2:'')];
+  if(addr){ L.push('Address: '+addr,'Map: https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(addr)); }
+  if(c.brand||c.model) L.push('AC: '+[c.brand,c.model,c.acType].filter(Boolean).join(' '));
+  if((c.type||'amc')==='amc'){ L.push('AMC: '+(c.activationDate?fmtDate(c.activationDate):'—')+' → '+(c.expiryDate?fmtDate(c.expiryDate):'—')+(c.totalServices?' · Services '+(c.servicesDone||0)+'/'+c.totalServices:''),'Status: '+({active:'Active',inactive:'Inactive',lapsed:'Cancel'}[st]||'')); }
+  else L.push('Type: '+customerTypeLabel(c.type));
+  if(c.notes) L.push('Note: '+String(c.notes).slice(0,200));
+  return L.join('\n');
+}
+function custShareHtml(d){
+  const c=STATE.customers.find(x=>x.id===d.id)||{}, staff=(STATE.staff||[]).filter(s=>!s.deleted&&waNum(s.phone));
+  return `<div class="modal-head"><h3>📤 Share — ${esc(c.name||'')}</h3><button class="close-x" id="modalClose">×</button></div>
+    <div class="field"><label>Message (badal bhi sakte hain)</label><textarea id="v9_cshtxt" rows="9">${esc(custShareText(c))}</textarea></div>
+    <div class="field"><label>Team member ko bhejein (WhatsApp)</label><div style="display:flex;gap:8px;"><select id="v9_cshstaff"><option value="">— Chunein —</option>${staff.map(s=>`<option value="${esc(s.id)}">${esc(s.name)} (${roleLabel(s.role)})</option>`).join('')}</select><button class="mini-btn primary" data-v9="cshwa" data-id="${esc(d.id)}" style="flex:none;">💬 Bhejein</button></div></div>
+    <div class="field"><label>Kisi bhi number par (10 digit)</label><div style="display:flex;gap:8px;"><input id="v9_cshnum" inputmode="numeric" maxlength="10" placeholder="Mobile number"><button class="mini-btn primary" data-v9="cshnum" data-id="${esc(d.id)}" style="flex:none;">💬 Bhejein</button></div></div>
+    <div class="card-actions"><button class="mini-btn" data-v9="cshsys" data-id="${esc(d.id)}">📤 Aur apps se share</button><button class="mini-btn" data-v9="cshcopy" data-id="${esc(d.id)}">📋 Copy</button></div>`;
+}
+async function custShareAct(a,el,val){
+  if(a==='cshare'){ activeModal={type:'custShare',data:{id:el.dataset.id}}; render(); return; }
+  const txt=((document.getElementById('v9_cshtxt')||{}).value||'').trim(); if(!txt){ showToast('Message khali hai'); return; }
+  if(a==='cshwa'){ const s=(STATE.staff||[]).find(x=>x.id===val('v9_cshstaff')); if(!s){ showToast('Team member chunein'); return; } window.open('https://wa.me/'+waNum(s.phone)+'?text='+encodeURIComponent(txt),'_blank'); }
+  else if(a==='cshnum'){ const n=val('v9_cshnum').replace(/\D/g,'').slice(-10); if(n.length!==10){ showToast('10 digit ka number likhein'); return; } window.open('https://wa.me/91'+n+'?text='+encodeURIComponent(txt),'_blank'); }
+  else if(a==='cshsys'){ if(navigator.share){ try{ await navigator.share({text:txt}); }catch(e){} } else { try{ await navigator.clipboard.writeText(txt); showToast('Share option nahi mila — message copy ho gaya'); }catch(e){ showToast('Share is device par available nahi'); } } }
+  else if(a==='cshcopy'){ try{ await navigator.clipboard.writeText(txt); showToast('Copy ho gaya'); }catch(e){ const t=document.getElementById('v9_cshtxt'); if(t){ t.select(); document.execCommand('copy'); showToast('Copy ho gaya'); } } }
 }
 function paintAmcNote(){
   const box=document.getElementById('amcVisitNote'); if(!box) return;
@@ -5679,6 +5775,7 @@ document.addEventListener('click',async ev=>{
   else if(a==='idsave'){ const s=STATE.staff.find(x=>x.id===id); if(s){ s.bloodGroup=val('v9_bg').slice(0,5); s.emergency=val('v9_em').replace(/\D/g,'').slice(0,10); await saveKey(SKEY.STAFF,STATE.staff); showToast('Save ho gaya'); render(); } }
   else if(a==='idblock'){ const s=STATE.staff.find(x=>x.id===id); if(s){ s.idBlocked=!s.idBlocked; await saveKey(SKEY.STAFF,STATE.staff); showToast(s.idBlocked?'ID block ho gaya':'ID valid ho gaya'); render(); } }
   else if(a==='idpdf'||a==='idimg'){ const s=STATE.staff.find(x=>x.id===id); if(s){ showToast('Tayyar ho raha hai…'); try{ await idRender(a==='idpdf'?'pdf':'img',s); }catch(e){ console.error(e); showToast('Download nahi ho paya — internet check karein'); } } }
+  else if(/^csh/.test(a)){ await custShareAct(a,el,val); }
   else if(/^st(item|move|hist|saveitem|savemove|delmove|delitem)$/.test(a)){ await stockAct(a,el,val); }
   else if(a==='idprint'){ const s=STATE.staff.find(x=>x.id===id); if(s) idPrint(s); }
   else if(a==='idwa'){ const s=STATE.staff.find(x=>x.id===id), n=val('v9_idwa').replace(/\D/g,''); if(!s) return; if(n.length!==10){ showToast('Customer ka 10 digit number likhein'); return; } const txt='Namaste, '+(bizCfg().name||'Super Air Cool')+' ki taraf se '+s.name+' ('+ID_ROLE[s.role]+', ID '+s.idNo+') aapke yahan aa rahe hain. Pehchan verify karein: '+verifyUrl(s); window.open('https://wa.me/91'+n+'?text='+encodeURIComponent(txt),'_blank'); }
@@ -5695,6 +5792,7 @@ function v9ModalHtml(){
   if(t==='qrShow') return qrShowHtml();
   if(t==='idCard') return idCardInner(d);
   if(t==='stItem'||t==='stMove'||t==='stHist') return stockModalHtml(t,d);
+  if(t==='custShare') return custShareHtml(d);
   return null;
 }
 function v9PostRender(){
