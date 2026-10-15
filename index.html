@@ -3014,7 +3014,7 @@ function renderTechHome(){
   return `<div class="section-title">Namaste, ${esc(STATE.session.name||'')}</div>
     <div class="stat-grid"><div class="stat-card"><div class="stat-num">${today.length}</div><div class="stat-label">Aaj ki jobs</div></div><div class="stat-card"><div class="stat-num" style="color:var(--amber);">${open.length}</div><div class="stat-label">Baaki jobs</div></div></div>
     <div class="stat-grid"><div class="stat-card"><div class="stat-num" style="color:var(--green);">${doneToday}</div><div class="stat-label">Aaj complete</div></div><div class="stat-card"><div class="stat-num" style="font-size:18px;">${present?'✅ Present':'—'}</div><div class="stat-label">Aaj ki attendance</div></div></div>
-    <div class="item-sub" style="margin:4px 0 12px;"><span class="status-dot ${STATE.sharingLocation?'dot-live':'dot-stale'}"></span>${STATE.sharingLocation?'Location live hai':'Location shuru ho rahi hai...'}</div>
+    ${(STATE.locDenied||(STATE.perm&&STATE.perm.loc==='denied'))?`<div class="card" style="border:2px solid #c0392b;"><div class="item-name" style="color:#c0392b;">📍 Location band hai</div><div class="item-sub">Phone Settings me Location allow karein, tabhi attendance aur kaam chalega.</div></div>`:''}
     ${techMyIncHtml()}
     <div class="section-title">Agli jobs</div>
     ${open.length===0?`<div class="empty-state"><span class="ic">✅</span><p>Abhi koi job baaki nahi hai.</p></div>`:open.slice(0,5).map(j=>{ const c=STATE.customers.find(x=>x.id===j.customerId)||{}; return `<div class="card" data-navto="myjobs" style="cursor:pointer;"><div class="row-between"><div><div class="item-name">${esc(j.title||'Job')}</div><div class="item-sub">${esc(c.name||'')}${c.phone?' · '+esc(c.phone):''}</div><div class="item-sub">${esc((c.address||'').slice(0,70))}</div></div><span class="pill ${j.date===t?'pill-amber':'pill-grey'}">${j.date===t?'Aaj':fmtDate(j.date)}</span></div></div>`; }).join('')}
@@ -3315,6 +3315,33 @@ function inPeriodTs(ts, period){
   if(period==='year'){ return d.getFullYear()===now.getFullYear(); }
   return true;
 }
+function attentionHtml(dueSoon){
+  const role=STATE.session.role, adm=role==='admin', t=todayStr(); if(role!=='admin'&&role!=='subadmin') return '';
+  const T=[]; const add=(ic,n,label,sev,to,tab,extra)=>{ if(n>0) T.push({ic,n,label,sev,to,tab:tab||'',extra:extra||''}); };
+  // chhutti
+  const lv=(STATE.leaves||[]).filter(l=>l.status==='pending'&&(adm||l.role==='technician')).length; add('🏖',lv,'Chhutti approval baaki',2,'attendance');
+  // unassigned jobs
+  const un=(STATE.jobs||[]).filter(j=>j.status!=='done'&&j.status!=='rejected'&&!j.assignedTo).length; add('👤',un,'Job kisi ko assign nahi',2,'jobs');
+  // service overdue / due
+  const dl=(dueSoon||[]).map(c=>{ const due=c.dueDate||(c.type==='amc'?c.expiryDate:addMonths(c.lastService,c.intervalMonths)); return due?daysUntil(due):0; }), late=dl.filter(d=>d<0).length;
+  add('⏰',late,'Service ka time nikal gaya',2,'reminders'); add('📆',dl.length-late,'Service jaldi due',1,'reminders');
+  // today pending jobs
+  const tp=(STATE.jobs||[]).filter(j=>j.assignedTo&&j.date===t&&(j.status==='pending'||j.status==='ongoing'||j.status==='onhold')).length; add('🛠',tp,'Aaj ki jobs baaki',1,'jobs');
+  // absent today
+  const ab=(STATE.staff||[]).filter(x=>x.role!=='admin'&&!((STATE.attendance||{})[x.id]||{})[t]).length; add('🙋',ab,'Aaj IN nahi lagi',1,'attendance');
+  if(adm){
+    const ex=(STATE.jobs||[]).filter(j=>j.status==='done'&&!j.extra&&(Number(j.amount)||0)>0&&(j.completedAt||0)>=Date.now()-30*864e5&&!(j.tag==='AMC'&&j.amcVisit===false)).length; add('🔧',ex,'Extra kaam review baaki',1,'money','extra');
+    let dr=[]; try{ dr=dueRows(); }catch(e){} const dt=dr.reduce((a,r)=>a+(r.due||0),0); if(dr.length) T.push({ic:'💸',n:dr.length,label:'Customer ka paisa baaki',sev:2,to:'money',tab:'due',extra:rupee(dt)});
+    if(STATE.adv&&STATE.adv.list){ const ao=advOpen(); if(ao.length) T.push({ic:'💰',n:ao.length,label:'Staff advance baaki',sev:1,to:'staff',tab:'',extra:rupee(advSum(ao))}); } else if(typeof advLoad==='function') setTimeout(()=>advLoad(),0);
+  }
+  // low stock
+  if(STATE.inv&&STATE.inv.items){ const lo=STATE.inv.items.filter(it=>Number(it.low)>0&&invStock(STATE.inv,it.id)<=Number(it.low)).length; add('📦',lo,'Stock kam hai',2,'stock'); } else if(typeof invLoad==='function') setTimeout(()=>invLoad(),0);
+  // leads
+  const L=(STATE.leads||[]).filter(l=>!l.called&&!l.convertedJobId&&!l.dismissed); add('📇',L.filter(l=>!l.assignedTo&&!l.assignedName).length,'Lead kisi ko assign nahi',1,'leads'); add('📞',L.filter(l=>l.followUpDate&&l.followUpDate<=t).length,'Lead follow-up due',2,'leads');
+  T.sort((a,b)=>b.sev-a.sev);
+  const col=n=>n===2?'#c0392b':'#e08a00';
+  return `<div class="section-title" style="margin-top:0;">⚡ Zaroori — abhi dekhein</div>`+(T.length?`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(145px,1fr));gap:8px;margin-bottom:12px;">${T.map(x=>`<div data-v9="attgo" data-to="${x.to}" data-tab="${x.tab}" style="cursor:pointer;background:var(--card,#fff);border:1px solid var(--border);border-left:4px solid ${col(x.sev)};border-radius:12px;padding:8px 10px;"><div style="display:flex;align-items:center;gap:6px;"><span style="font-size:16px;">${x.ic}</span><span style="font-size:20px;font-weight:800;color:${col(x.sev)};">${x.n}</span></div><div class="item-sub" style="margin:2px 0 0;font-size:11.5px;line-height:1.25;">${x.label}${x.extra?'<br><b>'+x.extra+'</b>':''}</div></div>`).join('')}</div>`:`<div class="card" style="margin-bottom:12px;"><div class="item-sub">✅ Abhi kuch zaroori baaki nahi hai.</div></div>`);
+}
 function renderDashboard(){
   if(!STATE.taskPeriod) STATE.taskPeriod='total';
   const amcCustomers=STATE.customers.filter(c=>c.type==='amc' && c.expiryDate);
@@ -3347,6 +3374,7 @@ function renderDashboard(){
 
   return `
     ${STATE.session.role==='subadmin'?incCardHtml():''}
+    ${attentionHtml(dueSoon)}
     <div class="section-title">Aaj ka overview</div>${STATE.session.role==='admin'?`<div class="card" data-navto="daylog" style="cursor:pointer;background:var(--sky-pale);"><div class="row-between"><div><div class="item-name">📋 Aaj ka Hisaab</div><div class="item-sub">Kisne kya kiya, kya badla, kya delete hua — time ke saath, wapas karne ke option ke saath ›</div></div></div></div>`:''}${(STATE.session.role==='admin'&&(!(STATE.businessInfo||{}).lastBackupAt||Date.now()-STATE.businessInfo.lastBackupAt>7*864e5))?`<div class="card" data-act="gobackup" style="cursor:pointer;background:#fff4e0;"><div class="item-name" style="color:#8a5a0f;">💾 ${(STATE.businessInfo||{}).lastBackupAt?'Pichla backup '+Math.floor((Date.now()-STATE.businessInfo.lastBackupAt)/864e5)+' din pehle liya tha':'Abhi tak koi backup nahi liya'} — abhi lein ›</div></div>`:''}${(STATE.session.role!=='technician'&&STATE.jobs.some(j=>j.cancelReq&&j.cancelReq.status==='pending'))?`<div class="card" data-navto="jobs" style="cursor:pointer;background:#fdecea;"><div class="item-name" style="color:#a12a20;">❗ ${STATE.jobs.filter(j=>j.cancelReq&&j.cancelReq.status==='pending').length} cancel request office ke intezaar mein ›</div></div>`:''}
     <div class="stat-grid">
       <div class="stat-card" data-navto="customers" style="cursor:pointer;"><div class="stat-num">${STATE.customers.length}</div><div class="stat-label">Total Customers ›</div></div>
@@ -5811,6 +5839,7 @@ document.addEventListener('click',async ev=>{
   const el=ev.target.closest&&ev.target.closest('[data-v9]'); if(!el) return; const a=el.dataset.v9, id=el.dataset.id; const val=i=>((document.getElementById(i)||{}).value||'').trim();
   try{
   if(a==='scan'){ if(el.disabled) return; scanOpen(el.dataset.k); }
+  else if(a==='attgo'){ if(el.dataset.tab) MONEY.tab=el.dataset.tab; STATE.view=el.dataset.to; STATE.jobStatusFilter=''; STATE.jobPeriod=''; render(); }
   else if(a==='codego'){ await codeEntered((activeModal&&activeModal.data&&activeModal.data.kind)||'in'); }
   else if(a==='profsave'){ await profSave(); }
   else if(a==='verclose'){ STATE.verifyClosed=true; try{ history.replaceState({},'',location.pathname); }catch(e){} render(); }
@@ -5881,7 +5910,7 @@ async function invLoad(force){
   if(STATE.invBusy) return; if(!force&&STATE.inv&&Date.now()-(STATE.invAt||0)<30000) return;
   STATE.invBusy=true; STATE.invAt=Date.now();
   try{ const v=await loadKey(INV_KEY,{items:[],moves:[]}); STATE.inv={items:(v&&v.items)||[],moves:(v&&v.moves)||[]}; }catch(e){ STATE.inv=STATE.inv||{items:[],moves:[],err:true}; }
-  STATE.invBusy=false; if(STATE.view==='stock'&&!activeModal) render();
+  STATE.invBusy=false; if(STATE.view==='stock'&&!activeModal) render(); else if(STATE.view==='dashboard'&&!activeModal){ try{ bgRender(); }catch(e){} }
 }
 async function invMutate(fn){
   let cur; try{ cur=await loadKey(INV_KEY,{items:[],moves:[]}); }catch(e){ showToast('Stock load nahi hua — internet check karein'); return false; }
