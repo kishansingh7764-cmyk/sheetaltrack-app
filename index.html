@@ -2995,6 +2995,18 @@ function bindLocationGate(){
       {enableHighAccuracy:true, timeout:20000, maximumAge:0});
   };
 }
+function techMyIncHtml(){
+  const me=STATE.session.staffId, mk=todayStr().slice(0,7);
+  const L=(STATE.jobs||[]).filter(j=>j.assignedTo===me&&j.status==='done'&&j.extra&&j.extra.status==='confirmed'&&(j.completedAt?ymd(new Date(j.completedAt)):(j.date||'')).startsWith(mk))
+    .map(j=>{ const amt=Number(j.extra.amount)||0; return {j,amt,inc:Math.round(amt*0.05),paid:(Number(j.due)||0)<=0,date:j.completedAt?ymd(new Date(j.completedAt)):(j.date||'')}; }).sort((a,b)=>String(b.date).localeCompare(String(a.date)));
+  const tot=L.reduce((a,x)=>a+x.amt,0), got=L.filter(x=>x.paid).reduce((a,x)=>a+x.inc,0), hold=L.filter(x=>!x.paid).reduce((a,x)=>a+x.inc,0);
+  return `<div class="card" style="background:var(--sky-pale);"><div class="item-name">🔧 Mera Target aur Commission (is mahine)</div>
+    <div class="item-sub" style="margin:6px 0 6px;">🎯 Target: <b>${rupee(tot)}</b> / ${rupee(INC_TARGET)}</div>${incBarHtml(tot)}
+    <div style="margin-top:6px;font-size:${tot>=INC_TARGET?'18':'16'}px;font-weight:800;color:${incColor(tot)};">${tot>=INC_TARGET?'🎉 ₹1 lakh ka target pura!':rupee(Math.max(0,INC_TARGET-tot))+' baaki'}</div>
+    <div class="item-sub" style="margin:4px 0 0;">Repairing / extra kaam: <b>${rupee(tot)}</b> · 5% commission: <b style="color:var(--green);">${rupee(got)}</b>${hold?' · ⏳ Customer ka paisa baaki: <b style="color:#c0392b;">'+rupee(hold)+'</b>':''}</div>
+    ${L.length?`<details style="margin-top:6px;"><summary class="item-sub" style="cursor:pointer;">Details (${L.length})</summary>${L.slice(0,15).map(x=>{ const c=(STATE.customers||[]).find(y=>y.id===x.j.customerId); return `<div class="row-between" style="padding:4px 0;border-top:1px solid var(--border);"><div class="item-sub" style="margin:0;">${fmtDate(x.date)} · ${c?esc(c.name):'Customer'}<br>🔧 ${esc(x.j.extra.desc||'')} · ${rupee(x.amt)}</div><div class="item-sub" style="margin:0;text-align:right;">${rupee(x.inc)}<br>${x.paid?'✅':'⏳'}</div></div>`; }).join('')}</details>`:`<div class="item-sub" style="opacity:.8;margin-top:4px;">Abhi koi confirm extra kaam nahi. Office ki service job me repairing nikle aur Admin confirm kare to 5% yahan dikhega.</div>`}
+  </div>`;
+}
 function renderTechHome(){
   const me=STATE.session.staffId, t=todayStr(), mine=(STATE.jobs||[]).filter(j=>j.assignedTo===me);
   const today=mine.filter(j=>j.date===t), open=mine.filter(j=>j.status!=='done'&&j.status!=='rejected').sort((a,b)=>(a.date||'').localeCompare(b.date||''));
@@ -3003,6 +3015,7 @@ function renderTechHome(){
     <div class="stat-grid"><div class="stat-card"><div class="stat-num">${today.length}</div><div class="stat-label">Aaj ki jobs</div></div><div class="stat-card"><div class="stat-num" style="color:var(--amber);">${open.length}</div><div class="stat-label">Baaki jobs</div></div></div>
     <div class="stat-grid"><div class="stat-card"><div class="stat-num" style="color:var(--green);">${doneToday}</div><div class="stat-label">Aaj complete</div></div><div class="stat-card"><div class="stat-num" style="font-size:18px;">${present?'✅ Present':'—'}</div><div class="stat-label">Aaj ki attendance</div></div></div>
     <div class="item-sub" style="margin:4px 0 12px;"><span class="status-dot ${STATE.sharingLocation?'dot-live':'dot-stale'}"></span>${STATE.sharingLocation?'Location live hai':'Location shuru ho rahi hai...'}</div>
+    ${techMyIncHtml()}
     <div class="section-title">Agli jobs</div>
     ${open.length===0?`<div class="empty-state"><span class="ic">✅</span><p>Abhi koi job baaki nahi hai.</p></div>`:open.slice(0,5).map(j=>{ const c=STATE.customers.find(x=>x.id===j.customerId)||{}; return `<div class="card" data-navto="myjobs" style="cursor:pointer;"><div class="row-between"><div><div class="item-name">${esc(j.title||'Job')}</div><div class="item-sub">${esc(c.name||'')}${c.phone?' · '+esc(c.phone):''}</div><div class="item-sub">${esc((c.address||'').slice(0,70))}</div></div><span class="pill ${j.date===t?'pill-amber':'pill-grey'}">${j.date===t?'Aaj':fmtDate(j.date)}</span></div></div>`; }).join('')}
     <button class="ghost-btn" data-navto="myjobs" style="margin-top:10px;">Sab jobs dekhein</button>`;
@@ -3242,7 +3255,7 @@ function bindLoginEvents(){
 /* ============ App shell ============ */
 function navItemsFor(role){
   if(officeMobile()) return [{v:'mhome',ic:'🏠',label:'Home'},{v:'mattend',ic:'📅',label:'Attend.'},{v:'mprofile',ic:'👤',label:'Profile'}];
-  if(role==='admin') return [{v:'dashboard',ic:'🏠',label:'Home'},{v:'customers',ic:'🛡️',label:'AMC'},{v:'jobs',ic:'🧾',label:'Jobs'},{v:'money',ic:'💰',label:'Kamai'},{v:'stock',ic:'📦',label:'Stock'},{v:'leads',ic:'📇',label:'Leads'},{v:'staff',ic:'🧑‍🔧',label:'Team'},{v:'attendance',ic:'📅',label:'Attend.'},{v:'map',ic:'📍',label:'Map'},{v:'settings',ic:'⚙️',label:'Settings'}];
+  if(role==='admin') return [{v:'dashboard',ic:'🏠',label:'Home'},{v:'customers',ic:'🛡️',label:'AMC'},{v:'jobs',ic:'🧾',label:'Jobs'},{v:'money',ic:'💰',label:'Kamai'},{v:'stock',ic:'📦',label:'Stock'},{v:'leads',ic:'📇',label:'Leads'},{v:'staff',ic:'🧑‍🔧',label:'Team'},{v:'map',ic:'📍',label:'Map'},{v:'settings',ic:'⚙️',label:'Settings'}];
   if(role==='subadmin') return [{v:'dashboard',ic:'🏠',label:'Home'},{v:'customers',ic:'🛡️',label:'AMC'},{v:'jobs',ic:'🧾',label:'Jobs'},{v:'stock',ic:'📦',label:'Stock'},{v:'leads',ic:'📇',label:'Leads'},{v:'attendance',ic:'📅',label:'Attend.'},{v:'map',ic:'📍',label:'Map'},{v:'settings',ic:'⚙️',label:'Settings'}];
   if(role==='telecaller') return [{v:'leads',ic:'📇',label:'Leads'},{v:'attendance',ic:'📅',label:'Attend.'},{v:'settings',ic:'⚙️',label:'Profile'}];
   return [{v:'techhome',ic:'🏠',label:'Home'},{v:'myjobs',ic:'🛠️',label:'My Jobs'},{v:'attendance',ic:'📅',label:'Attend.'},{v:'settings',ic:'⚙️',label:'Profile'}];
@@ -3391,10 +3404,12 @@ function renderDashboard(){
     ${unassigned.length>0?`<div class="row-between" data-navto="jobs" style="cursor:pointer;margin-bottom:12px;"><div class="section-title" style="margin:0;">Unassigned Jobs (${unassigned.length})</div><span style="color:var(--ink-faint);font-size:18px;">›</span></div>${unassigned.slice(0,4).map(j=>{ const cust=STATE.customers.find(c=>c.id===j.customerId); return `<div class="card"><div class="row-between"><div><div class="item-name">${j.title}</div><div class="item-sub">${cust?cust.name:''}</div></div><span class="pill pill-amber">Assign karein</span></div></div>`; }).join('')}` :''}
     <div class="row-between" data-navto="map" style="cursor:pointer;margin-bottom:12px;"><div class="section-title" style="margin:0;">Team Status</div><span style="color:var(--ink-faint);font-size:18px;">›</span></div>
     ${techs.length===0?`<div class="empty-state"><span class="ic">🔧</span><p>Koi technician add nahi hai.</p></div>`:
-      techs.map(t=>{ const loc=STATE.locations[t.id]; const live=loc && (Date.now()-loc.ts)<10*60*1000; const pj=STATE.jobs.filter(j=>j.assignedTo===t.id&&j.status!=='done'&&j.status!=='rejected').length; return `<div class="card" data-viewstaff="${t.id}" style="cursor:pointer;"><div class="row-between"><div><div class="item-name"><span class="status-dot ${live?'dot-live':loc?'dot-stale':'dot-off'}"></span>${esc(t.name)} ›</div><div class="item-sub">${pj} kaam baaki</div></div><span class="pill ${live?'pill-green':'pill-grey'}">${live?'Live':'Offline'}</span></div></div>`; }).join('')}
+      techs.slice(0,5).map(t=>{ const loc=STATE.locations[t.id]; const live=loc && (Date.now()-loc.ts)<10*60*1000; const pj=STATE.jobs.filter(j=>j.assignedTo===t.id&&j.status!=='done'&&j.status!=='rejected').length; return `<div class="card" data-viewstaff="${t.id}" style="cursor:pointer;"><div class="row-between"><div><div class="item-name"><span class="status-dot ${live?'dot-live':loc?'dot-stale':'dot-off'}"></span>${esc(t.name)} ›</div><div class="item-sub">${pj} kaam baaki</div></div><span class="pill ${live?'pill-green':'pill-grey'}">${live?'Live':'Offline'}</span></div></div>`; }).join('')}
+    ${techs.length>5?`<div class="item-sub" data-navto="map" style="text-align:center;cursor:pointer;color:var(--teal);font-weight:600;padding:6px 0;">+${techs.length-5} aur — Map pe dekhein ›</div>`:''}
     <div class="row-between" data-navto="reminders" style="cursor:pointer;margin-bottom:12px;"><div class="section-title" style="margin:0;">Service due soon</div><span style="color:var(--ink-faint);font-size:18px;">›</span></div>
     ${(dueSoon.length+oneTimeDue.length)===0?`<div class="empty-state"><span class="ic">✅</span><p>Koi service due nahi hai agle kuch dinon mein</p></div>`:
-      [...dueSoon,...oneTimeDue].slice(0,6).map(c=>{ const due=c.dueDate||(c.type==='amc'?c.expiryDate:addMonths(c.lastService,c.intervalMonths)); const d=daysUntil(due); return `<div class="card" data-viewcust="${c.id}" style="cursor:pointer;"><div class="row-between"><div><div class="item-name">${esc(c.name)} ›</div><div class="item-sub">${esc(c.phone||'')}${c.address?' · '+esc(c.address):''}</div><div class="item-sub">${c.dueLabel||'Service Due'}</div></div><span class="pill ${d<0?'pill-red':'pill-amber'}">${d<0?Math.abs(d)+'d overdue':'in '+d+'d'}</span></div></div>`; }).join('')}
+      [...dueSoon,...oneTimeDue].slice(0,3).map(c=>{ const due=c.dueDate||(c.type==='amc'?c.expiryDate:addMonths(c.lastService,c.intervalMonths)); const d=daysUntil(due); return `<div class="card" data-viewcust="${c.id}" style="cursor:pointer;"><div class="row-between"><div><div class="item-name">${esc(c.name)} ›</div><div class="item-sub">${esc(c.phone||'')}${c.address?' · '+esc(c.address):''}</div><div class="item-sub">${c.dueLabel||'Service Due'}</div></div><span class="pill ${d<0?'pill-red':'pill-amber'}">${d<0?Math.abs(d)+'d overdue':'in '+d+'d'}</span></div></div>`; }).join('')}
+    ${(dueSoon.length+oneTimeDue.length)>3?`<div class="item-sub" data-navto="reminders" style="text-align:center;cursor:pointer;color:var(--teal);font-weight:600;padding:6px 0;">+${dueSoon.length+oneTimeDue.length-3} aur — sab dekhein ›</div>`:''}
   `;
 }
 
@@ -3790,7 +3805,10 @@ function renderJobs(){
 function renderStaff(){ if(STATE.session.role!=='admin') return '<div class="empty-state"><p>Sirf Admin ke liye</p></div>';
   const techs=STATE.staff.filter(s=>s.role==='technician'); const subs=STATE.staff.filter(s=>s.role==='subadmin'); const callers=STATE.staff.filter(s=>s.role==='telecaller');
   return `
+    ${teamSwitchHtml('staff')}
+    <div class="section-title" style="margin-top:0;">💸 Travel aur Advance</div>
     ${techs.length?travelAmountSummaryHtml():''}
+    ${advCardHtml()}
     <div class="item-sub" style="margin:0 0 8px;">Card par tap karein — poora kaam/history khulega. Naam par tap karein — profile.</div>
     <div class="section-title">Technicians (${techs.length})</div>
     ${techs.length===0?`<div class="empty-state"><span class="ic">🔧</span><p>Koi technician add nahi hai.</p></div>`:techs.map(t=>staffCardX(t,'delstaff')).join('')}
@@ -3912,7 +3930,7 @@ function xCard(key,head,quick,more,style){
 }
 function bottomNavHtml(nav){
   const dense=nav.length>6;
-  return `<div class="bottomnav${dense?' dense':''}">${nav.map(n=>`<button class="navbtn ${STATE.view===n.v?'active':''}" data-view="${n.v}"><span class="ic">${n.ic}</span><span class="nl">${n.label}</span></button>`).join('')}</div>`;
+  return `<div class="bottomnav${dense?' dense':''}">${nav.map(n=>`<button class="navbtn ${(STATE.view===n.v||(n.v==='staff'&&STATE.view==='attendance'&&STATE.session.role==='admin'))?'active':''}" data-view="${n.v}"><span class="ic">${n.ic}</span><span class="nl">${n.label}</span></button>`).join('')}</div>`;
 }
 /* ----- Customers (AMC list) ----- */
 function custCardX(c){
@@ -3923,7 +3941,7 @@ function custCardX(c){
   const navU=custMapUrl(c);
   const quick=`${c.phone?`<a class="mini-btn" style="text-decoration:none;" href="tel:${esc(c.phone)}">📞 Call</a>`:''}${navU?`<a class="mini-btn" style="text-decoration:none;" target="_blank" rel="noopener" href="${esc(navU)}">🧭 Navigate</a>`:''}${STATE.session.role!=='technician'?`<button class="mini-btn" data-act="newjobfor" data-id="${c.id}">➕ Job Banao</button>`:''}${canNewAmc(c)?`<button class="mini-btn primary" data-act="newamc" data-id="${c.id}">🆕 Naya AMC</button>`:''}`;
   const more=`<div class="item-sub">📍 ${esc(c.address||'no address')}${c.pincode?' - '+esc(c.pincode):''}${c.pin?' · <span style="color:#1e8e5a;font-weight:600;">✅ Pin saved</span>':''}</div>${c.type==='amc'&&c.brand?`<div class="item-sub">❄️ ${esc(c.brand)} ${esc(c.model||'')}</div>`:''}${c.installDate?`<div class="item-sub">🛠 Install: ${fmtDate(c.installDate)}${c.leadTelecaller?' · 📞 '+esc(c.leadTelecaller):''}</div>`:(c.leadTelecaller?`<div class="item-sub">📞 Telecaller: ${esc(c.leadTelecaller)}</div>`:'')}${c.amcHistory&&c.amcHistory.length>1?`<div class="item-sub">🔁 ${c.amcHistory.length-1} baar renewal</div>`:''}
-    <div class="card-actions" style="margin-top:8px;">${c.phone?`<a class="mini-btn" style="text-decoration:none;" href="https://wa.me/${waNum(c.phone)}">💬 WhatsApp</a>`:''}<button class="mini-btn primary" data-act="service" data-id="${c.id}">Service ho gaya</button><button class="mini-btn" data-v9="cpin" data-id="${c.id}">📍 ${c.pin?'Pin update':'Pin save'}</button><button class="mini-btn" data-v9="cshare" data-id="${c.id}">📤 Share</button><button class="mini-btn" data-act="viewcust" data-id="${c.id}">Profile</button>${STATE.session.role==='admin'?`<button class="mini-btn danger" data-act="delcust" data-id="${c.id}">Delete</button>`:''}</div>`;
+    <div class="card-actions" style="margin-top:8px;">${c.phone?`<a class="mini-btn" style="text-decoration:none;" href="https://wa.me/${waNum(c.phone)}">💬 WhatsApp</a>`:''}<button class="mini-btn primary" data-act="service" data-id="${c.id}">Service ho gaya</button><button class="mini-btn" data-v9="cpin" data-id="${c.id}">📍 ${c.pin?'Pin update':'Pin save'}</button><button class="mini-btn" data-v9="cshare" data-id="${c.id}">📤 Share</button>${STATE.session.role==='admin'?`<button class="mini-btn danger" data-act="delcust" data-id="${c.id}">Delete</button>`:''}</div>`;
   return xCard('cu:'+c.id,head,quick,more);
 }
 
@@ -4153,17 +4171,21 @@ function collBtn(key,total,lim,noun){
   return `<div style="text-align:center;margin:6px 0 10px;"><button class="mini-btn" data-act="colltoggle" data-k="${key}" style="flex:none;padding:5px 14px;font-size:12px;">${open?'▴ Kam dikhao':'▾ Poora dikhao ('+total+' '+(noun||'')+')'}</button></div>`;
 }
 const collOpen=k=>!!(STATE.coll||{})[k];
+function teamSwitchHtml(cur){
+  if(!STATE.session||STATE.session.role!=='admin') return '';
+  return `<div class="tabbar" style="margin-bottom:10px;"><button class="tabbtn ${cur==='staff'?'active':''}" data-navto="staff">🧑‍🔧 Staff</button><button class="tabbtn ${cur==='attendance'?'active':''}" data-navto="attendance">📅 Attendance</button></div>`;
+}
 function renderAdminAttendance(){
   const techs=STATE.staff.filter(s=>s.role!=='admin'), AL=5;
   const shown=collOpen('att')?techs:techs.slice(0,AL);
-  return `${leaveAdminHtml()}${travelSummaryHtml()}<div class="section-title">Team Attendance (${techs.length})</div>
+  return `${teamSwitchHtml('attendance')}${leaveAdminHtml()}${travelSummaryHtml()}<div class="section-title">Team Attendance (${techs.length})</div>
     ${techs.length===0?`<div class="empty-state"><span class="ic">📅</span><p>Koi staff add nahi hai.</p></div>`:`<div class="item-sub" style="margin:-4px 0 8px;">Card par tap karein — poori history. Naam par tap karein — profile.</div>`+shown.map(attCardX).join('')+collBtn('att',techs.length,AL,'staff')}
   `;
 }
 
 function settingsTabs(role){
   if(role!=='admin') return '';
-  const t=[['account','Account'],['biz','Business'],['team','Team PIN'],['dev','💻 Laptop/QR'],['data','Data'],['backup','Backup'],['mail','Email'],['adv','Advanced']], cur=STATE.setTab||'account';
+  const t=[['account','Account'],['biz','Business'],['team','Team PIN'],['dev','💻 Laptop/QR'],['data','Data & Backup'],['mail','Email'],['adv','Advanced']], cur=(STATE.setTab==='backup'?'data':STATE.setTab)||'account';
   return `<div class="tabbar">${t.map(([k,l])=>`<button class="tabbtn ${cur===k?'active':''}" data-settab="${k}">${l}</button>`).join('')}</div>`;
 }
 function settingsBody(role,extra){
@@ -4175,14 +4197,13 @@ function settingsBody(role,extra){
   return hd+tabs+(tab==='access'?settingsBody0(role,extra):tab==='leave'?leaveCardHtml():tab==='docs'?kycCardHtml(sid):auditHtml(sid));
 }
 function settingsBody0(role,extra){
-  const cur=STATE.setTab||'account';
+  const cur=(STATE.setTab==='backup'?'data':STATE.setTab)||'account';
   const acc={admin:['Sab kuch dekh aur badal sakte hain','Team, PIN, customers, jobs, attendance, map, kamai, backup'],subadmin:['Customers add/edit, jobs assign, attendance aur map dekh sakte hain','Delete, kamai ke total, team PIN aur data settings nahi dikhti']}[role];
   if(role!=='admin'||cur==='account') return (acc?`<div class="card"><div class="item-name">Aapki access</div><div class="item-sub">${acc[0]}<br>${acc[1]}</div></div>`:'')+(role==='admin'?recoveryCardHtml():'');
   if(cur==='dev') return devicesTabHtml();
-  if(cur==='backup') return backupCenterHtml();
   const secs=extra.split('<div class="section-title" style="margin-top:20px;">').slice(1).map(x=>'<div class="section-title" style="margin-top:0;">'+x);
   const map={biz:[0],team:[1,5],data:[3,4,7],mail:[2,6],adv:[8]};
-  return (map[cur]||[]).map(i=>secs[i]||'').join('')+(cur==='adv'?readsCardHtml():'');
+  return (cur==='data'?backupCenterHtml():'')+(map[cur]||[]).map(i=>secs[i]||'').join('')+(cur==='adv'?readsCardHtml():'');
 }
 function logCall(jobId){ const j=STATE.jobs.find(x=>x.id===jobId); if(!j) return; j.history=(j.history||[]).concat({s:'call',t:Date.now(),by:(STATE.session&&STATE.session.name)||'',why:''}); saveKey(SKEY.JOBS,STATE.jobs); }
 async function loadKyc(staffId){ STATE.kyc=STATE.kyc||{}; try{ const d=await firestoreDB.collection('st_kyc').doc(staffId).get(); STATE.kyc[staffId]=d.exists?d.data():null; }catch(e){ console.error('kyc',e); STATE.kyc[staffId]=null; } bgRender(); }
@@ -4275,7 +4296,7 @@ function travelHtml(staffId){
   const t=ensureTravel(staffId), own=STATE.session.staffId===staffId; if(!t) return `<div class="item-sub" style="margin-top:8px;">🚗 Travel load ho raha hai…</div>`;
   const mk=todayStr().slice(0,7), mMon=manualKm(staffId,mk), mDay=manualKm(staffId,todayStr());
   const days=Object.keys(t.days).sort().reverse().filter(d=>t.days[d]>=0.1), logs=(STATE.travelLogs||[]).filter(x=>x.staffId===staffId).sort((a,b)=>b.createdAt-a.createdAt).slice(0,6);
-  return `<div style="margin-top:12px;padding-top:10px;border-top:1px dashed #d5e2e6;"><div class="row-between"><div class="item-name" style="font-size:14px;">🚗 Travel</div>${own?`<button class="mini-btn" data-act="traveladd">+ Travel add</button>`:''}</div>
+  return `<div style="margin-top:12px;padding-top:10px;border-top:1px dashed #d5e2e6;"><div class="row-between"><div class="item-name" style="font-size:14px;">🚗 Travel</div>${own?`<span style="display:flex;gap:6px;"><button class="mini-btn" data-act="traveladd">+ Travel add</button><button class="mini-btn" data-v9="advopen">💸 Advance</button></span>`:''}</div>
     <div class="item-sub">Aaj: <b>${(t.today+mDay).toFixed(1)} km</b> <span style="opacity:.7">(GPS ${t.today.toFixed(1)} + manual ${mDay.toFixed(1)})</span></div>
     <div class="item-sub">Is mahine: <b>${(t.month+mMon).toFixed(1)} km</b> <span style="opacity:.7">(GPS ${t.month.toFixed(1)} + manual ${mMon.toFixed(1)})</span></div>
     ${days.length?`<details><summary class="item-sub" style="cursor:pointer;">GPS — din ke hisab se</summary>${days.map(d=>`<div class="item-sub">${fmtDate(d)} — ${t.days[d].toFixed(1)} km</div>`).join('')}</details>`:''}
@@ -4527,7 +4548,7 @@ function renderSettings(){
       <div class="card"><div class="item-sub" style="margin-bottom:10px;color:var(--red);">Agar galat file import ho gayi ho — safety ke liye neeche "DELETE" type karna zaroori hai:</div>
         <input id="clearConfirmInput" placeholder='Type "DELETE" to confirm' style="margin-bottom:10px;">
         <div class="card-actions"><button class="mini-btn danger" id="clearCustBtn">🗑 Sab Customers Clear Karein</button></div></div>
-      <div class="section-title" style="margin-top:20px;">Data Backup</div>
+      <div class="section-title" style="margin-top:20px;">Chhota Backup / Restore (file se wapas)</div>
       <div class="card"><div class="item-sub" style="margin-bottom:10px;">Extra safety ke liye poora data ek file mein bhi save kar sakte hain.</div><div class="card-actions"><button class="mini-btn primary" id="exportBtn">⬇ Backup Download</button><button class="mini-btn" id="importBtn">⬆ Backup Restore</button></div><input type="file" id="importFile" accept=".json" class="hidden"></div>
       <div class="section-title" style="margin-top:20px;">Team Ko App Bhejein</div>
       <div class="card"><div class="item-sub" style="margin-bottom:10px;">Yeh ek naya file banayegi jisme Firebase config pehle se fit hoga — team member ko sirf file kholni hai.</div>
@@ -5033,7 +5054,7 @@ function bindShellEvents(){
     else if(act==='namemerge'){ if(STATE.session.role!=='admin') return; activeModal={type:'nameMerge',data:{}}; render(); }
     else if(act==='mergedups'){ if(STATE.session.role!=='admin') return; if(confirm('Same number wale profile ek mein jud jayenge (jobs, bills sab usi mein). Purane duplicate Recycle Bin mein rahenge. Karein?')) await mergeDuplicateCustomers(); }
     else if(act==='bkrestore'){ restoreRec(el.dataset.kind,id); }
-    else if(act==='gobackup'){ STATE.setTab='backup'; STATE.view='settings'; render(); }
+    else if(act==='gobackup'){ STATE.setTab='data'; STATE.view='settings'; render(); }
     else if(act==='traveladd'){ activeModal={type:'travelAdd',data:{}}; render(); }
     else if(act==='kycedit'){ activeModal={type:'kycEdit',data:{staffId:id}}; render(); }
     else if(act==='kycshow'){ STATE.kycShow=STATE.kycShow||{}; STATE.kycShow[id]=!STATE.kycShow[id]; render(); }
@@ -5588,13 +5609,17 @@ function statsPublishSoon(){
     const js=JSON.stringify(keep); if(js===STATE.statsPub) return; STATE.statsPub=js; saveKey('st_stat',{m:keep,at:Date.now()});
   }catch(e){ console.error('stats',e); } },8000);
 }
+const incColor=amt=>{ const R=[192,57,43],O=[224,138,0],G=[30,142,90], mix=(a,b,t)=>a.map((v,k)=>Math.round(v+(b[k]-v)*t)), a=Number(amt)||0;
+  const c=a<=50000?R:a<=75000?mix(R,O,(a-50000)/25000):a<100000?mix(O,G,(a-75000)/25000):G; return 'rgb('+c.join(',')+')'; };
+function incBarHtml(amt){ const pct=Math.max(0,Math.min(100,Math.round(amt*100/INC_TARGET)));
+  return `<div style="height:12px;background:#e3edf0;border-radius:8px;overflow:hidden;"><div style="height:100%;width:${pct}%;background:${incColor(amt)};border-radius:8px;transition:width .4s,background .4s;"></div></div>`; }
 function incCardHtml(){
   const ym=todayStr().slice(0,7), cur=myMonth(ym), amt=cur.amt||0, left=Math.max(0,INC_TARGET-amt), pct=Math.min(100,Math.round(amt*100/INC_TARGET));
   const done=amt>=INC_TARGET;
   const off=STATE.session.role!=='telecaller';
   return `<div class="card"><div class="item-name">🎯 ${off?'Office — Is mahine ka Incentive Target (sab telecaller milakar)':'Is mahine ka Incentive'}</div>
     ${done?`<div style="font-size:26px;font-weight:800;color:var(--green);margin:6px 0;">${rupee(incMonth(amt))}</div><div class="item-sub">🎉 ₹1 lakh ka target pura! Kul new AMC ${rupee(amt)} ka 4%.</div>`
-    :`<div class="item-sub" style="margin:4px 0 6px;">${rupee(amt)} / ${rupee(INC_TARGET)} ho chuka</div><div style="height:12px;background:#e3edf0;border-radius:8px;overflow:hidden;"><div style="height:100%;width:${pct}%;background:linear-gradient(90deg,var(--teal),var(--frost));"></div></div><div style="margin-top:8px;font-size:18px;font-weight:800;color:#c0392b;">${rupee(left)} baaki</div><div class="item-sub">Target pura hote hi poori rakam par 4% incentive milega.</div>`}
+    :`<div class="item-sub" style="margin:4px 0 6px;">${rupee(amt)} / ${rupee(INC_TARGET)} ho chuka</div>${incBarHtml(amt)}<div style="margin-top:8px;font-size:18px;font-weight:800;color:${incColor(amt)};">${rupee(left)} baaki</div><div class="item-sub">Target pura hote hi poori rakam par 4% incentive milega.</div>`}
     <div class="item-sub" style="opacity:.7;margin-top:6px;">Sirf naye AMC (renewal / repair / one-time / purane nahi). Har mahine nayi ginti.</div></div>`;
 }
 
@@ -5612,9 +5637,9 @@ function renderMHome(){
       <div class="card-actions"><button class="primary-btn" data-v9="scan" data-k="in" ${inDone?'disabled':''} style="${inDone?'opacity:.5;':''}">📷 IN Scan</button><button class="primary-btn" data-v9="scan" data-k="out" ${(!inDone||outDone)?'disabled':''} style="background:#c0392b;${(!inDone||outDone)?'opacity:.5;':''}">📷 OUT Scan</button></div>
       <div class="item-sub" style="opacity:.7;margin-top:8px;">Subah aate samay IN aur jaate samay OUT — office me laga QR scan karein. Location on honi chahiye.</div></div>
     ${lst==='d'?`<div class="card" style="border:2px solid #c0392b;"><div class="item-name" style="color:#c0392b;">📍 Location band hai</div><div class="item-sub">Phone Settings → Chrome → Site settings → Location → Allow karein, tabhi attendance lagegi.</div></div>`:''}
-    <div class="stat-grid"><div class="stat-card"><div class="stat-num">${cur.n||0}</div><div class="stat-label">${tele?'Is mahine mere naye AMC':'Is mahine naye AMC (office)'}</div></div><div class="stat-card" ${lst==='u'?'data-v9="locallow" style="cursor:pointer;"':''}><div class="stat-num" style="font-size:18px;">${lst==='d'?'❌':lst==='g'?'✅':'⚠️'}</div><div class="stat-label">${lst==='d'?'Location band':lst==='g'?'Location chalu':'Location allow nahi — yahan dabayein'}</div></div></div>
+    <div class="stat-grid"${lst==='g'?' style="grid-template-columns:1fr;"':''}><div class="stat-card"><div class="stat-num">${cur.n||0}</div><div class="stat-label">${tele?'Is mahine mere naye AMC':'Is mahine naye AMC (office)'}</div></div>${lst==='g'?'':`<div class="stat-card" ${lst==='u'?'data-v9="locallow" style="cursor:pointer;"':''}><div class="stat-num" style="font-size:18px;">${lst==='d'?'❌':'⚠️'}</div><div class="stat-label">${lst==='d'?'Location band':'Location allow nahi — yahan dabayein'}</div></div>`}</div>
     ${incCardHtml()}
-    <div class="card-actions" style="margin-top:8px;"><button class="mini-btn" data-navto="mattend" style="flex:1;">🗓 Chhutti / Attendance</button><button class="mini-btn" data-act="traveladd" style="flex:1;">🚗 Travel Add</button></div>`;
+    <div class="card-actions" style="margin-top:8px;"><button class="mini-btn" data-navto="mattend" style="flex:1;">🗓 Chhutti / Attendance</button><button class="mini-btn" data-act="traveladd" style="flex:1;">🚗 Travel Add</button><button class="mini-btn" data-v9="advopen" style="flex:1;">💸 Advance</button></div>`;
 }
 function renderMAttend(){
   const sid=STATE.session.staffId, rec=(STATE.attendance||{})[sid]||{}, dates=Object.keys(rec).sort().reverse().slice(0,45);
@@ -5805,6 +5830,7 @@ document.addEventListener('click',async ev=>{
   else if(a==='locallow'){ showToast('Location maang raha hu…'); try{ const p=await getPos(); STATE.locDenied=false; STATE.locGot=true; STATE.perm=STATE.perm||{}; STATE.perm.loc='granted'; writeMyLoc(p,'app'); showToast('✅ Location chalu ho gayi'); render(); }catch(e){ if(e&&e.code===1){ STATE.locDenied=true; render(); } else showToast('Location nahi mili — GPS on karein'); } }
   else if(/^csh/.test(a)){ await custShareAct(a,el,val); }
   else if(/^st(item|move|hist|saveitem|savemove|delmove|delitem)$/.test(a)){ await stockAct(a,el,val); }
+  else if(/^adv(list|open|add|save|settle|del)$/.test(a)){ await advAct(a,el,val); }
   else if(a==='idprint'){ const s=STATE.staff.find(x=>x.id===id); if(s) idPrint(s); }
   else if(a==='idwa'){ const s=STATE.staff.find(x=>x.id===id), n=val('v9_idwa').replace(/\D/g,''); if(!s) return; if(n.length!==10){ showToast('Customer ka 10 digit number likhein'); return; } const txt='Namaste, '+(bizCfg().name||'Super Air Cool')+' ki taraf se '+s.name+' ('+ID_ROLE[s.role]+', ID '+s.idNo+') aapke yahan aa rahe hain. Pehchan verify karein: '+verifyUrl(s); window.open('https://wa.me/91'+n+'?text='+encodeURIComponent(txt),'_blank'); }
   }catch(e){ console.error('v9 act',a,e); showToast('Error: '+(e&&e.message||e)); }
@@ -5821,6 +5847,7 @@ function v9ModalHtml(){
   if(t==='idCard') return idCardInner(d);
   if(t==='stItem'||t==='stMove'||t==='stHist') return stockModalHtml(t,d);
   if(t==='custShare') return custShareHtml(d);
+  if(t==='advAdd'||t==='advList') return advModalHtml(t,d);
   return null;
 }
 function v9PostRender(){
@@ -5952,6 +5979,76 @@ async function billInvSuggest(){
   const d2=document.getElementById('invNames'); if(d2) d2.innerHTML=inv.map(x=>`<option value="${esc(x.name)}">${x.rate>0?'₹'+invFmt(x.rate)+'/'+esc(x.unit||''):''}</option>`).join('');
 }
 document.addEventListener('change',ev=>{ const e=ev.target; if(!e||!/^bl_n\d+$/.test(e.id||'')||!STATE.invNames) return; const it=STATE.invNames.find(x=>x.name.toLowerCase()===e.value.trim().toLowerCase()); if(!it) return; const i=e.id.slice(4), q=document.getElementById('bl_q'+i), r=document.getElementById('bl_r'+i); if(q&&!Number(q.value)) q.value=1; if(r&&!Number(r.value)&&it.rate>0){ r.value=it.rate; } r&&r.dispatchEvent(new Event('input',{bubbles:true})); });
+
+/* ===== v9.2l Advance (salary + travel) ===== */
+const ADV_KEY='st_advance';
+const advCan=()=>STATE.session&&(STATE.session.role==='admin'||STATE.session.role==='subadmin');
+const ADV_L={salary:'💰 Salary advance',travel:'🚗 Travel advance'};
+async function advLoad(force){
+  if(STATE.advBusy) return; if(!force&&STATE.adv&&Date.now()-(STATE.advAt||0)<30000) return;
+  STATE.advBusy=true; STATE.advAt=Date.now();
+  try{ const v=await loadKey(ADV_KEY,{list:[]}); STATE.adv={list:(v&&v.list)||[]}; }catch(e){ STATE.adv=STATE.adv||{list:[],err:true}; }
+  STATE.advBusy=false; if(!activeModal||activeModal.type==='advList') { try{ bgRender(); }catch(e){ render(); } }
+}
+async function advMutate(fn){
+  let cur; try{ cur=await loadKey(ADV_KEY,{list:[]}); }catch(e){ showToast('Advance load nahi hua — internet check karein'); return false; }
+  cur=cur||{}; cur.list=cur.list||[];
+  const r=fn(cur); if(r===false) return false;
+  const ok=await saveKey(ADV_KEY,{list:cur.list}); if(ok){ STATE.adv={list:cur.list}; STATE.advAt=Date.now(); }
+  return ok;
+}
+const advOpen=(sid,type)=>((STATE.adv&&STATE.adv.list)||[]).filter(x=>!x.settled&&(!sid||x.staffId===sid)&&(!type||x.type===type));
+const advSum=L=>L.reduce((a,x)=>a+(Number(x.amount)||0),0);
+function advCardHtml(){
+  if(!advCan()) return '';
+  if(!STATE.adv) setTimeout(()=>advLoad(),0);
+  const L=advOpen(), by={};
+  L.forEach(x=>{ (by[x.staffId]=by[x.staffId]||{id:x.staffId,name:x.name,sal:0,trv:0}); by[x.staffId][x.type==='travel'?'trv':'sal']+=Number(x.amount)||0; });
+  const rows=Object.values(by).sort((a,b)=>(b.sal+b.trv)-(a.sal+a.trv));
+  return `<div class="card"><div class="row-between" style="margin-bottom:8px;"><div class="item-name">💸 Advance (baaki)</div><button class="mini-btn" data-v9="advadd" style="flex:none;padding:5px 12px;font-size:12px;">+ Advance do</button></div>
+    ${!STATE.adv?`<div class="item-sub">Load ho raha hai…</div>`:rows.length?rows.map(r=>`<div class="row-between" data-v9="advlist" data-id="${esc(r.id)}" style="cursor:pointer;padding:6px 0;"><div class="item-sub"><b>${esc(r.name)}</b> ▸</div><div class="item-sub">${r.sal?'💰 '+rupee(r.sal):''}${r.sal&&r.trv?' · ':''}${r.trv?'🚗 '+rupee(r.trv):''}</div></div>`).join('')+`<div class="row-between" style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border);"><div class="item-sub"><b>Total baaki</b></div><div class="item-sub"><b>${rupee(advSum(L))}</b></div></div>`:`<div class="item-sub">Koi advance baaki nahi.</div>`}
+    <div style="text-align:center;margin-top:6px;"><button class="mini-btn" data-v9="advlist" data-id="" style="flex:none;padding:5px 14px;font-size:12px;">📋 Poori history</button></div></div>`;
+}
+function advModalHtml(t,d){
+  const all=(STATE.adv&&STATE.adv.list)||[];
+  if(t==='advAdd'){
+    const st=STATE.staff.filter(x=>x.role!=='admin'||false);
+    return `<div class="modal-head"><h3>💸 Advance do</h3><button class="close-x" id="modalClose">×</button></div>
+    <div class="field"><label>Kisko</label><select id="v9_adst">${st.map(x=>`<option value="${esc(x.id)}" ${x.id===d.id?'selected':''}>${esc(x.name)} (${esc(roleLabel(x.role))})</option>`).join('')}</select></div>
+    <div class="field"><label>Type</label><select id="v9_adty"><option value="salary">💰 Salary advance (salary se katega)</option><option value="travel">🚗 Travel advance (kharch ke liye)</option></select></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;"><div class="field"><label>Amount ₹</label><input id="v9_adam" type="number" min="1" inputmode="decimal" placeholder="jaise 2000"></div>
+    <div class="field"><label>Tarikh</label><input id="v9_add" type="date" value="${todayStr()}" max="${todayStr()}"></div></div>
+    <div class="field"><label>Note (optional)</label><input id="v9_adno" placeholder="jaise: ghar ki zaroorat"></div>
+    <button class="primary-btn" data-v9="advsave">Save</button>`;
+  }
+  // advList
+  const can=advCan(), sid=can?(d.id||''):STATE.session.staffId;
+  const L=all.filter(x=>!sid||x.staffId===sid).sort((a,b)=>String(b.date).localeCompare(String(a.date))||(b.at-a.at));
+  const open=L.filter(x=>!x.settled), sal=advSum(open.filter(x=>x.type==='salary')), trv=advSum(open.filter(x=>x.type==='travel'));
+  const nm=sid?(STATE.staff.find(x=>x.id===sid)||{}).name||'':'Sabhi staff';
+  return `<div class="modal-head"><h3>💸 Advance — ${esc(nm)}</h3><button class="close-x" id="modalClose">×</button></div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;"><div class="card" style="margin:0;"><div class="item-sub" style="margin:0;">💰 Salary baaki</div><div class="item-name">${rupee(sal)}</div></div><div class="card" style="margin:0;"><div class="item-sub" style="margin:0;">🚗 Travel baaki</div><div class="item-name">${rupee(trv)}</div></div></div>
+  ${can?`<button class="primary-btn" data-v9="advadd" data-id="${esc(sid)}" style="margin-bottom:8px;">+ Advance do</button>`:''}
+  ${L.length?L.map(x=>`<div class="card" style="margin:0 0 6px;${x.settled?'opacity:.55;':''}"><div class="row-between"><div class="item-sub">${sid?'':'<b>'+esc(x.name)+'</b> · '}${ADV_L[x.type]||x.type}</div><div class="item-name" style="font-size:15px;">${rupee(x.amount)}</div></div>
+    <div class="item-sub" style="opacity:.8;">${fmtDate(x.date)}${x.note?' · '+esc(x.note):''}${x.settled?' · ✅ hisaab ho gaya':''}</div>
+    ${can?`<div class="card-actions" style="margin-top:6px;"><button class="mini-btn" data-v9="advsettle" data-id="${esc(x.id)}">${x.settled?'↩ Wapas baaki':'✅ Hisaab ho gaya'}</button>${STATE.session.role==='admin'?`<button class="mini-btn" style="color:#c0392b;" data-v9="advdel" data-id="${esc(x.id)}">🗑</button>`:''}</div>`:''}</div>`).join(''):`<div class="empty">Koi advance record nahi</div>`}`;
+}
+async function advAct(a,el,val){
+  const id=el.dataset.id;
+  if(a==='advlist'){ await advLoad(true); activeModal={type:'advList',data:{id:id||''}}; render(); }
+  else if(a==='advopen'){ await advLoad(true); activeModal={type:'advList',data:{id:advCan()?'':STATE.session.staffId}}; render(); }
+  else if(a==='advadd'){ if(!advCan()) return; activeModal={type:'advAdd',data:{id:id||''}}; render(); }
+  else if(a==='advsave'){
+    if(!advCan()) return;
+    const sid=val('v9_adst'), type=val('v9_adty')==='travel'?'travel':'salary', amt=Math.round((Number(val('v9_adam'))||0)*100)/100, date=val('v9_add')||todayStr(), note=val('v9_adno').slice(0,80);
+    const st=STATE.staff.find(x=>x.id===sid); if(!st){ showToast('Staff chunein'); return; }
+    if(amt<=0){ showToast('Amount daalein'); return; } if(date>todayStr()){ showToast('Date aage ki nahi ho sakti'); return; }
+    const ok=await advMutate(c=>{ c.list.push({id:uid(),staffId:sid,name:st.name,type,amount:amt,date,note,by:STATE.session.name,at:Date.now(),settled:false}); });
+    if(ok){ activeModal={type:'advList',data:{id:sid}}; showToast('Advance save ho gaya'); render(); }
+  }
+  else if(a==='advsettle'){ if(!advCan()) return; const ok=await advMutate(c=>{ const x=c.list.find(y=>y.id===id); if(!x) return false; x.settled=!x.settled; x.settledAt=x.settled?Date.now():0; }); if(ok) render(); }
+  else if(a==='advdel'){ if(STATE.session.role!=='admin'||!confirm('Ye advance record hata dein?')) return; const ok=await advMutate(c=>{ const n=c.list.length; c.list=c.list.filter(y=>y.id!==id); if(c.list.length===n) return false; }); if(ok) render(); }
+}
 
 /* ===== v9.2k Install banner (iPhone: Add to Home Screen guide, Android: native prompt) ===== */
 (function(){
