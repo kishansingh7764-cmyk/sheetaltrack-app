@@ -238,6 +238,8 @@ html{scroll-padding-top:120px;}
   .loading-screen{min-height:70vh;}
 }
 @media (min-width:1700px){ body.desk .content,body.desk .content :is(div,section):has(>.card~.card){grid-template-columns:repeat(auto-fill,minmax(480px,1fr));} }
+/* iPhone: 16px se chhote input par Safari page zoom kar deta hai */
+@supports (-webkit-touch-callout:none){ @media (max-width:1023px){ input,select,textarea{font-size:16px!important;} } }
 /* ===== v9.2c Laptop compact (thoda chhota) ===== */
 @media (min-width:1024px){
   :root{--sbw:214px;--tbh:52px;}
@@ -774,6 +776,12 @@ async function permRefresh(){
   if(window.Notification) STATE.perm.notif=Notification.permission==='default'?'prompt':Notification.permission; else STATE.perm.notif='na';
   if(cm||mc) STATE.perm.cam=(cm==='granted'&&mc==='granted')?'granted':(cm==='denied'||mc==='denied')?'denied':(STATE.perm.cam==='granted'?'granted':'prompt');
 }
+const IS_IOS=/iP(hone|ad|od)/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
+async function saveFileCompat(blob,name){
+  if(IS_IOS&&navigator.canShare){ try{ const f=new File([blob],name,{type:blob.type||'application/octet-stream'}); if(navigator.canShare({files:[f]})){ await navigator.share({files:[f]}); return true; } }catch(e){ if(e&&e.name==='AbortError') return true; } }
+  const url=URL.createObjectURL(blob), a=document.createElement('a'); a.href=url; a.download=name; document.body.appendChild(a); a.click(); document.body.removeChild(a); setTimeout(()=>URL.revokeObjectURL(url),60000); return true;
+}
+function permOk(){ const P=STATE.perm||{}; if(IS_IOS) return P.loc!=='denied'; if(P.loc===''){ try{ if(!navigator.permissions&&localStorage.getItem('st_perm_seen_'+(STATE.session&&STATE.session.staffId))) return true; }catch(e){} } return P.loc==='granted'&&(P.notif==='granted'||P.notif==='na'); }
 function permRow(ic,title,why,st,btnId,req){
   const ok=st==='granted', bad=st==='denied';
   return `<div class="card"><div class="row-between" style="align-items:flex-start;gap:8px;"><div style="min-width:0;"><div class="item-name">${ic} ${title}${req?' <span class="pill pill-red">Zaroori</span>':' <span class="pill pill-grey">Optional</span>'}</div><div class="item-sub" style="margin-top:3px;">${why}</div>${bad?`<div class="item-sub" style="color:#c0392b;margin-top:4px;">Band hai — phone Settings → Chrome/Browser → Site settings me jaakar Allow karein.</div>`:''}</div><span class="pill ${ok?'pill-green':bad?'pill-red':'pill-amber'}" style="flex:none;">${ok?'✅ Allowed':bad?'❌ Blocked':'Baaki'}</span></div>${ok?'':`<button class="primary-btn" id="${btnId}" style="margin-top:10px;">Allow Karein</button>`}</div>`;
@@ -782,18 +790,20 @@ function renderPermScreen(){
   const P=STATE.perm||{}, first=STATE.permScreen==='first';
   return `<div class="login-wrap" style="padding-bottom:30px;"><div class="login-hero"><div class="brand-mark">🔐</div><h1>${first?'Namaste, '+esc(STATE.session.name||'')+'!':'Permissions Check'}</h1><p>App theek se chalane ke liye ye permissions chahiye</p></div>
     ${permRow('📍','Location','Attendance, live map aur kaam ke liye. Bina iske kaam shuru nahi hoga.',P.loc,'pmLoc',true)}
-    ${permRow('🔔','Notification','Nayi job, cancel ya office ke message par awaaz aur alert ke liye.',P.notif==='na'?'':P.notif,'pmNotif',false)}
+    ${P.notif==='na'?'':permRow('🔔','Notification','Nayi job, cancel ya office ke message par awaaz aur alert ke liye.'+(IS_IOS?' (iPhone par ye tabhi chalti hai jab app Home Screen par add ki ho.)':''),P.notif,'pmNotif',!IS_IOS)}
     ${permRow('📷','Camera aur Mic','QR scan, job ki photo aur video (30 second) ke liye. Pehli baar yahin allow kar lein.',P.cam,'pmCam',false)}
-    <div class="card"><div class="item-name">📲 Home Screen par add karein</div><div class="item-sub" style="margin-top:3px;">Chrome ke ⋮ menu me <b>"Add to Home screen"</b> ya <b>"Install app"</b> dabayein. App seedha icon se full-screen khulegi.</div></div>
-    <div class="card"><div class="item-name">🔋 Battery setting (zaroori)</div><div class="item-sub" style="margin-top:3px;">Browser permission se ye nahi ho sakta, isliye khud karein: Phone Settings → Apps → Chrome → Battery → <b>Unrestricted / Don't optimise</b>. Warna phone app band kar de to location ruk jaati hai.</div></div>
-    <button class="primary-btn" id="pmDone" style="margin-top:6px;">${first?'Aage badhein':'Wapas jayein'}</button></div>`;
+    <div class="card"><div class="item-name">📲 Home Screen par add karein</div><div class="item-sub" style="margin-top:3px;">${IS_IOS?'Safari me neeche <b>Share ⬆️</b> dabayein → <b>"Add to Home Screen"</b>. Phir app icon se kholein — notification aur full-screen isi se chalte hain.':'Chrome ke ⋮ menu me <b>"Add to Home screen"</b> ya <b>"Install app"</b> dabayein. App seedha icon se full-screen khulegi.'}</div></div>
+    ${IS_IOS?`<div class="card"><div class="item-name">📍 Location setting (iPhone)</div><div class="item-sub" style="margin-top:3px;">Settings → Privacy &amp; Security → Location Services → Safari (ya app ka naam) → <b>"While Using the App"</b> chunein, taaki baar-baar na poochhe. Screen lock hone par location update ruk jati hai (iPhone ka niyam).</div></div>`:`<div class="card"><div class="item-name">🔋 Battery setting (zaroori)</div><div class="item-sub" style="margin-top:3px;">Browser permission se ye nahi ho sakta, isliye khud karein: Phone Settings → Apps → Chrome → Battery → <b>Unrestricted / Don't optimise</b>. Warna phone app band kar de to location ruk jaati hai.</div></div>`}
+    ${permOk()?'':`<div class="error-msg" style="margin:8px 0;">⚠️ Upar ki "Zaroori" permissions allow kiye bina app aage nahi khulegi.</div><button class="ghost-btn" id="pmRecheck" style="margin-bottom:8px;">🔄 Allow kar diya — dobara check karein</button>`}
+    <button class="primary-btn" id="pmDone" ${permOk()?'':'disabled style="margin-top:6px;opacity:.45;"'} ${permOk()?'style="margin-top:6px;"':''}>${first?'Aage badhein':'Wapas jayein'}</button></div>`;
 }
 function bindPermScreen(){
   const on=(id,f)=>{ const e=document.getElementById(id); if(e) e.onclick=f; };
   on('pmLoc',()=>{ if(!navigator.geolocation){ showToast('Is browser me location nahi hai'); return; } navigator.geolocation.getCurrentPosition(()=>{ STATE.perm.loc='granted'; render(); },()=>{ STATE.perm.loc='denied'; render(); },{enableHighAccuracy:true,timeout:20000,maximumAge:0}); });
   on('pmNotif',()=>{ try{ Notification.requestPermission().then(r=>{ STATE.perm.notif=r==='default'?'prompt':r; render(); }); }catch(e){ showToast('Is browser me notification nahi hai'); } });
   on('pmCam',async()=>{ try{ const st=await navigator.mediaDevices.getUserMedia({video:true,audio:true}); st.getTracks().forEach(t=>t.stop()); STATE.perm.cam='granted'; }catch(e){ STATE.perm.cam=(e&&e.name==='NotFoundError')?'prompt':'denied'; if(e&&e.name==='NotFoundError') showToast('Camera/Mic nahi mila'); } render(); });
-  on('pmDone',()=>{ const first=STATE.permScreen==='first', id=STATE.session&&STATE.session.staffId; try{ localStorage.setItem('st_perm_seen_'+id,'1'); }catch(e){} STATE.permScreen=false; if(first&&STATE.session.role==='technician'){ STATE.locOK=undefined; render(); initTechLocation(); } else render(); });
+  on('pmRecheck',async()=>{ await permRefresh(); render(); });
+  on('pmDone',()=>{ if(!permOk()){ showToast('Pehle Location aur Notification allow karein'); return; } const first=STATE.permScreen==='first', id=STATE.session&&STATE.session.staffId; try{ localStorage.setItem('st_perm_seen_'+id,'1'); }catch(e){} STATE.permScreen=false; if(first&&STATE.session.role==='technician'){ STATE.locOK=undefined; render(); initTechLocation(); } else render(); });
 }
 
 /* ============ Auth ============ */
@@ -846,7 +856,7 @@ async function doStaffLogin(staffId, pin){
   }else{ loginError='Galat PIN'; render(); }
 }
 function logout(){
-  stopSharingLocation(); presenceStop(); stopScan(); activeModal=null; STATE.permScreen=false;
+  stopSharingLocation(); presenceStop(); stopScan(); activeModal=null; STATE.permScreen=false; STATE.permReady=false; STATE.permBusy=0;
   clearSessionLocal(); STATE.session=null; teardownHeavy(); STATE.stats=null; STATE.statsAt=0; STATE.statsPub=''; navReady=false; loginPin=''; loginError=''; loginSelectedStaff=null; loginRole='admin'; forgotFlow=null;
   render();
   /* Shared laptop/device par agle banda ka role purane (admin) mapping se na mil jaye, isliye is device ka
@@ -1032,9 +1042,7 @@ async function exportData(){
   parts.push('},"counts":'+JSON.stringify(counts)+',"failed":'+JSON.stringify(failed)+'}');
   if(failed.length&&!confirm('⚠️ Ye hisse backup mein nahi aa paye: '+failed.map(x=>FULL_LABEL[x]||x).join(', ')+'.\n\nPhir bhi file download karein?')) return;
   const blob=new Blob(parts,{type:'application/json'});
-  const url=URL.createObjectURL(blob);
-  const a=document.createElement('a'); a.href=url; a.download='sheetaltrack-TOTAL-backup-'+todayStr()+'.json';
-  document.body.appendChild(a); a.click(); document.body.removeChild(a); setTimeout(()=>URL.revokeObjectURL(url),60000);
+  await saveFileCompat(blob,'sheetaltrack-TOTAL-backup-'+todayStr()+'.json');
   markBackup(); auditLog(STATE.session.staffId,STATE.session.name,STATE.session.role,'export','Total Backup'); showToast('Total backup download ho gaya ✅ ('+(counts.st_customers||0)+' customers, '+(counts.st_leads||0)+' leads, '+(counts.st_staff||0)+' staff)');
 }
 async function importData(file){ if(!confirm('Restore maujooda data par backup ka data wapas likh dega. Pehle naya Backup Download kar liya? Aage badhein?')) return;
@@ -2233,9 +2241,8 @@ async function generateInvoice(jobId, kind){
   if(techSig===undefined){ techSig=await loadKey(techSigKey(jobId), null); STATE.techSignatures[jobId]=techSig; }
   const tech=STATE.staff.find(s=>s.id===j.assignedTo);
   const html=invoiceDocHtml(j,c,j.invoice,sig,techSig,tech);
-  const blob=new Blob([html],{type:'text/html'}), url=URL.createObjectURL(blob);
-  const a=document.createElement('a'); a.href=url; a.download=(j.invoice.kind==='quotation'?'quotation-':'invoice-')+j.invoice.no+'-'+String(c?c.name:'customer').replace(/\s+/g,'-')+'.html';
-  document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+  const blob=new Blob([html],{type:'text/html'});
+  await saveFileCompat(blob,(j.invoice.kind==='quotation'?'quotation-':'invoice-')+j.invoice.no+'-'+String(c?c.name:'customer').replace(/\s+/g,'-')+'.html');
   showToast('Invoice download ho gayi — usse khol ke Print/PDF kar sakte hain');
 }
 /* ===== Technician: Job close par naya Bill (items, discount, GST option, auto total), phir WhatsApp/Email ===== */
@@ -2953,9 +2960,7 @@ async function generateAmcPdf(customerId){
     <button onclick="window.print()" style="margin-top:30px;padding:10px 20px;background:#0E4C5C;color:#fff;border:none;border-radius:6px;font-size:14px;">Print / Save as PDF</button>
   </body></html>`;
   const blob=new Blob([html],{type:'text/html'});
-  const url=URL.createObjectURL(blob);
-  const a=document.createElement('a'); a.href=url; a.download='amc-'+(c.amcName||c.name).replace(/\s+/g,'-')+'.html';
-  document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+  await saveFileCompat(blob,'amc-'+(c.amcName||c.name).replace(/\s+/g,'-')+'.html');
   showToast('AMC PDF download ho gayi — usse khol ke Print/PDF kar sakte hain');
 }
 
@@ -3108,6 +3113,10 @@ function render(){
   if(VERIFY_ID&&!STATE.verifyClosed){ app.innerHTML=renderVerify(); return; }
   if(!STATE.session){ document.body.classList.remove('desk','mob'); notifStop(); app.innerHTML=renderLogin(); bindLoginEvents(); return; }
   ensureLazyListeners();
+  if(STATE.session.role==='technician'||officeMobile()){
+    if(!STATE.permReady){ if(!STATE.permBusy){ STATE.permBusy=1; STATE.perm=STATE.perm||{}; permRefresh().then(()=>{ STATE.permReady=true; STATE.permBusy=0; render(); }).catch(()=>{ STATE.permReady=true; STATE.permBusy=0; }); } }
+    else if(!STATE.permScreen&&!permOk()) STATE.permScreen=STATE.permScreen||'recheck';
+  }
   if((STATE.session.role==='technician'||officeMobile()) && STATE.permScreen){ app.innerHTML=renderPermScreen(); bindPermScreen(); return; }
   if(STATE.session.role==='technician' && STATE.locOK!==true){ app.innerHTML=renderLocationGate(); bindLocationGate(); return; }
   if(STATE.heavyWait){ app.innerHTML=`<div class="loading-screen"><div class="spinner"></div><div>Data load ho raha hai…</div></div>`; return; }
@@ -3324,6 +3333,7 @@ function renderDashboard(){
   const absentToday=allStaffNonAdmin.length-presentToday;
 
   return `
+    ${STATE.session.role==='subadmin'?incCardHtml():''}
     <div class="section-title">Aaj ka overview</div>${STATE.session.role==='admin'?`<div class="card" data-navto="daylog" style="cursor:pointer;background:var(--sky-pale);"><div class="row-between"><div><div class="item-name">📋 Aaj ka Hisaab</div><div class="item-sub">Kisne kya kiya, kya badla, kya delete hua — time ke saath, wapas karne ke option ke saath ›</div></div></div></div>`:''}${(STATE.session.role==='admin'&&(!(STATE.businessInfo||{}).lastBackupAt||Date.now()-STATE.businessInfo.lastBackupAt>7*864e5))?`<div class="card" data-act="gobackup" style="cursor:pointer;background:#fff4e0;"><div class="item-name" style="color:#8a5a0f;">💾 ${(STATE.businessInfo||{}).lastBackupAt?'Pichla backup '+Math.floor((Date.now()-STATE.businessInfo.lastBackupAt)/864e5)+' din pehle liya tha':'Abhi tak koi backup nahi liya'} — abhi lein ›</div></div>`:''}${(STATE.session.role!=='technician'&&STATE.jobs.some(j=>j.cancelReq&&j.cancelReq.status==='pending'))?`<div class="card" data-navto="jobs" style="cursor:pointer;background:#fdecea;"><div class="item-name" style="color:#a12a20;">❗ ${STATE.jobs.filter(j=>j.cancelReq&&j.cancelReq.status==='pending').length} cancel request office ke intezaar mein ›</div></div>`:''}
     <div class="stat-grid">
       <div class="stat-card" data-navto="customers" style="cursor:pointer;"><div class="stat-num">${STATE.customers.length}</div><div class="stat-label">Total Customers ›</div></div>
@@ -3569,7 +3579,7 @@ function renderCustomerProfile(){
     ${convertBtnsHtml(c)}
       <div class="item-sub" style="margin-top:6px;">${c.phone||''}${c.phone2?' / '+c.phone2:''}${c.email?' · '+c.email:''}</div>
       <div class="item-sub">${c.address||''}${c.landmark?', '+c.landmark:''}${c.city?', '+c.city:''}${c.state?', '+c.state:''}${c.pincode?' - '+c.pincode:''}</div>
-      <div class="card-actions" style="margin-top:10px;">${c.phone?`<a class="mini-btn primary" style="text-decoration:none;" href="tel:${c.phone}">📞 Call</a>`:''}${c.phone?`<a class="mini-btn" style="text-decoration:none;" href="https://wa.me/${waNum(c.phone)}">💬 WhatsApp</a>`:''}${STATE.session.role==='technician'?'':`<button class="mini-btn" data-act="editcust" data-id="${c.id}">✏️ Details Badlein</button><button class="mini-btn primary" data-act="newjobfor" data-id="${c.id}">➕ Job Banao</button>${isMoneyRole()?`<button class="mini-btn" data-act="newbill" data-id="${c.id}">🧾 Bill Banao</button>`:''}${canNewAmc(c)?`<button class="mini-btn primary" data-act="newamc" data-id="${c.id}">🆕 Naya AMC</button>`:''}${c.type==='amc'?`<button class="mini-btn" data-act="renewamc" data-id="${c.id}">🔁 Renewal Karein</button>`:''}`}</div>
+      <div class="card-actions" style="margin-top:10px;">${c.phone?`<a class="mini-btn primary" style="text-decoration:none;" href="tel:${c.phone}">📞 Call</a>`:''}${c.phone?`<a class="mini-btn" style="text-decoration:none;" href="https://wa.me/${waNum(c.phone)}">💬 WhatsApp</a>`:''}${custMapUrl(c)?`<a class="mini-btn" style="text-decoration:none;" target="_blank" rel="noopener" href="${esc(custMapUrl(c))}">🧭 Navigate</a>`:''}<button class="mini-btn" data-v9="cpin" data-id="${c.id}">📍 ${c.pin?'Pin update':'Pin save'}</button>${STATE.session.role==='technician'?'':`<button class="mini-btn" data-act="editcust" data-id="${c.id}">✏️ Details Badlein</button><button class="mini-btn primary" data-act="newjobfor" data-id="${c.id}">➕ Job Banao</button>${isMoneyRole()?`<button class="mini-btn" data-act="newbill" data-id="${c.id}">🧾 Bill Banao</button>`:''}${canNewAmc(c)?`<button class="mini-btn primary" data-act="newamc" data-id="${c.id}">🆕 Naya AMC</button>`:''}${c.type==='amc'?`<button class="mini-btn" data-act="renewamc" data-id="${c.id}">🔁 Renewal Karein</button>`:''}`}</div>
     </div>
     ${STATE.session.role==='technician'?'':amcDetailsHtml(c)+acCardHtml(c)+amcHistoryHtml(c)+(STATE.session.role==='admin'?billHistoryHtml(c):'')}
     ${c.type==='amc'?`<div class="card">
@@ -3910,10 +3920,10 @@ function custCardX(c){
   if(c.type==='amc' && c.expiryDate){ const d=daysUntil(c.expiryDate); pillClass=d<0?'pill-red':d<=15?'pill-amber':'pill-green'; pillText=d<0?Math.abs(d)+'d overdue':d+'d left'; }
   else if(c.lastService){ const due=addMonths(c.lastService,c.intervalMonths); const d=daysUntil(due); pillClass=d<0?'pill-red':d<=7?'pill-amber':'pill-green'; pillText=d<0?Math.abs(d)+'d overdue':d+'d left'; }
   const head=`<div class="row-between" style="align-items:flex-start;gap:8px;"><div style="min-width:0;"><span data-viewcust="${c.id}" class="item-name" style="cursor:pointer;text-decoration:underline;color:var(--teal);">${esc(c.name)} ›</span> <span class="pill ${customerTypePill(c.type)}" style="margin-left:4px;">${customerTypeLabel(c.type)}</span><div class="item-sub">${esc(c.phone||'no phone')}${c.phone2?' / '+esc(c.phone2):''}</div>${amcStatusOf(c)==='lapsed'?`<div class="item-sub" style="color:#c0392b;font-weight:600;">🔴 Renewal nahi hui / Cancel</div>`:amcStatusOf(c)==='inactive'?`<div class="item-sub" style="color:var(--amber);font-weight:600;">⚪ Inactive — renewal baaki</div>`:amcStatusOf(c)==='active'?`<div class="item-sub" style="color:#1e8e5a;font-weight:600;">🟢 Active</div>`:''}</div>${pillText?`<span class="pill ${pillClass}" style="flex:none;">${pillText}</span>`:''}</div>`;
-  const navU=(c.address||c.pincode)?'https://www.google.com/maps/dir/?api=1&destination='+encodeURIComponent([c.address,c.city,c.pincode].filter(Boolean).join(', ')):'';
+  const navU=custMapUrl(c);
   const quick=`${c.phone?`<a class="mini-btn" style="text-decoration:none;" href="tel:${esc(c.phone)}">📞 Call</a>`:''}${navU?`<a class="mini-btn" style="text-decoration:none;" target="_blank" rel="noopener" href="${esc(navU)}">🧭 Navigate</a>`:''}${STATE.session.role!=='technician'?`<button class="mini-btn" data-act="newjobfor" data-id="${c.id}">➕ Job Banao</button>`:''}${canNewAmc(c)?`<button class="mini-btn primary" data-act="newamc" data-id="${c.id}">🆕 Naya AMC</button>`:''}`;
-  const more=`<div class="item-sub">📍 ${esc(c.address||'no address')}${c.pincode?' - '+esc(c.pincode):''}</div>${c.type==='amc'&&c.brand?`<div class="item-sub">❄️ ${esc(c.brand)} ${esc(c.model||'')}</div>`:''}${c.installDate?`<div class="item-sub">🛠 Install: ${fmtDate(c.installDate)}${c.leadTelecaller?' · 📞 '+esc(c.leadTelecaller):''}</div>`:(c.leadTelecaller?`<div class="item-sub">📞 Telecaller: ${esc(c.leadTelecaller)}</div>`:'')}${c.amcHistory&&c.amcHistory.length>1?`<div class="item-sub">🔁 ${c.amcHistory.length-1} baar renewal</div>`:''}
-    <div class="card-actions" style="margin-top:8px;">${c.phone?`<a class="mini-btn" style="text-decoration:none;" href="https://wa.me/${waNum(c.phone)}">💬 WhatsApp</a>`:''}<button class="mini-btn primary" data-act="service" data-id="${c.id}">Service ho gaya</button><button class="mini-btn" data-v9="cshare" data-id="${c.id}">📤 Share</button><button class="mini-btn" data-act="viewcust" data-id="${c.id}">Profile</button>${STATE.session.role==='admin'?`<button class="mini-btn danger" data-act="delcust" data-id="${c.id}">Delete</button>`:''}</div>`;
+  const more=`<div class="item-sub">📍 ${esc(c.address||'no address')}${c.pincode?' - '+esc(c.pincode):''}${c.pin?' · <span style="color:#1e8e5a;font-weight:600;">✅ Pin saved</span>':''}</div>${c.type==='amc'&&c.brand?`<div class="item-sub">❄️ ${esc(c.brand)} ${esc(c.model||'')}</div>`:''}${c.installDate?`<div class="item-sub">🛠 Install: ${fmtDate(c.installDate)}${c.leadTelecaller?' · 📞 '+esc(c.leadTelecaller):''}</div>`:(c.leadTelecaller?`<div class="item-sub">📞 Telecaller: ${esc(c.leadTelecaller)}</div>`:'')}${c.amcHistory&&c.amcHistory.length>1?`<div class="item-sub">🔁 ${c.amcHistory.length-1} baar renewal</div>`:''}
+    <div class="card-actions" style="margin-top:8px;">${c.phone?`<a class="mini-btn" style="text-decoration:none;" href="https://wa.me/${waNum(c.phone)}">💬 WhatsApp</a>`:''}<button class="mini-btn primary" data-act="service" data-id="${c.id}">Service ho gaya</button><button class="mini-btn" data-v9="cpin" data-id="${c.id}">📍 ${c.pin?'Pin update':'Pin save'}</button><button class="mini-btn" data-v9="cshare" data-id="${c.id}">📤 Share</button><button class="mini-btn" data-act="viewcust" data-id="${c.id}">Profile</button>${STATE.session.role==='admin'?`<button class="mini-btn danger" data-act="delcust" data-id="${c.id}">Delete</button>`:''}</div>`;
   return xCard('cu:'+c.id,head,quick,more);
 }
 
@@ -5403,6 +5413,19 @@ async function convertLeadToPastAmc(id,f){
 }
 
 /* ===== v9.2: One-time / Inactive / Cancel customer ko Naya AMC (technician job ya purani date ki entry) ===== */
+
+/* Google Maps link: pehle saved pin, nahi to saaf kiya hua address (Flat/Room number hata kar), city na ho to office ki city jod kar */
+function custMapQuery(c){
+  let a=[c.address,c.landmark,c.city,c.pincode].filter(Boolean).join(', ');
+  a=a.replace(/\b(flat|room|shop|office|house|plot|unit|gala)\s*\.?\s*(no\.?|number|#)?\s*[\w\/-]*\s*,?/ig,' ').replace(/\s*,\s*(,\s*)+/g,', ').replace(/\s{2,}/g,' ').replace(/^[\s,.-]+|[\s,.-]+$/g,'');
+  if(!a) a=[c.address,c.pincode].filter(Boolean).join(', ');
+  if(a&&!c.city&&!c.pincode){ const bp=String((bizCfg().address)||'').split(',').map(x=>x.trim()).filter(Boolean); if(bp.length&&a.toLowerCase().indexOf(bp[bp.length-1].toLowerCase())<0) a+=', '+bp[bp.length-1]; }
+  return a;
+}
+function custMapUrl(c){
+  if(c.pin&&c.pin.lat!=null&&c.pin.lng!=null) return 'https://www.google.com/maps/dir/?api=1&destination='+c.pin.lat+','+c.pin.lng;
+  const q=custMapQuery(c); return q?'https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(q):'';
+}
 function canNewAmc(c){ if(!isMoneyRole()) return false; const t=c.type||'amc'; return t==='amc'?amcStatusOf(c)!=='active':true; }
 function custAsLead(id){ const c=STATE.customers.find(x=>x.id===id)||{}; return {customer:c.name||'',mobile:c.phone||''}; }
 function seedLegacyHist(c){ if(c.type==='amc'&&!(c.amcHistory&&c.amcHistory.length)&&c.activationDate){ c.amcHistory=[{start:c.activationDate,end:c.expiryDate||'',years:1,units:c.units||0,amount:Number(c.amcAmount)||0,services:(c.serviceLog||[]).map(x=>ymd(new Date(x.date))),tech:'',teli:String(c.leadTelecaller||((c.autoIncentive||c.sourceType==='telecaller')?c.incentiveTo:'')||''),desc:'',renewalNote:'',status:'active',srcRow:0}]; } }
@@ -5438,7 +5461,7 @@ async function customerNewAmc(cid,opt){
 function custShareText(c){
   const b=bizCfg(), st=amcStatusOf(c), addr=[c.address,c.landmark,c.city,c.pincode].filter(Boolean).join(', ');
   const L=['*'+(b.name||'Super Air Cool')+' — Customer Details*','','Naam: '+(c.name||''),'Phone: '+(c.phone||'')+(c.phone2?' / '+c.phone2:'')];
-  if(addr){ L.push('Address: '+addr,'Map: https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(addr)); }
+  if(addr){ L.push('Address: '+addr); } const mu=custMapUrl(c); if(mu) L.push('Map: '+mu);
   if(c.brand||c.model) L.push('AC: '+[c.brand,c.model,c.acType].filter(Boolean).join(' '));
   if((c.type||'amc')==='amc'){ L.push('AMC: '+(c.activationDate?fmtDate(c.activationDate):'—')+' → '+(c.expiryDate?fmtDate(c.expiryDate):'—')+(c.totalServices?' · Services '+(c.servicesDone||0)+'/'+c.totalServices:''),'Status: '+({active:'Active',inactive:'Inactive',lapsed:'Cancel'}[st]||'')); }
   else L.push('Type: '+customerTypeLabel(c.type));
@@ -5532,7 +5555,7 @@ function writeMyLoc(p,src){
 async function presenceTick(force){
   if(!STATE.session||!officeMobile()||(document.hidden&&!force)) return;
   if(!force&&Date.now()-PRES.t<9*60000) return; PRES.t=Date.now();
-  try{ const p=await getPos({maximumAge:60000}); STATE.locDenied=false; writeMyLoc(p,'app'); }catch(e){ if(e&&e.code===1){ if(!STATE.locDenied){ STATE.locDenied=true; bgRender(); } } }
+  try{ const p=await getPos({maximumAge:60000}); STATE.locDenied=false; STATE.locGot=true; writeMyLoc(p,'app'); }catch(e){ if(e&&e.code===1){ if(!STATE.locDenied){ STATE.locDenied=true; bgRender(); } } }
 }
 function presenceStart(){
   if(PRES.iv||!officeMobile()) return;
@@ -5568,7 +5591,8 @@ function statsPublishSoon(){
 function incCardHtml(){
   const ym=todayStr().slice(0,7), cur=myMonth(ym), amt=cur.amt||0, left=Math.max(0,INC_TARGET-amt), pct=Math.min(100,Math.round(amt*100/INC_TARGET));
   const done=amt>=INC_TARGET;
-  return `<div class="card"><div class="item-name">🎯 Is mahine ka Incentive</div>
+  const off=STATE.session.role!=='telecaller';
+  return `<div class="card"><div class="item-name">🎯 ${off?'Office — Is mahine ka Incentive Target (sab telecaller milakar)':'Is mahine ka Incentive'}</div>
     ${done?`<div style="font-size:26px;font-weight:800;color:var(--green);margin:6px 0;">${rupee(incMonth(amt))}</div><div class="item-sub">🎉 ₹1 lakh ka target pura! Kul new AMC ${rupee(amt)} ka 4%.</div>`
     :`<div class="item-sub" style="margin:4px 0 6px;">${rupee(amt)} / ${rupee(INC_TARGET)} ho chuka</div><div style="height:12px;background:#e3edf0;border-radius:8px;overflow:hidden;"><div style="height:100%;width:${pct}%;background:linear-gradient(90deg,var(--teal),var(--frost));"></div></div><div style="margin-top:8px;font-size:18px;font-weight:800;color:#c0392b;">${rupee(left)} baaki</div><div class="item-sub">Target pura hote hi poori rakam par 4% incentive milega.</div>`}
     <div class="item-sub" style="opacity:.7;margin-top:6px;">Sirf naye AMC (renewal / repair / one-time / purane nahi). Har mahine nayi ginti.</div></div>`;
@@ -5579,15 +5603,17 @@ function renderMHome(){
   const sid=STATE.session.staffId, s=STATE.staff.find(x=>x.id===sid)||{name:STATE.session.name}, t=todayStr(), a=attRec(sid,t), ym=t.slice(0,7);
   statsLoad(false);
   const cur=myMonth(ym), tele=STATE.session.role==='telecaller';
+  STATE.perm=STATE.perm||{}; if(!STATE._prq){ STATE._prq=1; permRefresh().then(()=>bgRender()).catch(()=>{}); }
+  const lst=STATE.locGot?'g':(STATE.locDenied||STATE.perm.loc==='denied')?'d':(STATE.perm.loc==='granted')?'g':'u';
   const inDone=!!(a&&a.in), outDone=!!(a&&a.out);
   return `<div class="section-title">Namaste, ${esc(s.name||'')}</div>
     <div class="card"><div class="row-between"><div class="item-name">📅 Aaj ki Attendance</div><span class="pill ${inDone?(outDone?'pill-green':'pill-sky'):'pill-amber'}">${inDone?(outDone?'Poori':'IN lagi'):'Baaki'}</span></div>
       <div class="item-sub" style="margin:6px 0 10px;">${a?esc(attLine(a)):'Abhi tak IN nahi lagi. Office ka QR scan karein.'}</div>
       <div class="card-actions"><button class="primary-btn" data-v9="scan" data-k="in" ${inDone?'disabled':''} style="${inDone?'opacity:.5;':''}">📷 IN Scan</button><button class="primary-btn" data-v9="scan" data-k="out" ${(!inDone||outDone)?'disabled':''} style="background:#c0392b;${(!inDone||outDone)?'opacity:.5;':''}">📷 OUT Scan</button></div>
       <div class="item-sub" style="opacity:.7;margin-top:8px;">Subah aate samay IN aur jaate samay OUT — office me laga QR scan karein. Location on honi chahiye.</div></div>
-    ${STATE.locDenied?`<div class="card" style="border:2px solid #c0392b;"><div class="item-name" style="color:#c0392b;">📍 Location band hai</div><div class="item-sub">Phone Settings → Chrome → Site settings → Location → Allow karein, tabhi attendance lagegi.</div></div>`:''}
-    <div class="stat-grid"><div class="stat-card"><div class="stat-num">${cur.n||0}</div><div class="stat-label">${tele?'Is mahine mere naye AMC':'Is mahine naye AMC (office)'}</div></div><div class="stat-card"><div class="stat-num" style="font-size:18px;">${STATE.locDenied?'❌':'✅'}</div><div class="stat-label">${STATE.locDenied?'Location band':'Location chalu'}</div></div></div>
-    ${tele?incCardHtml():''}
+    ${lst==='d'?`<div class="card" style="border:2px solid #c0392b;"><div class="item-name" style="color:#c0392b;">📍 Location band hai</div><div class="item-sub">Phone Settings → Chrome → Site settings → Location → Allow karein, tabhi attendance lagegi.</div></div>`:''}
+    <div class="stat-grid"><div class="stat-card"><div class="stat-num">${cur.n||0}</div><div class="stat-label">${tele?'Is mahine mere naye AMC':'Is mahine naye AMC (office)'}</div></div><div class="stat-card" ${lst==='u'?'data-v9="locallow" style="cursor:pointer;"':''}><div class="stat-num" style="font-size:18px;">${lst==='d'?'❌':lst==='g'?'✅':'⚠️'}</div><div class="stat-label">${lst==='d'?'Location band':lst==='g'?'Location chalu':'Location allow nahi — yahan dabayein'}</div></div></div>
+    ${incCardHtml()}
     <div class="card-actions" style="margin-top:8px;"><button class="mini-btn" data-navto="mattend" style="flex:1;">🗓 Chhutti / Attendance</button><button class="mini-btn" data-act="traveladd" style="flex:1;">🚗 Travel Add</button></div>`;
 }
 function renderMAttend(){
@@ -5738,8 +5764,8 @@ async function idRender(kind,s){
   host.innerHTML=(st?st.outerHTML:'')+'<style>.idc{width:340px!important;height:213px!important;max-width:none!important;margin:0!important;border-radius:0!important;border:0!important;aspect-ratio:auto!important;page-break-after:always;}</style>'+f.outerHTML+bk.outerHTML; document.body.appendChild(host);
   try{
     const opt={margin:0,filename:s.idNo+'.pdf',image:{type:'jpeg',quality:0.95},html2canvas:{scale:3,useCORS:true},jsPDF:{unit:'mm',format:[86,54],orientation:'landscape'},pagebreak:{mode:['css']}};
-    if(kind==='pdf'){ const cards=host.querySelectorAll('.idc'); const cB=await window.html2pdf().set(opt).from(cards[1]).toCanvas().get('canvas').then(c=>c); const pdf=await window.html2pdf().set(opt).from(cards[0]).toPdf().get('pdf').then(x=>x); while(pdf.getNumberOfPages()>1) pdf.deletePage(pdf.getNumberOfPages()); pdf.addPage([86,54],'landscape'); pdf.addImage(cB.toDataURL('image/jpeg',0.95),'JPEG',0,0,86,54); pdf.save(s.idNo+'.pdf'); }
-    else { const cv=await window.html2pdf().set(opt).from(host.querySelector('.idc')).toCanvas().get('canvas').then(c=>c); const a=document.createElement('a'); a.href=cv.toDataURL('image/png'); a.download=s.idNo+'.png'; document.body.appendChild(a); a.click(); a.remove(); }
+    if(kind==='pdf'){ const cards=host.querySelectorAll('.idc'); const cB=await window.html2pdf().set(opt).from(cards[1]).toCanvas().get('canvas').then(c=>c); const pdf=await window.html2pdf().set(opt).from(cards[0]).toPdf().get('pdf').then(x=>x); while(pdf.getNumberOfPages()>1) pdf.deletePage(pdf.getNumberOfPages()); pdf.addPage([86,54],'landscape'); pdf.addImage(cB.toDataURL('image/jpeg',0.95),'JPEG',0,0,86,54); await saveFileCompat(pdf.output('blob'),s.idNo+'.pdf'); }
+    else { const cv=await window.html2pdf().set(opt).from(host.querySelector('.idc')).toCanvas().get('canvas').then(c=>c); const pb=await new Promise(r=>cv.toBlob(r,'image/png')); await saveFileCompat(pb,s.idNo+'.png'); }
   } finally { host.remove(); }
 }
 function idPrint(s){
@@ -5775,6 +5801,8 @@ document.addEventListener('click',async ev=>{
   else if(a==='idsave'){ const s=STATE.staff.find(x=>x.id===id); if(s){ s.bloodGroup=val('v9_bg').slice(0,5); s.emergency=val('v9_em').replace(/\D/g,'').slice(0,10); await saveKey(SKEY.STAFF,STATE.staff); showToast('Save ho gaya'); render(); } }
   else if(a==='idblock'){ const s=STATE.staff.find(x=>x.id===id); if(s){ s.idBlocked=!s.idBlocked; await saveKey(SKEY.STAFF,STATE.staff); showToast(s.idBlocked?'ID block ho gaya':'ID valid ho gaya'); render(); } }
   else if(a==='idpdf'||a==='idimg'){ const s=STATE.staff.find(x=>x.id===id); if(s){ showToast('Tayyar ho raha hai…'); try{ await idRender(a==='idpdf'?'pdf':'img',s); }catch(e){ console.error(e); showToast('Download nahi ho paya — internet check karein'); } } }
+  else if(a==='cpin'){ const c=STATE.customers.find(x=>x.id===id); if(!c) return; if(c.pin&&!confirm('Is customer ka purana pin badal dein? Aap abhi customer ki jagah par hone chahiye.')) return; if(!c.pin&&!confirm('Kya aap abhi customer ke ghar/site par hain? Isi jagah ko customer ka pin bana diya jayega.')) return; showToast('Location le raha hu…'); try{ const p=await getPos(); const ac=Math.round(p.coords.accuracy||0); if(ac>150&&!confirm('Location sahi nahi hai (±'+ac+' m). Phir bhi save karein?')) return; c.pin={lat:+p.coords.latitude.toFixed(6),lng:+p.coords.longitude.toFixed(6),ac,by:(STATE.session&&STATE.session.name)||'',at:Date.now()}; await saveKey(SKEY.CUSTOMERS,STATE.customers); showToast('📍 Pin save ho gaya (±'+ac+' m) — ab Navigate seedha yahin le jayega'); render(); }catch(e){ showToast('Location nahi mili — GPS/permission on karein'); } }
+  else if(a==='locallow'){ showToast('Location maang raha hu…'); try{ const p=await getPos(); STATE.locDenied=false; STATE.locGot=true; STATE.perm=STATE.perm||{}; STATE.perm.loc='granted'; writeMyLoc(p,'app'); showToast('✅ Location chalu ho gayi'); render(); }catch(e){ if(e&&e.code===1){ STATE.locDenied=true; render(); } else showToast('Location nahi mili — GPS on karein'); } }
   else if(/^csh/.test(a)){ await custShareAct(a,el,val); }
   else if(/^st(item|move|hist|saveitem|savemove|delmove|delitem)$/.test(a)){ await stockAct(a,el,val); }
   else if(a==='idprint'){ const s=STATE.staff.find(x=>x.id===id); if(s) idPrint(s); }
@@ -5924,6 +5952,38 @@ async function billInvSuggest(){
   const d2=document.getElementById('invNames'); if(d2) d2.innerHTML=inv.map(x=>`<option value="${esc(x.name)}">${x.rate>0?'₹'+invFmt(x.rate)+'/'+esc(x.unit||''):''}</option>`).join('');
 }
 document.addEventListener('change',ev=>{ const e=ev.target; if(!e||!/^bl_n\d+$/.test(e.id||'')||!STATE.invNames) return; const it=STATE.invNames.find(x=>x.name.toLowerCase()===e.value.trim().toLowerCase()); if(!it) return; const i=e.id.slice(4), q=document.getElementById('bl_q'+i), r=document.getElementById('bl_r'+i); if(q&&!Number(q.value)) q.value=1; if(r&&!Number(r.value)&&it.rate>0){ r.value=it.rate; } r&&r.dispatchEvent(new Event('input',{bubbles:true})); });
+
+/* ===== v9.2k Install banner (iPhone: Add to Home Screen guide, Android: native prompt) ===== */
+(function(){
+  const standalone=()=>{ try{ return window.matchMedia('(display-mode: standalone)').matches||navigator.standalone===true; }catch(e){ return false; } };
+  const KEY='st_install_dismiss';
+  let deferred=null;
+  const dismissed=()=>{ try{ const t=+localStorage.getItem(KEY)||0; return Date.now()-t<3*864e5; }catch(e){ return false; } };
+  const isInApp=/FBAN|FBAV|Instagram|WhatsApp|Line\/|Snapchat|; wv\)/i.test(navigator.userAgent);
+  function close(save){ const b=document.getElementById('instBanner'); if(b) b.remove(); if(save){ try{ localStorage.setItem(KEY,String(Date.now())); }catch(e){} } }
+  function show(){
+    if(standalone()||dismissed()||document.getElementById('instBanner')) return;
+    let body='';
+    if(IS_IOS){
+      body = isInApp
+        ? '<div style="font-size:13px;line-height:1.5">Is link ko <b>Safari</b> me kholo (⋯ / Share → <b>Open in Safari</b>), phir install karo.</div>'
+        : '<div style="font-size:13px;line-height:1.6">1. Neeche <b>Share</b> button dabao <span style="font-size:16px">⎋</span> (box + upar arrow)<br>2. Scroll karke <b>“Add to Home Screen”</b> dabao<br>3. Upar <b>Add</b> dabao ✅</div>';
+    } else if(deferred){
+      body='<div style="font-size:13px;margin-bottom:8px">App ko home screen pe install karo – tezi se khulega.</div><button id="instGo" style="background:#2563eb;color:#fff;border:0;border-radius:10px;padding:9px 16px;font-weight:700;font-size:14px">📲 Install karo</button>';
+    } else return;
+    const d=document.createElement('div');
+    d.id='instBanner';
+    d.style.cssText='position:fixed;left:10px;right:10px;bottom:calc(10px + env(safe-area-inset-bottom));z-index:99999;background:#0f172a;color:#fff;border-radius:16px;padding:14px 16px;box-shadow:0 10px 30px rgba(0,0,0,.4);font-family:inherit';
+    d.innerHTML='<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px"><img src="icon-192.png" onerror="this.style.display=\x27none\x27" style="width:36px;height:36px;border-radius:9px" alt=""><div style="flex:1;font-weight:800;font-size:15px">📲 App install karo</div><button id="instX" aria-label="Band" style="background:rgba(255,255,255,.15);color:#fff;border:0;border-radius:50%;width:28px;height:28px;font-size:14px">✕</button></div>'+body+(IS_IOS?'<div style="font-size:11px;opacity:.7;margin-top:8px">Notification bhi tabhi aayengi jab app Home Screen se khulega.</div>':'');
+    document.body.appendChild(d);
+    document.getElementById('instX').onclick=()=>close(true);
+    const g=document.getElementById('instGo');
+    if(g) g.onclick=async()=>{ try{ deferred.prompt(); await deferred.userChoice; }catch(e){} deferred=null; close(true); };
+  }
+  window.addEventListener('beforeinstallprompt',e=>{ e.preventDefault(); deferred=e; setTimeout(show,2500); });
+  window.addEventListener('appinstalled',()=>close(true));
+  if(IS_IOS) setTimeout(show,2500);
+})();
 
 boot();
 </script>
