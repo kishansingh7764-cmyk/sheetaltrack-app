@@ -1900,6 +1900,7 @@ const isAdminOnly=()=>!!(STATE.session&&STATE.session.role==='admin');
 function fmtDMY(s){ const m=String(s||'').match(/^(\d{4})-(\d{2})-(\d{2})/); return m?m[3]+'/'+m[2]+'/'+m[1]:''; }
 function monthLabel(k){ if(k.length===4) return k; const [y,m]=k.split('-').map(Number); return ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][m-1]+' '+y; }
 
+let MDUP=new Map();
 function moneyRows(){
   const rows=[], cs=STATE.customers||[], cmap=new Map(cs.map(c=>[c.id,c]));
   (STATE.jobs||[]).forEach(j=>{
@@ -1918,13 +1919,14 @@ function moneyRows(){
         rows.push({k:'amc',id:c.id+'#'+i,date:x.start,cat:i===0?(old?'amcold':'amcnew'):'renewal',amount:a,due:0,mode:normMode(x.mode),travel:0,custId:c.id,name:c.name,tech:'',title:i===0?'AMC':'AMC Renewal',teli:old?'':teli}); });
     } else {
       const a=Number(c.amcAmount)||0, d=c.activationDate||(c.createdAt?ymd(new Date(c.createdAt)):'');
-      if(a>0&&d) rows.push({k:'amc',id:c.id+'#0',date:d,cat:c.isOld?'amcold':'amcnew',amount:a,due:0,mode:'',travel:0,custId:c.id,name:c.name,tech:'',title:'AMC',teli:c.isOld?'':String(c.leadTelecaller||((c.autoIncentive||c.sourceType==='telecaller')?c.incentiveTo:'')||'').trim()});
+      if(a>0&&d) rows.push({k:'amc',id:c.id+'#0',date:d,cat:c.isOld?'amcold':'amcnew',amount:a,due:0,mode:normMode(c.amcMode),travel:0,custId:c.id,name:c.name,tech:'',title:'AMC',teli:c.isOld?'':String(c.leadTelecaller||((c.autoIncentive||c.sourceType==='telecaller')?c.incentiveTo:'')||'').trim()});
     }
   });
   (STATE.bills||[]).forEach(b=>{ if(!b.date) return;
     rows.push({k:'bill',id:b.id,date:b.date,cat:b.cat||classifyWork(b.work),amount:Number(b.amount)||0,due:Number(b.due)||0,mode:normMode(b.mode),travel:0,custId:b.customerId||'',name:b.name||'',phone:b.phone||'',tech:b.techName||'',title:b.work||'',teli:''}); });
   (STATE.travelLogs||[]).forEach(t=>{ const a=Number(t.amount)||0; if(a&&t.date) rows.push({k:'travel',id:t.id,date:t.date,cat:'travelonly',amount:0,due:0,mode:'',travel:a,custId:'',name:t.name||'',tech:t.staffId||'',title:'Travel',teli:''}); });
   rows.forEach(r=>{ if(r.phone===undefined){ const c=r.custId?cmap.get(r.custId):null; r.phone=c?(c.phone||''):''; } });
+  MDUP=new Map(); rows.forEach(r=>{ if((r.k==='bill'||r.k==='job')&&r.amount>0){ const k=[r.date,r.custId||String(r.name||'').toLowerCase(),r.amount].join('|'); MDUP.set(k,(MDUP.get(k)||0)+1); } });
   return rows;
 }
 function moneyBounds(){
@@ -1947,7 +1949,7 @@ function dueRows(){ return moneyRows().filter(r=>r.due>0&&(r.k==='job'||r.k==='b
 /* ---- Kamai screen ---- */
 function moneyRowLine(r,isAdmin){
   const nm=r.custId?`<span data-viewcust="${r.custId}" style="cursor:pointer;text-decoration:underline;color:var(--teal);">${esc(r.name||'Customer')}</span>`:esc(r.name||'Customer pata nahi');
-  return `<div class="row-between" style="padding:6px 0;border-bottom:1px solid var(--border);"><div><div class="item-sub" style="margin:0;color:var(--text);"><b>${nm}</b></div><div class="item-sub" style="margin:0;">${fmtDate(r.date)} · ${esc(r.title||MCAT_L[r.cat]||'')}${r.mode?' · '+MODE_L[r.mode]:''}${isAdmin&&r.due>0?' · <span style="color:#c0392b;">Due '+rupee(r.due)+'</span>':''}</div>${fixBtn(r)}</div><div class="item-name" style="font-size:14px;">${rupee(r.amount)}</div></div>`;
+  return `<div class="row-between" style="padding:6px 0;border-bottom:1px solid var(--border);"><div><div class="item-sub" style="margin:0;color:var(--text);"><b>${nm}</b>${rowDup(r)?' <span class="pill pill-red">⚠️ Double?</span>':''}</div><div class="item-sub" style="margin:0;">${fmtDate(r.date)} · ${esc(r.title||MCAT_L[r.cat]||'')}${r.mode?' · '+MODE_L[r.mode]:''}${isAdmin&&r.due>0?' · <span style="color:#c0392b;">Due '+rupee(r.due)+'</span>':''}</div>${fixBtn(r)}</div><div class="item-name" style="font-size:14px;">${rupee(r.amount)}</div></div>`;
 }
 const rowOdd=r=>r.date<'2015-01-01'||r.date>addMonths(todayStr(),13);
 const rowBigAmt=r=>(r.k==='bill'||r.k==='job')&&r.amount>=500000;
@@ -1956,7 +1958,7 @@ function moneyMonthDetail(R,k,isAdmin){
   const cats=['amcnew','renewal','repair','onetime','amcold'].filter(c=>rs.some(r=>r.cat===c));
   return cats.map(c=>{ const L=rs.filter(r=>r.cat===c).sort((x,y)=>String(y.date).localeCompare(String(x.date))); return `<div class="item-sub" style="margin:10px 0 2px;font-weight:700;color:var(--teal);">${MCAT_L[c]} — ${L.length} · ${rupee(L.reduce((t,r)=>t+r.amount,0))}</div>`+L.map(r=>{
     const nm=r.custId?`<span data-viewcust="${r.custId}" style="cursor:pointer;text-decoration:underline;color:var(--teal);">${esc(r.name||'Customer')}</span>`:esc(r.name||'Customer pata nahi');
-    return `<div class="row-between" style="padding:7px 0;border-bottom:1px solid var(--border);align-items:flex-start;"><div style="min-width:0;"><div class="item-sub" style="margin:0;color:var(--text);"><b>${nm}</b>${rowOdd(r)?' <span class="pill pill-red">⚠️ Date check</span>':''}${rowBigAmt(r)?' <span class="pill pill-red">⚠️ Amount check</span>':''}</div><div class="item-sub" style="margin:0;">${fmtDate(r.date)}${r.phone?' · 📞 '+esc(r.phone):''}${r.title?' · '+esc(r.title):''}${r.mode?' · '+MODE_L[r.mode]:''}${r.teli?' · Telecaller: '+esc(r.teli):''}${isAdmin&&r.due>0?' · <span style="color:#c0392b;">Due '+rupee(r.due)+'</span>':''}</div>${fixBtn(r)}</div><div class="item-name" style="font-size:14px;">${rupee(r.amount)}</div></div>`; }).join(''); }).join('')||'<div class="item-sub">Koi entry nahi.</div>';
+    return `<div class="row-between" style="padding:7px 0;border-bottom:1px solid var(--border);align-items:flex-start;"><div style="min-width:0;"><div class="item-sub" style="margin:0;color:var(--text);"><b>${nm}</b>${rowOdd(r)?' <span class="pill pill-red">⚠️ Date check</span>':''}${rowBigAmt(r)?' <span class="pill pill-red">⚠️ Amount check</span>':''}${rowDup(r)?' <span class="pill pill-red">⚠️ Double?</span>':''}</div><div class="item-sub" style="margin:0;">${fmtDate(r.date)}${r.phone?' · 📞 '+esc(r.phone):''}${r.title?' · '+esc(r.title):''}${r.mode?' · '+MODE_L[r.mode]:''}${r.teli?' · Telecaller: '+esc(r.teli):''}${isAdmin&&r.due>0?' · <span style="color:#c0392b;">Due '+rupee(r.due)+'</span>':''}</div>${fixBtn(r)}</div><div class="item-name" style="font-size:14px;">${rupee(r.amount)}</div></div>`; }).join(''); }).join('')||'<div class="item-sub">Koi entry nahi.</div>';
 }
 function moneyGroupHtml(R,isAdmin){
   const len=MONEY.group==='year'?4:7, m=new Map();
@@ -2057,7 +2059,7 @@ function billsTabHtml(isAdmin){
   return `${warn}${mk}<div style="display:flex;gap:6px;margin-bottom:8px;">${isAdmin?`<button class="mini-btn primary" data-act="billimport" style="flex:none;">📥 Bill Sheet Import</button>`:''}<input id="mbq" placeholder="Naam / number / kaam" value="${esc(MONEY.bq||'')}"><button class="mini-btn" data-act="mbq" style="flex:none;">Dhundein</button></div>
     <div class="item-sub">${L.length} bill${q?' (search)':''}</div>
     ${L.slice(0,80).map(b=>{ const nm=b.customerId?`<span data-viewcust="${b.customerId}" style="cursor:pointer;text-decoration:underline;color:var(--teal);">${esc(b.name||'Customer')}</span>`:esc(b.name||'Customer pata nahi'); return `<div class="card"><div class="row-between"><div><div class="item-name">${nm} ${b.old?'<span class="pill pill-grey">OLD</span>':''}</div><div class="item-sub" style="margin:0;">${fmtDate(b.date)} · ${esc(b.work||'—')}${b.mode?' · '+(MODE_L[normMode(b.mode)]||esc(b.mode)):''}${b.phone?' · 📞 '+esc(b.phone):' · <i>number nahi</i>'}</div>${isAdmin&&Number(b.due)>0?`<div class="item-sub" style="margin:0;color:#c0392b;">Due ${rupee(b.due)}</div>`:''}</div><div class="item-name">${rupee(b.amount)}</div></div>
-      <div style="display:flex;gap:6px;align-items:center;margin-top:6px;flex-wrap:wrap;"><select data-billcat="${b.id}" style="flex:1;min-width:120px;">${Object.keys(MCAT_L).map(k=>`<option value="${k}" ${k===(b.cat||classifyWork(b.work))?'selected':''}>${MCAT_L[k]}</option>`).join('')}</select>${!b.customerId?`<button class="mini-btn" data-act="billlink" data-id="${b.id}" style="flex:none;">📞 Customer se Jodein</button>`:''}<button class="mini-btn" data-act="fixamt" data-k="bill" data-id="${b.id}" style="flex:none;">💰 Amount</button></div></div>`; }).join('')}
+      <div style="display:flex;gap:6px;align-items:center;margin-top:6px;flex-wrap:wrap;"><select data-billcat="${b.id}" style="flex:1;min-width:120px;">${Object.keys(MCAT_L).map(k=>`<option value="${k}" ${k===(b.cat||classifyWork(b.work))?'selected':''}>${MCAT_L[k]}</option>`).join('')}</select>${!b.customerId?`<button class="mini-btn" data-act="billlink" data-id="${b.id}" style="flex:none;">📞 Customer se Jodein</button>`:''}<button class="mini-btn" data-act="fixamt" data-k="bill" data-id="${b.id}" style="flex:none;">💰 Amount</button>${isAdmin?`<button class="mini-btn danger" data-act="mdel" data-k="bill" data-id="${b.id}" style="flex:none;">🗑 Hatao</button>`:''}</div></div>`; }).join('')}
     ${L.length>80?`<div class="item-sub">Pehli 80 dikha rahe hain — search karein.</div>`:''}${undo}`;
 }
 function renderMoney(){
@@ -2120,7 +2122,7 @@ function billHistoryHtml(c){
   const L=billsOfCustomer(c); if(!L.length) return '';
   const isAdmin=STATE.session.role==='admin';
   return `<div class="card"><div class="item-name" style="margin-bottom:2px;">🧾 Bill History</div><div class="item-sub">${L.length} purane bill · kul ${rupee(L.reduce((s,b)=>s+(Number(b.amount)||0),0))}</div>
-    ${L.slice(0,20).map(b=>`<div class="row-between" style="padding:5px 0;border-top:1px solid var(--border);"><div class="item-sub" style="margin:0;">${fmtDate(b.date)} · ${esc(b.work||'—')}${b.mode?' · '+(MODE_L[normMode(b.mode)]||esc(b.mode)):''}${isAdmin&&Number(b.due)>0?' · <span style="color:#c0392b;">Due '+rupee(b.due)+'</span>':''}</div><div class="item-name" style="font-size:14px;">${rupee(b.amount)}</div></div>`).join('')}${L.length>20?`<div class="item-sub">…aur ${L.length-20} bill</div>`:''}</div>`;
+    ${L.slice(0,20).map(b=>`<div class="row-between" style="padding:5px 0;border-top:1px solid var(--border);"><div class="item-sub" style="margin:0;">${fmtDate(b.date)} · ${esc(b.work||'—')}${b.mode?' · '+(MODE_L[normMode(b.mode)]||esc(b.mode)):''}${isAdmin&&Number(b.due)>0?' · <span style="color:#c0392b;">Due '+rupee(b.due)+'</span>':''}</div><div style="text-align:right;"><div class="item-name" style="font-size:14px;">${rupee(b.amount)}</div>${isAdmin?`<button class="mini-btn danger" data-act="mdel" data-k="bill" data-id="${b.id}" style="margin-top:3px;">🗑 Hatao</button>`:''}</div></div>`).join('')}${L.length>20?`<div class="item-sub">…aur ${L.length-20} bill</div>`:''}</div>`;
 }
 async function renewAmc(id,o){
   const c=STATE.customers.find(x=>x.id===id); if(!c||c.type!=='amc') return false;
@@ -2186,6 +2188,23 @@ async function billApplyImport(d){
   await saveKey(SKEY.BILLS, STATE.bills); if(plan.newCust.size) await saveKey(SKEY.CUSTOMERS, STATE.customers);
   auditLog(STATE.session.staffId,STATE.session.name,STATE.session.role,'import','Bill Import '+batch+': '+out.length+' bills, '+plan.newCust.size+' naye customers');
   d.step='done'; d.result={n:out.length,c:plan.newCust.size}; d.plan=null; showToast('✅ '+out.length+' bills import hue'); render();
+}
+async function moneyDelete(k,id){
+  const me=STATE.session, cm=x=>{ const c=(STATE.customers||[]).find(y=>y.id===x.customerId); return (x.name||(c&&c.name)||'Customer'); };
+  if(k==='bill'){
+    const b=(STATE.bills||[]).find(x=>x.id===id); if(!b){ showToast('Bill nahi mila'); return; }
+    if(!confirm('Ye bill hata dein?\n\n'+cm(b)+' · '+fmtDate(b.date)+' · '+rupee(b.amount)+'\n\nKamai se bhi hat jayega. Wapas nahi aayega.')) return;
+    STATE.bills=STATE.bills.filter(x=>x.id!==id); await saveKey(SKEY.BILLS,STATE.bills);
+    auditLog(me.staffId,me.name,me.role,'delete','Bill hataya: '+JSON.stringify({name:b.name,phone:b.phone,date:b.date,amount:b.amount,work:b.work,mode:b.mode,tech:b.techName}));
+    showToast('Bill hata diya'); render(); return;
+  }
+  if(k==='job'){
+    const j=(STATE.jobs||[]).find(x=>x.id===id); if(!j){ showToast('Entry nahi mili'); return; }
+    if(!confirm('Is job ki kamai (amount) hata dein?\n\n'+cm(j)+' · '+fmtDate(j.completedAt?ymd(new Date(j.completedAt)):j.date)+' · '+rupee(j.amount)+'\n\nJob khud rahegi, sirf Kamai se amount hat jayega (amount 0 ho jayega).')) return;
+    j.amountWas=j.amountWas||j.amount; j.amount=0; j.due=0; await saveKey(SKEY.JOBS,STATE.jobs);
+    auditLog(me.staffId,me.name,me.role,'edit','Job ki kamai hatayi: '+cm(j)+' · pehle '+rupee(j.amountWas));
+    showToast('Kamai se hata diya'); render();
+  }
 }
 async function billUndoBatch(batch){
   const mine=(STATE.bills||[]).filter(b=>b.importBatch===batch); if(!mine.length) return;
@@ -2667,7 +2686,10 @@ async function moneyFixDate(d,iso){
   if(d.k==='job'){ const j=(STATE.jobs||[]).find(x=>x.id===d.id); if(!j) return false; const t=j.completedAt?new Date(j.completedAt):new Date(); const nd=new Date(iso+'T00:00:00'); nd.setHours(t.getHours(),t.getMinutes(),0,0); j.completedAt=nd.getTime(); await saveKey(SKEY.JOBS,STATE.jobs); return true; }
   return false;
 }
-const fixBtn=r=>!isMoneyRole()?'':((rowOdd(r)?`<button class="mini-btn" data-act="fixdate" data-id="${esc(r.id)}" data-k="${r.k}" style="margin-top:5px;margin-right:6px;">📅 Date theek karein</button>`:'')+(rowBigAmt(r)?`<button class="mini-btn" data-act="fixamt" data-id="${esc(r.id)}" data-k="${r.k}" style="margin-top:5px;">💰 Amount theek karein</button>`:''));
+const rowDup=r=>(r.k==='bill'||r.k==='job')&&r.amount>0&&(MDUP.get([r.date,r.custId||String(r.name||'').toLowerCase(),r.amount].join('|'))||0)>1;
+const delBtn=r=>(STATE.session.role==='admin'&&(r.k==='bill'||r.k==='job'))?`<button class="mini-btn danger" data-act="mdel" data-id="${esc(r.id)}" data-k="${r.k}" style="margin-top:5px;margin-right:6px;">🗑 ${r.k==='bill'?'Bill Hatao':'Kamai se Hatao'}</button>`:'';
+const modeSel=r=>{ if(!(r.k==='amc'||r.k==='bill'||r.k==='job')) return ''; if(r.k!=='amc'&&r.mode) return ''; return `<select data-mmode="${esc(r.id)}" data-k="${r.k}" style="margin-top:5px;margin-right:6px;font-size:12px;padding:3px 6px;width:auto;"><option value="">💳 Mode chunein</option>${Object.keys(MODE_L).map(m=>`<option value="${m}" ${m===r.mode?'selected':''}>${MODE_L[m]}</option>`).join('')}</select>`; };
+const fixBtn=r=>!isMoneyRole()?'':(modeSel(r)+delBtn(r)+(rowOdd(r)?`<button class="mini-btn" data-act="fixdate" data-id="${esc(r.id)}" data-k="${r.k}" style="margin-top:5px;margin-right:6px;">📅 Date theek karein</button>`:'')+(rowBigAmt(r)?`<button class="mini-btn" data-act="fixamt" data-id="${esc(r.id)}" data-k="${r.k}" style="margin-top:5px;">💰 Amount theek karein</button>`:''));
 (function(){ const vv=window.visualViewport; if(!vv) return;
   const fit=()=>{ const o=document.querySelector('.modal-overlay'); if(!o) return; const kb=Math.max(0,window.innerHeight-vv.height-vv.offsetTop); o.style.paddingBottom=kb+'px'; const sh=o.querySelector('.modal-sheet'); if(sh) sh.style.maxHeight=Math.max(200,Math.round(vv.height*0.94))+'px'; };
   vv.addEventListener('resize',fit); vv.addEventListener('scroll',fit);
@@ -3214,7 +3236,7 @@ function render(){
 function renderSetup(){
   return `
   <div class="login-wrap">
-    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v9.4</p><div style="margin-top:10px;">${langBtnHtml()}</div></div>
+    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v9.5</p><div style="margin-top:10px;">${langBtnHtml()}</div></div>
     <div class="setup-note">Yeh app ab Firebase (Google ka free real-time database) use karti hai — pehle se tez aur reliable. Firebase Console se apna config copy karke neeche paste karein.</div>
     <div class="field"><label>Firebase Config (poora object paste karein)</label><textarea id="setupConfig" rows="8" placeholder='{"apiKey": "...", "authDomain": "...", "projectId": "...", ...}'>${setupUrlInput}</textarea></div>
     <button class="primary-btn" id="connectBtn">Connect Karein</button>
@@ -3282,7 +3304,7 @@ function renderLogin(){
   }
   return `
   <div class="login-wrap">
-    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v9.4</p><div style="margin-top:10px;">${langBtnHtml()}</div></div>
+    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v9.5</p><div style="margin-top:10px;">${langBtnHtml()}</div></div>
     <div class="role-grid">
       <button class="role-opt ${loginRole==='admin'?'active':''}" data-role="admin"><span class="ic">🗝️</span>Admin</button>
       <button class="role-opt ${loginRole==='subadmin'?'active':''}" data-role="subadmin"><span class="ic">🧑‍💼</span>Office</button>
@@ -5087,6 +5109,7 @@ function bindShellEvents(){
       if(act==='recsave'){ showToast(emailRecoveryReady()?'✅ Email recovery save ho gaya':'Save ho gaya — par Email + teeno EmailJS fields bharna zaroori hai'); render(); }
       else { if(!emailRecoveryReady()){ showToast('Pehle email aur teeno EmailJS fields bharein'); return; } try{ showToast('Test OTP bheja ja raha hai…'); await sendEmailJs(em,{otp:'123456',app_name:'SheetalTrack (TEST)',valid_min:10}); showToast('📧 Test email bhej diya ('+maskEmail(em)+') — inbox/spam dekhein'); }catch(e){ showToast('Email nahi gaya: '+(e&&e.message||'check IDs')); } render(); } }
     else if(act==='permopen'){ STATE.permScreen='recheck'; await permRefresh(); render(); }
+    else if(act==='mdel'){ if(STATE.session.role!=='admin') return; await moneyDelete(el.dataset.k,id); }
     else if(act==='fixamt'){ if(!isMoneyRole()) return; const rw=moneyRows().find(r=>String(r.id)===id&&r.k===el.dataset.k); if(!rw){ showToast('Entry nahi mili'); return; } activeModal={type:'fixAmt',data:{id:rw.id,k:rw.k,name:rw.name,title:rw.title,amount:rw.amount,date:rw.date}}; render(); }
     else if(act==='billmkcust'){ await billsMakeCustomers(); }
     else if(act==='fixdate'){ if(!isMoneyRole()) return; const rw=moneyRows().find(r=>String(r.id)===id&&r.k===el.dataset.k); if(!rw){ showToast('Entry nahi mili'); return; } activeModal={type:'fixDate',data:{id:rw.id,k:rw.k,name:rw.name,title:rw.title,amount:rw.amount,date:rw.date}}; render(); }
@@ -5256,6 +5279,11 @@ function bindShellEvents(){
   wireBin(); wireDayLog();
   { const cp=document.getElementById('crPer'); if(cp){ cp.onchange=()=>{ STATE.crPer=cp.value; if(cp.value==='custom'&&!STATE.crFrom){ STATE.crFrom=todayStr(); STATE.crTo=todayStr(); } render(); };
       const f=document.getElementById('crFrom'), t=document.getElementById('crTo'); if(f) f.onchange=()=>{ STATE.crFrom=f.value; if(STATE.crTo&&STATE.crTo<f.value) STATE.crTo=f.value; render(); }; if(t) t.onchange=()=>{ STATE.crTo=t.value; if(STATE.crFrom&&STATE.crFrom>t.value) STATE.crFrom=t.value; render(); }; } }
+  document.querySelectorAll('[data-mmode]').forEach(sel=>sel.onchange=async()=>{ if(!isMoneyRole()) return; const id=sel.dataset.mmode, k=sel.dataset.k, v=sel.value;
+    if(k==='bill'){ const b=(STATE.bills||[]).find(x=>x.id===id); if(b){ b.mode=v; await saveKey(SKEY.BILLS,STATE.bills); } }
+    else if(k==='job'){ const j=(STATE.jobs||[]).find(x=>x.id===id); if(j){ j.payMode=v; await saveKey(SKEY.JOBS,STATE.jobs); } }
+    else if(k==='amc'){ const p=id.split('#'), c=(STATE.customers||[]).find(x=>x.id===p[0]); if(c){ const i=Number(p[1])||0; if(c.amcHistory&&c.amcHistory[i]) c.amcHistory[i].mode=v; else c.amcMode=v; await saveKey(SKEY.CUSTOMERS,STATE.customers); } }
+    showToast(v?'Payment mode save ho gaya':'Mode hata diya'); render(); });
   document.querySelectorAll('[data-billcat]').forEach(sel=>sel.onchange=async()=>{ const b=(STATE.bills||[]).find(x=>x.id===sel.dataset.billcat); if(b){ b.cat=sel.value; await saveKey(SKEY.BILLS,STATE.bills); showToast('Category badal di'); render(); } });
   { const lg=document.getElementById('f_bizlogo'); if(lg) lg.onchange=()=>{ if(lg.files&&lg.files[0]) imgToDataUrl(lg.files[0],240,async u=>{ STATE.businessInfo.logo=u; await saveKey(SKEY.BUSINESS,STATE.businessInfo); showToast('Logo save ho gaya'); render(); }); };
     const sg=document.getElementById('f_bizsign'); if(sg) sg.onchange=()=>{ if(sg.files&&sg.files[0]) imgToDataUrl(sg.files[0],320,async u=>{ STATE.businessInfo.signature=u; await saveKey(SKEY.BUSINESS,STATE.businessInfo); showToast('Signature save ho gaya'); render(); }); }; }
