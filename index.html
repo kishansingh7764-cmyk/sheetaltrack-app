@@ -460,8 +460,29 @@ async function loadDayLog(){
 }
 function dlFiltered(){
   const d=STATE.dl||{}, rows=STATE.dlRows||[];
-  return rows.filter(r=>{ const who=r.by||r.name||''; if(d.who&&who!==d.who) return false;
+  return rows.filter(r=>{ const who=r.by||r.name||''; if(d.who&&who!==d.who) return false; if(d.role&&r.role!==d.role) return false;
     if(d.type){ if(d.type==='other'){ if(r.type==='chg') return false; } else { if(r.type!=='chg'||r.act!==d.type) return false; } } return true; });
+}
+const DL_ROLES=[['technician','🔧','Technician'],['subadmin','🧑‍💼','Sub Admin'],['telecaller','📞','Telecaller'],['admin','👑','Admin']];
+function dlDates(s,e){ const out=[]; for(let t=s;t<e&&out.length<40;t+=864e5) out.push(ymd(new Date(t))); return out; }
+function dlAttRows(role,s,e){ const out=[]; (STATE.staff||[]).filter(x=>x.role===role).forEach(x=>{ dlDates(s,e).forEach(dt=>{ const a=((STATE.attendance||{})[x.id]||{})[dt]; if(a&&(a.in||a.out)) out.push({staff:x,date:dt,a}); }); }); return out; }
+function dlMoneyHtml(s,e){
+  let rows=[]; try{ rows=moneyRows(); }catch(err){}
+  const ds=ymd(new Date(s)), de=ymd(new Date(e-1)); rows=rows.filter(r=>r.date>=ds&&r.date<=de);
+  const T={all:0,travel:0,due:0,cash:0,online:0,cheque:0,nomode:0,cat:{}}; rows.forEach(r=>{ if(MCAT_L[r.cat]&&r.amount){ T.all+=r.amount; T.cat[r.cat]=(T.cat[r.cat]||0)+r.amount; T[r.mode||'nomode']+=r.amount; } T.travel+=r.travel||0; T.due+=(r.k==='job'||r.k==='bill')?(r.due||0):0; });
+  const li=(l,v)=>v?`<div class="row-between" style="padding:2px 0;"><div class="item-sub" style="margin:0;">${l}</div><div class="item-sub" style="margin:0;"><b>${rupee(v)}</b></div></div>`:'';
+  return `<div class="card"><div class="row-between" style="align-items:center;"><div class="item-name">💰 Kul kamai (is period me)</div><div class="item-name" style="font-size:20px;color:var(--green);">${rupee(T.all)}</div></div>
+    ${Object.keys(MCAT_L).map(k=>li(MCAT_L[k],T.cat[k])).join('')}${li('🚗 Travel (alag)',T.travel)}${li('⏳ Customer ka paisa baaki',T.due)}
+    <div class="item-sub" style="margin-top:6px;opacity:.85;">💵 Cash ${rupee(T.cash)} · 📲 Online ${rupee(T.online)}${T.cheque?' · 🧾 Cheque '+rupee(T.cheque):''}${T.nomode?' · ❔ Mode nahi '+rupee(T.nomode):''}</div></div>`;
+}
+function dlRoleDetailHtml(role,s,e,jd,cs){
+  const lab=(DL_ROLES.find(x=>x[0]===role)||[])[2]||role, att=dlAttRows(role,s,e), ids=(STATE.staff||[]).filter(x=>x.role===role).map(x=>x.id);
+  let h=`<div class="card" style="background:var(--sky-pale);"><div class="row-between" style="align-items:center;gap:8px;"><div class="item-name">🔎 ${esc(lab)} — poori halchal</div><button class="mini-btn" data-v9="dlrole" data-id="${role}" style="flex:none;">✕ Sab dikhao</button></div>`;
+  h+=`<div class="item-sub" style="margin:8px 0 2px;font-weight:700;">📅 Attendance</div>`+(att.length?att.map(x=>`<div class="item-sub" style="margin:0;">${esc(x.staff.name)} · ${fmtDate(x.date)} — ${esc(attLine(x.a)||'Present')}</div>`).join(''):`<div class="item-sub" style="margin:0;">Is period me koi IN/OUT nahi.</div>`);
+  if(role==='technician'){ const jb=jd.filter(j=>ids.indexOf(j.assignedTo)>-1); h+=`<div class="item-sub" style="margin:8px 0 2px;font-weight:700;">✅ Jobs complete (${jb.length})</div>`+(jb.length?jb.map(j=>{ const c=(STATE.customers||[]).find(x=>x.id===j.customerId)||{}, t=(STATE.staff||[]).find(x=>x.id===j.assignedTo)||{}; return `<div class="item-sub" style="margin:0;">${esc(t.name||'')} · ${esc(c.name||'Customer')} · ${esc(j.title||'')} · <b>${rupee(j.amount||0)}</b>${Number(j.travelAmount)?' · 🚗 '+rupee(j.travelAmount):''}</div>`; }).join(''):`<div class="item-sub" style="margin:0;">Koi job complete nahi hui.</div>`);
+    const tl=(STATE.travelLogs||[]).filter(x=>ids.indexOf(x.staffId)>-1&&x.date>=ymd(new Date(s))&&x.date<=ymd(new Date(e-1))); if(tl.length) h+=`<div class="item-sub" style="margin:8px 0 2px;font-weight:700;">🚗 Travel entries (${tl.length})</div>`+tl.map(x=>`<div class="item-sub" style="margin:0;">${esc(x.name||'')} · ${fmtDate(x.date)} · ${Number(x.km||0).toFixed(1)} km${x.amount?' · '+rupee(x.amount):''} · ${esc(x.note||'')}</div>`).join(''); }
+  if(role==='telecaller'||role==='subadmin'){ const rr=cs.rows.filter(r=>ids.indexOf(r.id)>-1); h+=`<div class="item-sub" style="margin:8px 0 2px;font-weight:700;">📞 Calls (${rr.reduce((a,r)=>a+r.tot,0)})</div>`+(rr.length?rr.map(r=>`<div class="item-sub" style="margin:0;"><b>${esc(r.name)}</b> · ${r.calls} call · ${r.later} baad mein · ${r.amc} AMC bani</div>`+r.list.slice(0,25).map(x=>`<div class="item-sub" style="margin:0 0 0 12px;opacity:.85;">${hmT(x.t)} · ${esc(x.cust||'')} ${esc(x.mob||'')}</div>`).join('')).join(''):`<div class="item-sub" style="margin:0;">Koi call nahi.</div>`); }
+  return h+`<div class="item-sub" style="margin:8px 0 0;opacity:.75;">Neeche "Kisne kya kiya" me sirf ${esc(lab)} ki har entry (badlav, naya jodna, delete) dikh rahi hai.</div></div>`;
 }
 function renderDayLog(){
   if(STATE.session.role!=='admin') return '<div class="empty-state"><p>Ye screen sirf Admin ke liye hai.</p></div>';
@@ -488,6 +509,10 @@ function renderDayLog(){
       ${d.range==='custom'?`<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:6px;"><input type="date" id="dlFrom" value="${d.from}" max="${todayStr()}"><input type="date" id="dlTo" value="${d.to}" max="${todayStr()}"></div>`:''}
       <div class="item-sub" style="margin-top:6px;">📅 ${esc(lab)}</div></div>
     <div class="stat-grid">${tile(newC.length,'Naye Customer')}${tile(jm.length,'Jobs Bani')}${tile(jd.length,'Jobs Complete','var(--green)')}${tile(rupee(earn),'Complete Jobs ka Amount')}${tile(bills,'Bills Bane')}${tile(cs.calls,'Telecaller Calls')}${tile(eds,'Edits (badlav)')}${tile(dels,'Delete hue',dels?'#c0392b':'')}</div>
+    ${dlMoneyHtml(s,e)}
+    <div class="section-title">👥 Kis role ne kitna kiya <span class="item-sub" style="font-weight:400;">(tap karein — sab kuch dikhega)</span></div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;margin-bottom:10px;">${DL_ROLES.map(([k,ic,lb])=>{ const n=rowsAll.filter(r=>r.role===k&&r.type!=='login').length+dlAttRows(k,s,e).length+(k==='telecaller'?cs.calls+cs.later:0), lg=rowsAll.filter(r=>r.role===k&&r.type==='login').length, on=d.role===k; return `<div data-v9="dlrole" data-id="${k}" style="cursor:pointer;background:var(--card,#fff);border:1px solid var(--border);border-left:4px solid ${n?'var(--teal)':'#c9d6da'};border-radius:12px;padding:8px 10px;${on?'outline:2px solid var(--teal);':''}"><div style="display:flex;align-items:center;gap:6px;"><span style="font-size:16px;">${ic}</span><span style="font-size:20px;font-weight:800;color:${n?'var(--teal-deep)':'#9aa5a8'};">${n}</span></div><div class="item-sub" style="margin:2px 0 0;font-size:11.5px;">${lb}${lg?' · '+lg+' login':''}</div></div>`; }).join('')}</div>
+    ${d.role?dlRoleDetailHtml(d.role,s,e,jd,cs):''}
     <div class="section-title">Kisne kya kiya</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px;"><select id="dlWho"><option value="">👥 Sab log</option>${whos.map(w=>`<option value="${esc(w)}" ${d.who===w?'selected':''}>${esc(w)}</option>`).join('')}</select><select id="dlType">${Object.keys(DL_TYPES).map(k=>opt(k,DL_TYPES[k],d.type||'')).join('')}</select></div>
     ${STATE.dlLoading&&!STATE.dlRows?'<div class="item-sub">Load ho raha hai…</div>':STATE.dlErr?'<div class="item-sub" style="color:#c0392b;">Log nahi khul paya: '+esc(STATE.dlErr)+'</div>':''}
@@ -3151,7 +3176,7 @@ function render(){
 function renderSetup(){
   return `
   <div class="login-wrap">
-    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v9.2</p></div>
+    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v9.3</p><div style="margin-top:10px;">${langBtnHtml()}</div></div>
     <div class="setup-note">Yeh app ab Firebase (Google ka free real-time database) use karti hai — pehle se tez aur reliable. Firebase Console se apna config copy karke neeche paste karein.</div>
     <div class="field"><label>Firebase Config (poora object paste karein)</label><textarea id="setupConfig" rows="8" placeholder='{"apiKey": "...", "authDomain": "...", "projectId": "...", ...}'>${setupUrlInput}</textarea></div>
     <button class="primary-btn" id="connectBtn">Connect Karein</button>
@@ -3219,7 +3244,7 @@ function renderLogin(){
   }
   return `
   <div class="login-wrap">
-    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v9.2</p></div>
+    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v9.3</p><div style="margin-top:10px;">${langBtnHtml()}</div></div>
     <div class="role-grid">
       <button class="role-opt ${loginRole==='admin'?'active':''}" data-role="admin"><span class="ic">🗝️</span>Admin</button>
       <button class="role-opt ${loginRole==='subadmin'?'active':''}" data-role="subadmin"><span class="ic">🧑‍💼</span>Office</button>
@@ -3266,7 +3291,7 @@ function renderShell(){
   const nav=navItemsFor(STATE.session.role);
   if(STATE.view==='money'&&STATE.session.role!=='admin') STATE.view=homeViewFor(STATE.session.role);
   if(STATE.view==='stock'&&!isStockRole()) STATE.view=homeViewFor(STATE.session.role);
-  if(officeMobile()){ if(!MV.includes(STATE.view)) STATE.view='mhome'; } else if(MV.includes(STATE.view)) STATE.view=homeViewFor(STATE.session.role);
+  if(officeMobile()){ if(!MV.includes(STATE.view)&&STATE.view!=='help') STATE.view='mhome'; } else if(MV.includes(STATE.view)) STATE.view=homeViewFor(STATE.session.role);
   let body='';
   if(STATE.view==='mhome') body=renderMHome(); else if(STATE.view==='mattend') body=renderMAttend(); else if(STATE.view==='mprofile') body=renderMProfile(); else
   if(STATE.view==='dashboard') body=renderDashboard();
@@ -3274,6 +3299,7 @@ function renderShell(){
   else if(STATE.view==='reminders') body=renderReminders();
   else if(STATE.view==='amccal') body=renderAmcCalendar();
   else if(STATE.view==='daylog') body=renderDayLog();
+  else if(STATE.view==='help') body=helpHtml();
   else if(STATE.view==='customerProfile') body=renderCustomerProfile();
   else if(STATE.view==='jobs') body=renderJobs();
   else if(STATE.view==='money') body=renderMoney();
@@ -3287,7 +3313,7 @@ function renderShell(){
   else if(STATE.view==='attendance') body = (STATE.session.role==='technician'||STATE.session.role==='telecaller') ? renderMyAttendance() : renderAdminAttendance();
   else if(STATE.view==='settings') body=STATE.session.role==='technician'?renderTechProfile():STATE.session.role==='telecaller'?renderTelecallerProfile():renderSettings();
   return `
-  <div class="topbar"><div class="brand"><div class="brand-mark" style="width:30px;height:30px;font-size:15px;">❄️</div><div class="brand-text"><div class="name">SheetalTrack</div><div class="who">${esc(STATE.session.name)} · ${roleLabel(STATE.session.role)} · <span id="syncBadge">${PENDING>0?'⏳ Sync ho raha hai':'✅ Saved'}</span></div></div></div>${((STATE.session.role==='admin'||STATE.session.role==='subadmin')&&!officeMobile())?`<button class="mini-btn" id="globalSearchBtn" style="margin-right:8px;padding:8px 11px;flex:none;">🔍</button>`:''}${bellHtml()}<button class="logout-btn" id="logoutBtn">Logout</button></div>
+  <div class="topbar"><div class="brand"><div class="brand-mark" style="width:30px;height:30px;font-size:15px;">❄️</div><div class="brand-text"><div class="name">SheetalTrack</div><div class="who">${esc(STATE.session.name)} · ${roleLabel(STATE.session.role)} · <span id="syncBadge">${PENDING>0?'⏳ Sync ho raha hai':'✅ Saved'}</span></div></div></div>${((STATE.session.role==='admin'||STATE.session.role==='subadmin')&&!officeMobile())?`<button class="mini-btn" id="globalSearchBtn" style="margin-right:8px;padding:8px 11px;flex:none;">🔍</button>`:''}${bellHtml()}${langBtnHtml()}<button class="mini-btn" data-v9="help" title="Help" style="margin-right:8px;padding:8px 11px;flex:none;">❓</button><button class="logout-btn" id="logoutBtn">Logout</button></div>
   <div class="content">${body}</div>
   ${STATE.toast?`<div class="toast">${STATE.toast}</div>`:''}
   ${modalHtml()}
@@ -3315,32 +3341,39 @@ function inPeriodTs(ts, period){
   if(period==='year'){ return d.getFullYear()===now.getFullYear(); }
   return true;
 }
+const FOCUS_L={leave:'Chhutti approval baaki',absent:'Aaj IN nahi lagi',unassigned:'Job kisi ko assign nahi',todayjobs:'Aaj ki jobs baaki',late:'Service ka time nikal gaya',soon:'Service jaldi due',lowstock:'Stock kam hai',leadun:'Lead kisi ko assign nahi',leadfu:'Lead follow-up due'};
+const focusIs=(...k)=>!!(STATE.focus&&k.indexOf(STATE.focus.k)>-1);
+function focusBannerHtml(...k){ if(!focusIs(...k)) return ''; return `<div class="card" style="background:var(--sky-pale);"><div class="row-between" style="align-items:center;gap:8px;"><div class="item-sub" style="margin:0;">🔎 Sirf yahi dikha rahe hain: <b>${esc(FOCUS_L[STATE.focus.k]||'')}</b></div><button class="mini-btn" data-v9="focusclr" style="flex:none;">✕ Sab dikhao</button></div></div>`; }
+const dueOfC=c=>c.dueDate||(c.type==='amc'?c.expiryDate:addMonths(c.lastService,c.intervalMonths));
+function attTilesHtml(T){
+  T.sort((a,b)=>b.sev-a.sev); const col=n=>n===2?'#c0392b':'#e08a00';
+  return `<div class="section-title" style="margin-top:0;">⚡ Zaroori — abhi dekhein</div>`+(T.length?`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(145px,1fr));gap:8px;margin-bottom:12px;">${T.map(x=>`<div data-v9="attgo" data-to="${x.to}" data-tab="${x.tab||''}" data-focus="${x.f||''}" style="cursor:pointer;background:var(--card,#fff);border:1px solid var(--border);border-left:4px solid ${col(x.sev)};border-radius:12px;padding:8px 10px;"><div style="display:flex;align-items:center;gap:6px;"><span style="font-size:16px;">${x.ic}</span><span style="font-size:20px;font-weight:800;color:${col(x.sev)};">${x.n}</span></div><div class="item-sub" style="margin:2px 0 0;font-size:11.5px;line-height:1.25;">${x.label}${x.extra?'<br><b>'+x.extra+'</b>':''}</div></div>`).join('')}</div>`:`<div class="card" style="margin-bottom:12px;"><div class="item-sub">✅ Abhi kuch zaroori baaki nahi hai.</div></div>`);
+}
 function attentionHtml(dueSoon){
   const role=STATE.session.role, adm=role==='admin', t=todayStr(); if(role!=='admin'&&role!=='subadmin') return '';
-  const T=[]; const add=(ic,n,label,sev,to,tab,extra)=>{ if(n>0) T.push({ic,n,label,sev,to,tab:tab||'',extra:extra||''}); };
-  // chhutti
-  const lv=(STATE.leaves||[]).filter(l=>l.status==='pending'&&(adm||l.role==='technician')).length; add('🏖',lv,'Chhutti approval baaki',2,'attendance');
-  // unassigned jobs
-  const un=(STATE.jobs||[]).filter(j=>j.status!=='done'&&j.status!=='rejected'&&!j.assignedTo).length; add('👤',un,'Job kisi ko assign nahi',2,'jobs');
-  // service overdue / due
-  const dl=(dueSoon||[]).map(c=>{ const due=c.dueDate||(c.type==='amc'?c.expiryDate:addMonths(c.lastService,c.intervalMonths)); return due?daysUntil(due):0; }), late=dl.filter(d=>d<0).length;
-  add('⏰',late,'Service ka time nikal gaya',2,'reminders'); add('📆',dl.length-late,'Service jaldi due',1,'reminders');
-  // today pending jobs
-  const tp=(STATE.jobs||[]).filter(j=>j.assignedTo&&j.date===t&&(j.status==='pending'||j.status==='ongoing'||j.status==='onhold')).length; add('🛠',tp,'Aaj ki jobs baaki',1,'jobs');
-  // absent today
-  const ab=(STATE.staff||[]).filter(x=>x.role!=='admin'&&!((STATE.attendance||{})[x.id]||{})[t]).length; add('🙋',ab,'Aaj IN nahi lagi',1,'attendance');
+  const T=[]; const add=(ic,n,label,sev,to,tab,extra,f)=>{ if(n>0) T.push({ic,n,label,sev,to,tab:tab||'',extra:extra||'',f:f||''}); };
+  const lv=(STATE.leaves||[]).filter(l=>l.status==='pending'&&(adm||l.role==='technician')).length; add('🏖',lv,FOCUS_L.leave,2,'attendance','','','leave');
+  const un=(STATE.jobs||[]).filter(j=>j.status!=='done'&&j.status!=='rejected'&&!j.assignedTo).length; add('👤',un,FOCUS_L.unassigned,2,'jobs','','','unassigned');
+  const dl=(dueSoon||[]).map(c=>{ const due=dueOfC(c); return due?daysUntil(due):0; }), late=dl.filter(d=>d<0).length;
+  add('⏰',late,FOCUS_L.late,2,'reminders','','','late'); add('📆',dl.length-late,FOCUS_L.soon,1,'reminders','','','soon');
+  const tp=(STATE.jobs||[]).filter(j=>j.assignedTo&&j.date===t&&(j.status==='pending'||j.status==='ongoing'||j.status==='onhold')).length; add('🛠',tp,FOCUS_L.todayjobs,1,'jobs','','','todayjobs');
+  const ab=(STATE.staff||[]).filter(x=>x.role!=='admin'&&!((STATE.attendance||{})[x.id]||{})[t]).length; add('🙋',ab,FOCUS_L.absent,1,'attendance','','','absent');
   if(adm){
     const ex=(STATE.jobs||[]).filter(j=>j.status==='done'&&!j.extra&&(Number(j.amount)||0)>0&&(j.completedAt||0)>=Date.now()-30*864e5&&!(j.tag==='AMC'&&j.amcVisit===false)).length; add('🔧',ex,'Extra kaam review baaki',1,'money','extra');
-    let dr=[]; try{ dr=dueRows(); }catch(e){} const dt=dr.reduce((a,r)=>a+(r.due||0),0); if(dr.length) T.push({ic:'💸',n:dr.length,label:'Customer ka paisa baaki',sev:2,to:'money',tab:'due',extra:rupee(dt)});
-    if(STATE.adv&&STATE.adv.list){ const ao=advOpen(); if(ao.length) T.push({ic:'💰',n:ao.length,label:'Staff advance baaki',sev:1,to:'staff',tab:'',extra:rupee(advSum(ao))}); } else if(typeof advLoad==='function') setTimeout(()=>advLoad(),0);
+    let dr=[]; try{ dr=dueRows(); }catch(e){} const dt=dr.reduce((a,r)=>a+(r.due||0),0); if(dr.length) T.push({ic:'💸',n:dr.length,label:'Customer ka paisa baaki',sev:2,to:'money',tab:'due',extra:rupee(dt),f:''});
+    if(STATE.adv&&STATE.adv.list){ const ao=advOpen(); if(ao.length) T.push({ic:'💰',n:ao.length,label:'Staff advance baaki',sev:1,to:'adv',tab:'',extra:rupee(advSum(ao)),f:''}); } else if(typeof advLoad==='function') setTimeout(()=>advLoad(),0);
   }
-  // low stock
-  if(STATE.inv&&STATE.inv.items){ const lo=STATE.inv.items.filter(it=>Number(it.low)>0&&invStock(STATE.inv,it.id)<=Number(it.low)).length; add('📦',lo,'Stock kam hai',2,'stock'); } else if(typeof invLoad==='function') setTimeout(()=>invLoad(),0);
-  // leads
-  const L=(STATE.leads||[]).filter(l=>!l.called&&!l.convertedJobId&&!l.dismissed); add('📇',L.filter(l=>!l.assignedTo&&!l.assignedName).length,'Lead kisi ko assign nahi',1,'leads'); add('📞',L.filter(l=>l.followUpDate&&l.followUpDate<=t).length,'Lead follow-up due',2,'leads');
-  T.sort((a,b)=>b.sev-a.sev);
-  const col=n=>n===2?'#c0392b':'#e08a00';
-  return `<div class="section-title" style="margin-top:0;">⚡ Zaroori — abhi dekhein</div>`+(T.length?`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(145px,1fr));gap:8px;margin-bottom:12px;">${T.map(x=>`<div data-v9="attgo" data-to="${x.to}" data-tab="${x.tab}" style="cursor:pointer;background:var(--card,#fff);border:1px solid var(--border);border-left:4px solid ${col(x.sev)};border-radius:12px;padding:8px 10px;"><div style="display:flex;align-items:center;gap:6px;"><span style="font-size:16px;">${x.ic}</span><span style="font-size:20px;font-weight:800;color:${col(x.sev)};">${x.n}</span></div><div class="item-sub" style="margin:2px 0 0;font-size:11.5px;line-height:1.25;">${x.label}${x.extra?'<br><b>'+x.extra+'</b>':''}</div></div>`).join('')}</div>`:`<div class="card" style="margin-bottom:12px;"><div class="item-sub">✅ Abhi kuch zaroori baaki nahi hai.</div></div>`);
+  if(STATE.inv&&STATE.inv.items){ const lo=STATE.inv.items.filter(it=>Number(it.low)>0&&invStock(STATE.inv,it.id)<=Number(it.low)).length; add('📦',lo,FOCUS_L.lowstock,2,'stock','','','lowstock'); } else if(typeof invLoad==='function') setTimeout(()=>invLoad(),0);
+  const L=(STATE.leads||[]).filter(l=>!l.called&&!l.convertedJobId&&!l.dismissed); add('📇',L.filter(l=>!l.assignedTo&&!l.assignedName).length,FOCUS_L.leadun,1,'leads','','','leadun'); add('📞',L.filter(l=>l.followUpDate&&l.followUpDate<=t).length,FOCUS_L.leadfu,2,'leads','','','leadfu');
+  return attTilesHtml(T);
+}
+/* Phone / unregistered device (Sub Admin): sirf halka data — chhutti aur attendance */
+function attentionMobHtml(){
+  if(!STATE.session||STATE.session.role!=='subadmin') return '';
+  const t=todayStr(), T=[], add=(ic,n,label,sev,f)=>{ if(n>0) T.push({ic,n,label,sev,to:'mattend',tab:'',extra:'',f}); };
+  add('🏖',(STATE.leaves||[]).filter(l=>l.status==='pending'&&l.role==='technician').length,FOCUS_L.leave,2,'leave');
+  add('🙋',(STATE.staff||[]).filter(x=>x.role!=='admin'&&x.id!==STATE.session.staffId&&!((STATE.attendance||{})[x.id]||{})[t]).length,FOCUS_L.absent,1,'absent');
+  return attTilesHtml(T);
 }
 function renderDashboard(){
   if(!STATE.taskPeriod) STATE.taskPeriod='total';
@@ -3470,7 +3503,7 @@ function remState(c){ const x=remLast(c); return x?x.out:'new'; }
 function remToday(c){ const x=remLast(c); return !!(x&&(x.out==='later'||x.out==='noans')&&x.next&&x.next<=todayStr()); }
 function remVisible(){
   const f=STATE.remFilter||'all';
-  const flt=c=>{ const s=remState(c); if(f==='today') return remToday(c); if(f==='new') return s==='new'; if(f==='followup') return s==='later'||s==='noans'; if(f==='booked') return s==='booked'; if(f==='closed') return s==='notint'||s==='done'||s==='wrong'; return true; };
+  const flt=c=>{ const s=remState(c); if(f==='today') return remToday(c); if(f==='new') return s==='new'; if(f==='followup') return s==='later'||s==='noans'; if(f==='booked') return s==='booked'; if(f==='closed') return s==='notint'||s==='done'||s==='wrong'; if(focusIs('late')&&!(daysUntil(dueOfC(c))<0)) return false; if(focusIs('soon')&&daysUntil(dueOfC(c))<0) return false; return true; };
   return getAllDueCustomers().filter(flt).sort((a,b)=>(remToday(b)?1:0)-(remToday(a)?1:0)||new Date(a.dueDate)-new Date(b.dueDate));
 }
 async function saveRemark(id,due,o){
@@ -3513,6 +3546,7 @@ function renderReminders(){
   return `
     <div class="row-between sticky-back"><button class="ghost-btn" style="width:auto;padding:8px 14px;margin-top:0;" data-navto="dashboard">‹ Wapas</button></div>
     <div class="section-title">Due Service — Customer Calls</div>
+    ${focusBannerHtml('late','soon')}
     <div style="display:flex;gap:6px;margin-bottom:10px;">${tile(n.all,'Kul due','all','var(--teal)')}${tile(n.today,'Aaj call','today','#c0392b')}${tile(n.new,'Call baaki','new','#a8741a')}${tile(n.booked,'Booked','booked','#2e9e6b')}</div>
     <div style="display:flex;gap:6px;overflow-x:auto;margin-bottom:10px;">${tabs.map(([k,l])=>`<button class="mini-btn ${f===k?'primary':''}" data-remf="${k}" style="flex:none;white-space:nowrap;">${l} (${n[k]})</button>`).join('')}</div>
     <div class="card"><div class="row-between"><div class="item-name">📣 Bulk Message (Email / WhatsApp)</div><button class="mini-btn" data-act="rembulk" style="flex:none;">${STATE.remBulkOpen?'Band karein':'Kholein'}</button></div>
@@ -3686,6 +3720,10 @@ function renderLeads(){
 }
 function leadBucketLine(arr){ const L={amc:'📋 AMC',already:'🔁 Pehle se AMC',followup:'⏰ Follow-up',owncb:'↩️ Own CB',called:'📞 Call Hui',amcdone:'✅ Ban Gayi',closed:'🗂 Band'}, c={}; arr.forEach(l=>{ const k=leadBucket(l); if(k) c[k]=(c[k]||0)+1; }); return Object.keys(L).map(k=>`<span class="pill pill-sky" style="margin:2px 4px 2px 0;">${L[k]}: ${c[k]||0}</span>`).join(''); }
 function renderLeadsInner(){
+  if(focusIs('leadun','leadfu')&&(STATE.session.role==='admin'||STATE.session.role==='subadmin')){
+    const t=todayStr(), open=(STATE.leads||[]).filter(l=>!l.called&&!l.convertedJobId&&!l.dismissed), L=STATE.focus.k==='leadun'?open.filter(l=>!l.assignedTo&&!l.assignedName):open.filter(l=>l.followUpDate&&l.followUpDate<=t).sort((a,b)=>a.followUpDate.localeCompare(b.followUpDate));
+    return `<div class="section-title">Leads</div>${focusBannerHtml('leadun','leadfu')}${L.length?L.slice(0,80).map(adminLeadCard).join('')+(L.length>80?`<div class="item-sub" style="text-align:center;">+${L.length-80} aur — "Sab dikhao" dabayein</div>`:''):'<div class="card"><div class="item-sub">✅ Is filter me koi lead nahi.</div></div>'}`;
+  }
   const role=STATE.session.role, leads0=STATE.leads||[], leads=((role==='admin'||role==='subadmin')&&STATE.leadTc)?leads0.filter(l=>l.assignedTo===STATE.leadTc):leads0;
   const dueInfo=l=>{ if(!l.purchaseDate) return null; const due=addMonths(l.purchaseDate,11), d=daysUntil(due); return {due,d}; };
   const dueBadge=l=>{ const info=dueInfo(l); if(!info) return ''; const txt=info.d<0?Math.abs(info.d)+'d overdue':info.d<=30?'in '+info.d+'d':fmtDate(info.due); const cls=info.d<0?'pill-red':info.d<=30?'pill-amber':'pill-sky'; return `<span class="pill ${cls}">Free service: ${txt}</span>`; };
@@ -3801,7 +3839,10 @@ function renderJobs(){
   let base=STATE.jobs.slice();
   if(filt){ base=base.filter(j=>j.status===filt); if(per&&per!=='total') base=base.filter(j=>jobInPeriod(j,per)); }
   const tf=STATE.jobTech||''; if(tf) base=base.filter(j=>tf==='__none'?!j.assignedTo:j.assignedTo===tf);
-  const tab=filt?'all':(STATE.jobTab||'today');
+  const FJ=focusIs('unassigned','todayjobs')?STATE.focus.k:'';
+  if(FJ==='unassigned') base=base.filter(j=>jobIsOpen(j)&&!j.assignedTo);
+  if(FJ==='todayjobs') base=base.filter(j=>j.assignedTo&&j.date===todayStr()&&(j.status==='pending'||j.status==='ongoing'||j.status==='onhold'));
+  const tab=(filt||FJ)?'all':(STATE.jobTab||'today');
   let list=jobsForTab(base,tab);
   const dk=j=>String(j.date||'');
   if(tab==='today') list.sort((a,b)=>(jobIsOpen(b)-jobIsOpen(a))||jobSortFn(a,b));
@@ -3816,7 +3857,7 @@ function renderJobs(){
   } else body=shown.map(jobCardCompact).join('');
   if(list.length>lim) body+=`<button class="ghost-btn" data-act="jobsmore" style="margin-top:10px;">Aur dikhayein (${list.length-lim} baaki)</button>`;
   const cnt=t=>jobsForTab(base,t).length;
-  const tabs=filt?'':`<div class="tabbar">${JT_TABS.map(t=>`<button class="tabbtn ${t[0]===tab?'active':''}" data-act="jobtab" data-tab="${t[0]}">${t[1]} (${cnt(t[0])})</button>`).join('')}</div>`;
+  const tabs=(filt||FJ)?focusBannerHtml('unassigned','todayjobs'):`<div class="tabbar">${JT_TABS.map(t=>`<button class="tabbtn ${t[0]===tab?'active':''}" data-act="jobtab" data-tab="${t[0]}">${t[1]} (${cnt(t[0])})</button>`).join('')}</div>`;
   const tsel=`<div class="field" style="margin:0 0 10px;"><select id="jobTechFilter"><option value="">👷 Sab technician</option>${techs.map(t=>`<option value="${t.id}" ${tf===t.id?'selected':''}>${esc(t.name)} (${STATE.jobs.filter(j=>j.assignedTo===t.id&&jobIsOpen(j)).length} baaki)</option>`).join('')}<option value="__none" ${tf==='__none'?'selected':''}>🔴 Jo kisi ko assign nahi</option></select></div>`;
   return `
     ${filt?`<div class="row-between" style="margin-bottom:12px;"><div class="pill pill-sky">Filter: ${statusLabel(filt)}${per&&perL[per]?' · '+perL[per]:''}</div><button class="mini-btn" style="flex:none;padding:6px 12px;" id="clearJobFilterBtn">Clear ✕</button></div>`:''}
@@ -4205,6 +4246,8 @@ function teamSwitchHtml(cur){
 }
 function renderAdminAttendance(){
   const techs=STATE.staff.filter(s=>s.role!=='admin'), AL=5;
+  if(focusIs('leave')) return `${teamSwitchHtml('attendance')}${focusBannerHtml('leave')}${leaveAdminHtml(true)||'<div class="card"><div class="item-sub">✅ Koi chhutti approval baaki nahi.</div></div>'}`;
+  if(focusIs('absent')){ const t=todayStr(), ab=techs.filter(x=>!((STATE.attendance||{})[x.id]||{})[t]); return `${teamSwitchHtml('attendance')}${focusBannerHtml('absent')}${ab.length?ab.map(attCardX).join(''):'<div class="card"><div class="item-sub">✅ Sabki IN lag chuki hai.</div></div>'}`; }
   const shown=collOpen('att')?techs:techs.slice(0,AL);
   return `${teamSwitchHtml('attendance')}${leaveAdminHtml()}${travelSummaryHtml()}<div class="section-title">Team Attendance (${techs.length})</div>
     ${techs.length===0?`<div class="empty-state"><span class="ic">📅</span><p>Koi staff add nahi hai.</p></div>`:`<div class="item-sub" style="margin:-4px 0 8px;">Card par tap karein — poori history. Naam par tap karein — profile.</div>`+shown.map(attCardX).join('')+collBtn('att',techs.length,AL,'staff')}
@@ -4406,9 +4449,9 @@ function leaveCalHtml(){
   const mn=new Date(y,m-1,1).toLocaleString('en-IN',{month:'long',year:'numeric'});
   return `<div class="card"><div class="row-between"><button class="mini-btn" data-lmon="-1">‹</button><div class="item-name" style="font-size:13.5px;">🗓 Chhutti Calendar — ${mn}</div><button class="mini-btn" data-lmon="1">›</button></div><div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px;margin-top:10px;text-align:center;font-size:10px;color:#5d7178;">${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(x=>`<div>${x}</div>`).join('')}</div><div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px;margin-top:3px;">${cells}</div></div>`;
 }
-function leaveAdminHtml(){
+function leaveAdminHtml(only){
   const canA=l=>STATE.session.role==='admin'||(STATE.session.role==='subadmin'&&l.role==='technician'), P=(STATE.leaves||[]).filter(l=>l.status==='pending');
-  return `${P.length?`<div class="section-title">Chhutti Requests (${P.length})</div>`+(collOpen('leave')?P:P.slice(0,2)).map(l=>`<div class="card"><div class="item-name">${esc(l.name)} <span class="pill pill-sky">${l.role==='technician'?'Technician':'Office'}</span></div><div class="item-sub">🗓 ${fmtDate(l.from)}${l.to!==l.from?' → '+fmtDate(l.to):''}</div><div class="item-sub">${esc(l.reason)}</div><div class="item-sub" style="opacity:.7;">Request: ${fmtT(l.createdAt)}</div>${canA(l)?`<div class="card-actions"><button class="mini-btn primary" data-act="leaveok" data-id="${l.id}">Approve</button><button class="mini-btn danger" data-act="leaveno" data-id="${l.id}">Reject</button></div>`:'<div class="item-sub">Sirf Admin approve kar sakta hai</div>'}</div>`).join('')+collBtn('leave',P.length,2,'request'):''}${leaveCalHtml()}`;
+  return `${P.length?`<div class="section-title">Chhutti Requests (${P.length})</div>`+((collOpen('leave')||only)?P:P.slice(0,2)).map(l=>`<div class="card"><div class="item-name">${esc(l.name)} <span class="pill pill-sky">${l.role==='technician'?'Technician':'Office'}</span></div><div class="item-sub">🗓 ${fmtDate(l.from)}${l.to!==l.from?' → '+fmtDate(l.to):''}</div><div class="item-sub">${esc(l.reason)}</div><div class="item-sub" style="opacity:.7;">Request: ${fmtT(l.createdAt)}</div>${canA(l)?`<div class="card-actions"><button class="mini-btn primary" data-act="leaveok" data-id="${l.id}">Approve</button><button class="mini-btn danger" data-act="leaveno" data-id="${l.id}">Reject</button></div>`:'<div class="item-sub">Sirf Admin approve kar sakta hai</div>'}</div>`).join('')+(only?'':collBtn('leave',P.length,2,'request')):''}${only?'':leaveCalHtml()}`;
 }
 function jobFlagsHtml(j){
   if(!j) return ''; const isT=STATE.session.role==='technician'; let h='';
@@ -4932,8 +4975,8 @@ function bindShellEvents(){
     const gsBox=document.getElementById('globalSearchResults'); if(gsBox) wireGlobalSearchResultClicks(gsBox);
     gsInput.oninput=(e)=>{ STATE.globalSearchQuery=e.target.value; const box=document.getElementById('globalSearchResults'); if(box){ box.innerHTML=globalSearchResultsHtml(STATE.globalSearchQuery); wireGlobalSearchResultClicks(box); } };
   }
-  document.querySelectorAll('.navbtn').forEach(b=>b.onclick=()=>{ if(b.dataset.more){ activeModal={type:'navMore',data:{}}; render(); return; } STATE.view=b.dataset.view; STATE.jobStatusFilter=''; STATE.jobPeriod=''; render(); });
-  document.querySelectorAll('[data-navto]').forEach(el=>el.onclick=()=>{ STATE.view=el.dataset.navto; render(); });
+  document.querySelectorAll('.navbtn').forEach(b=>b.onclick=()=>{ if(b.dataset.more){ activeModal={type:'navMore',data:{}}; render(); return; } STATE.focus=null; STATE.view=b.dataset.view; STATE.jobStatusFilter=''; STATE.jobPeriod=''; render(); });
+  document.querySelectorAll('[data-navto]').forEach(el=>el.onclick=()=>{ STATE.focus=null; STATE.view=el.dataset.navto; render(); });
   document.querySelectorAll('[data-typefilter]').forEach(el=>el.onclick=()=>{ STATE.custTypeFilter=el.dataset.typefilter; STATE.custShown=60; render(); });
   document.querySelectorAll('[data-custstatus]').forEach(el=>el.onclick=()=>{ STATE.custStatus=el.dataset.custstatus; STATE.custShown=60; render(); });
   if(document.getElementById('liveMapBox')){ setTimeout(initLiveMap, 0); }
@@ -5666,13 +5709,18 @@ function renderMHome(){
       <div class="item-sub" style="opacity:.7;margin-top:8px;">Subah aate samay IN aur jaate samay OUT — office me laga QR scan karein. Location on honi chahiye.</div></div>
     ${lst==='d'?`<div class="card" style="border:2px solid #c0392b;"><div class="item-name" style="color:#c0392b;">📍 Location band hai</div><div class="item-sub">Phone Settings → Chrome → Site settings → Location → Allow karein, tabhi attendance lagegi.</div></div>`:''}
     <div class="stat-grid"${lst==='g'?' style="grid-template-columns:1fr;"':''}><div class="stat-card"><div class="stat-num">${cur.n||0}</div><div class="stat-label">${tele?'Is mahine mere naye AMC':'Is mahine naye AMC (office)'}</div></div>${lst==='g'?'':`<div class="stat-card" ${lst==='u'?'data-v9="locallow" style="cursor:pointer;"':''}><div class="stat-num" style="font-size:18px;">${lst==='d'?'❌':'⚠️'}</div><div class="stat-label">${lst==='d'?'Location band':'Location allow nahi — yahan dabayein'}</div></div>`}</div>
+    ${attentionMobHtml()}
     ${incCardHtml()}
     <div class="card-actions" style="margin-top:8px;"><button class="mini-btn" data-navto="mattend" style="flex:1;">🗓 Chhutti / Attendance</button><button class="mini-btn" data-act="traveladd" style="flex:1;">🚗 Travel Add</button><button class="mini-btn" data-v9="advopen" style="flex:1;">💸 Advance</button></div>`;
 }
 function renderMAttend(){
   const sid=STATE.session.staffId, rec=(STATE.attendance||{})[sid]||{}, dates=Object.keys(rec).sort().reverse().slice(0,45);
   const cards=dates.map(d=>{ const a=attRec(sid,d); return `<div class="card"><div class="row-between"><div class="item-name" style="font-size:14px;">${fmtDate(d)}</div><span class="pill ${a.out?'pill-green':'pill-sky'}">${a.out?'Poori':'Present'}</span></div><div class="item-sub">${esc(attLine(a)||'Present')}</div>${a.dev?`<div class="item-sub" style="opacity:.7;">📱 ${esc(a.dev)}</div>`:''}</div>`; }).join('');
-  return `${leaveCardHtml()}<div class="card">${travelHtml(sid)}</div><div class="section-title">Meri Attendance</div>${cards||`<div class="empty-state"><span class="ic">📅</span><p>Abhi koi attendance nahi hai.</p></div>`}`;
+  if(STATE.session.role==='subadmin'){
+    if(focusIs('leave')) return `${focusBannerHtml('leave')}${leaveAdminHtml(true)||'<div class="card"><div class="item-sub">✅ Koi chhutti approval baaki nahi.</div></div>'}`;
+    if(focusIs('absent')){ const t=todayStr(), ab=(STATE.staff||[]).filter(x=>x.role!=='admin'&&x.id!==sid&&!((STATE.attendance||{})[x.id]||{})[t]); return `${focusBannerHtml('absent')}${ab.length?ab.map(x=>`<div class="card"><div class="row-between"><div><div class="item-name">${esc(x.name)}</div><div class="item-sub">${esc(roleLabel(x.role))}${x.phone?' · '+esc(x.phone):''}</div></div>${x.phone?`<a class="mini-btn primary" style="text-decoration:none;flex:none;" href="tel:${esc(x.phone)}">📞 Call</a>`:''}</div></div>`).join(''):'<div class="card"><div class="item-sub">✅ Sabki IN lag chuki hai.</div></div>'}`; }
+  }
+  return `${STATE.session.role==='subadmin'?leaveAdminHtml(true):''}${leaveCardHtml()}<div class="card">${travelHtml(sid)}</div><div class="section-title">Meri Attendance</div>${cards||`<div class="empty-state"><span class="ic">📅</span><p>Abhi koi attendance nahi hai.</p></div>`}`;
 }
 function renderMProfile(){
   const sid=STATE.session.staffId, s=STATE.staff.find(x=>x.id===sid)||{name:STATE.session.name};
@@ -5839,7 +5887,14 @@ document.addEventListener('click',async ev=>{
   const el=ev.target.closest&&ev.target.closest('[data-v9]'); if(!el) return; const a=el.dataset.v9, id=el.dataset.id; const val=i=>((document.getElementById(i)||{}).value||'').trim();
   try{
   if(a==='scan'){ if(el.disabled) return; scanOpen(el.dataset.k); }
-  else if(a==='attgo'){ if(el.dataset.tab) MONEY.tab=el.dataset.tab; STATE.view=el.dataset.to; STATE.jobStatusFilter=''; STATE.jobPeriod=''; render(); }
+  else if(a==='attgo'){ const to=el.dataset.to, f=el.dataset.focus||'';
+    if(to==='adv'){ await advLoad(true); activeModal={type:'advList',data:{id:''}}; render(); return; }
+    if(el.dataset.tab) MONEY.tab=el.dataset.tab; STATE.focus=f?{k:f}:null; STATE.view=to; STATE.jobStatusFilter=''; STATE.jobPeriod=''; STATE.jobTech=''; STATE.remFilter='all'; STATE.remShown=50; STATE.stQ=''; STATE.leadTc=''; render(); window.scrollTo(0,0); }
+  else if(a==='focusclr'){ STATE.focus=null; render(); }
+  else if(a==='lang'){ setLang(id); }
+  else if(a==='help'){ if(STATE.view!=='help') STATE.prevView=STATE.view; STATE.view='help'; render(); window.scrollTo(0,0); }
+  else if(a==='helpback'){ STATE.view=(STATE.prevView&&STATE.prevView!=='help')?STATE.prevView:homeViewFor(STATE.session.role); render(); }
+  else if(a==='dlrole'){ STATE.dl=STATE.dl||{range:'today',from:'',to:'',who:'',type:'',sel:{}}; STATE.dl.role=(STATE.dl.role===id?'':id); STATE.dl.sel={}; render(); }
   else if(a==='codego'){ await codeEntered((activeModal&&activeModal.data&&activeModal.data.kind)||'in'); }
   else if(a==='profsave'){ await profSave(); }
   else if(a==='verclose'){ STATE.verifyClosed=true; try{ history.replaceState({},'',location.pathname); }catch(e){} render(); }
@@ -5922,9 +5977,10 @@ async function invMutate(fn){
 function stockListHtml(){
   const inv=STATE.inv, q=(STATE.stQ||'').toLowerCase().trim();
   let L=(inv.items||[]).filter(it=>!q||(it.name+' '+(it.cat||'')).toLowerCase().includes(q));
+  const lowOnly=focusIs('lowstock'); if(lowOnly) L=L.filter(it=>Number(it.low)>0&&invStock(inv,it.id)<=Number(it.low));
   L.sort((a,b)=>{ const la=(Number(a.low)>0&&invStock(inv,a.id)<=Number(a.low))?0:1, lb=(Number(b.low)>0&&invStock(inv,b.id)<=Number(b.low))?0:1; return la-lb||a.name.localeCompare(b.name); });
-  if(!L.length) return `<div class="empty">${(inv.items||[]).length?'Koi item nahi mila':'Abhi koi item nahi — "+ Naya item" se jodein'}</div>`;
-  return L.map(it=>{ const s=invStock(inv,it.id), low=Number(it.low)>0&&s<=Number(it.low);
+  if(!L.length) return focusBannerHtml('lowstock')+`<div class="empty">${lowOnly?'✅ Koi item kam stock me nahi':(inv.items||[]).length?'Koi item nahi mila':'Abhi koi item nahi — "+ Naya item" se jodein'}</div>`;
+  return focusBannerHtml('lowstock')+L.map(it=>{ const s=invStock(inv,it.id), low=Number(it.low)>0&&s<=Number(it.low);
     return `<div class="card" data-stitem="${esc(it.id)}"><div class="row-between" style="align-items:flex-start;gap:8px;"><div style="min-width:0;"><div class="item-name">${esc(it.name)}</div><div class="item-sub">${esc(it.cat||'—')}${Number(it.rate)>0?' · ₹'+invFmt(it.rate)+'/'+esc(it.unit):''}${Number(it.low)>0?' · Limit '+invFmt(it.low):''}</div></div><div style="text-align:right;flex:none;"><div class="item-name st-qty" style="font-size:20px;color:${low?'#c0392b':'var(--teal-deep)'};">${invFmt(s)} <span style="font-size:12px;">${esc(it.unit)}</span></div>${low?'<span class="pill pill-red">⚠️ Kam stock</span>':''}</div></div>
       <div class="card-actions" style="margin-top:8px;flex-wrap:wrap;"><button class="mini-btn primary" data-v9="stmove" data-k="in" data-id="${esc(it.id)}">➕ Maal aaya</button><button class="mini-btn" data-v9="stmove" data-k="out" data-id="${esc(it.id)}">➖ Maal gaya</button><button class="mini-btn" data-v9="sthist" data-id="${esc(it.id)}">📜 History</button><button class="mini-btn" data-v9="stitem" data-id="${esc(it.id)}">✏️</button></div></div>`; }).join('');
 }
@@ -6079,6 +6135,112 @@ async function advAct(a,el,val){
   else if(a==='advdel'){ if(STATE.session.role!=='admin'||!confirm('Ye advance record hata dein?')) return; const ok=await advMutate(c=>{ const n=c.list.length; c.list=c.list.filter(y=>y.id!==id); if(c.list.length===n) return false; }); if(ok) render(); }
 }
 
+/* ===== v9.3 Language (Hinglish / English / हिंदी) + Help ===== */
+const LANGS=['hing','en','hi'], LANG_LABEL={hing:'Hinglish',en:'English',hi:'हिंदी'};
+let LANG='hing'; try{ const v=localStorage.getItem('st_lang'); if(LANGS.indexOf(v)>-1) LANG=v; }catch(e){}
+const I18N_ROWS=[
+/* nav + chrome */
+['Home','Home','होम'],['AMC','AMC','AMC'],['Jobs','Jobs','काम'],['Kamai','Earnings','कमाई'],['Stock','Stock','स्टॉक'],['Leads','Leads','लीड्स'],['Team','Team','टीम'],['Attend.','Attendance','हाज़िरी'],['Map','Map','नक्शा'],['Settings','Settings','सेटिंग्स'],['Profile','Profile','प्रोफ़ाइल'],['My Jobs','My Jobs','मेरे काम'],['More','More','और'],
+['Logout','Logout','लॉग आउट'],['Login','Login','लॉगिन'],['Wapas','Back','वापस'],['Saved','Saved','सेव हो गया'],['Sync ho raha hai','Syncing','सिंक हो रहा है'],['Load ho raha hai…','Loading…','लोड हो रहा है…'],['Refresh','Refresh','रिफ्रेश'],
+['Save','Save','सेव'],['Save Karein','Save','सेव करें'],['Cancel','Cancel','रद्द करें'],['Band Karo','Close','बंद करें'],['Theek hai','OK','ठीक है'],['Delete','Delete','हटाएं'],['Hatayein','Remove','हटाएं'],['Dekhein','View','देखें'],['Dhundein','Search','खोजें'],['Edit','Edit','बदलें'],['Approve','Approve','मंज़ूर करें'],['Reject','Reject','अस्वीकार'],['Start','Start','शुरू'],['Hold','Hold','रोकें'],['Mark Done','Mark Done','पूर्ण करें'],['Call','Call','कॉल'],['WhatsApp','WhatsApp','WhatsApp'],['Navigate','Navigate','नेविगेट'],['Share','Share','शेयर'],['Print / Save as PDF','Print / Save as PDF','प्रिंट / PDF सेव'],['Sab dikhao','Show all','सब दिखाओ'],['Sab','All','सब'],['Total','Total','कुल'],['Naam','Name','नाम'],['Phone','Phone','फ़ोन'],['Address','Address','पता'],['Date','Date','तारीख'],['Tarikh','Date','तारीख'],['Type','Type','प्रकार'],['Cash','Cash','नकद'],['Online','Online','ऑनलाइन'],['Cheque','Cheque','चेक'],['Baaki','Pending','बाकी'],['Present','Present','उपस्थित'],['Absent','Absent','अनुपस्थित'],['Active','Active','चालू'],['Technician','Technician','टेक्नीशियन'],['Telecaller','Telecaller','टेलीकॉलर'],['Office','Office','ऑफिस'],['Admin','Admin','एडमिन'],['Staff','Staff','स्टाफ'],['Koi entry nahi.','No entries.','कोई एंट्री नहीं।'],['PIN bhool gaye?','Forgot PIN?','PIN भूल गए?'],['Apna naam chunein','Select your name','अपना नाम चुनें'],
+/* dashboard */
+['Aaj ka overview','Today\'s overview','आज का सारांश'],['Total Customers','Total Customers','कुल ग्राहक'],['Service Due Soon','Service Due Soon','जल्द सर्विस देय'],['Total Jobs','Total Jobs','कुल काम'],['Technicians Live','Technicians Live','टेक्नीशियन लाइव'],['Task Status','Task Status','काम की स्थिति'],['Today','Today','आज'],['Week','Week','सप्ताह'],['Month','Month','महीना'],['Year','Year','साल'],['Completed','Completed','पूरे हुए'],['Ongoing','Ongoing','चल रहे'],['Pending','Pending','बाकी'],['On Hold','On Hold','रुके हुए'],['Rejected','Rejected','अस्वीकृत'],['Team Status','Team Status','टीम की स्थिति'],['Service due soon','Service due soon','जल्द सर्विस देय'],['Today\'s Attendance','Today\'s Attendance','आज की हाज़िरी'],['Total Employees','Total Employees','कुल कर्मचारी'],['Avg Rating','Avg Rating','औसत रेटिंग'],['Earned Money','Earned Money','कमाया पैसा'],['Avg Resolution Time','Avg Resolution Time','औसत समाधान समय'],['Naye Customer','New Customers','नए ग्राहक'],['Assign karein','Assign','असाइन करें'],['Live','Live','लाइव'],['Offline','Offline','ऑफ़लाइन'],['Koi service due nahi hai agle kuch dinon mein','No service due in the next few days','अगले कुछ दिनों में कोई सर्विस देय नहीं'],['Koi technician add nahi hai.','No technician added.','कोई टेक्नीशियन नहीं जोड़ा गया।'],
+/* attention tiles */
+['Zaroori — abhi dekhein','Needs attention now','ज़रूरी — अभी देखें'],['Abhi kuch zaroori baaki nahi hai.','Nothing urgent right now.','अभी कुछ ज़रूरी बाकी नहीं है।'],['Sirf yahi dikha rahe hain:','Showing only:','सिर्फ़ यही दिखा रहे हैं:'],
+['Chhutti approval baaki','Leave approvals pending','छुट्टी मंज़ूरी बाकी'],['Aaj IN nahi lagi','Not checked in today','आज IN नहीं लगी'],['Job kisi ko assign nahi','Jobs not assigned','काम किसी को नहीं सौंपा'],['Aaj ki jobs baaki','Today\'s jobs pending','आज के काम बाकी'],['Service ka time nikal gaya','Service overdue','सर्विस का समय निकल गया'],['Service jaldi due','Service due soon','सर्विस जल्द देय'],['Stock kam hai','Low stock','स्टॉक कम है'],['Lead kisi ko assign nahi','Leads not assigned','लीड किसी को नहीं सौंपी'],['Lead follow-up due','Lead follow-up due','लीड फॉलो-अप बाकी'],['Extra kaam review baaki','Extra work review pending','एक्स्ट्रा काम की जाँच बाकी'],['Customer ka paisa baaki','Customer payment pending','ग्राहक का पैसा बाकी'],['Staff advance baaki','Staff advance pending','स्टाफ एडवांस बाकी'],
+/* daylog */
+['Aaj ka Hisaab','Today\'s Summary','आज का हिसाब'],['Kul kamai (is period me)','Total earnings (this period)','कुल कमाई (इस अवधि में)'],['Kis role ne kitna kiya','Activity by role','किस भूमिका ने कितना किया'],['(tap karein — sab kuch dikhega)','(tap to see everything)','(टैप करें — सब दिखेगा)'],['Kisne kya kiya','Who did what','किसने क्या किया'],['Sab log','Everyone','सभी लोग'],['Sab kuch','Everything','सब कुछ'],['Jobs Bani','Jobs Created','काम बने'],['Jobs Complete','Jobs Completed','काम पूरे हुए'],['Complete Jobs ka Amount','Completed Jobs Amount','पूरे कामों की रकम'],['Bills Bane','Bills Made','बिल बने'],['Telecaller Calls','Telecaller Calls','टेलीकॉलर कॉल'],['Edits (badlav)','Edits','बदलाव'],['Delete hue','Deleted','हटाए गए'],['Naye Customer','New Customers','नए ग्राहक'],['Aaj','Today','आज'],['Kal','Yesterday','कल'],['Pichhle 7 din','Last 7 days','पिछले 7 दिन'],['Is mahine','This month','इस महीने'],['Date se Date','Date to Date','तारीख से तारीख'],
+['Is period me koi IN/OUT nahi.','No IN/OUT in this period.','इस अवधि में कोई IN/OUT नहीं।'],['Koi job complete nahi hui.','No job completed.','कोई काम पूरा नहीं हुआ।'],['Koi call nahi.','No calls.','कोई कॉल नहीं।'],['Is period mein koi record nahi.','No records in this period.','इस अवधि में कोई रिकॉर्ड नहीं।'],
+/* AMC / customers */
+['AMC Calendar','AMC Calendar','AMC कैलेंडर'],['AMC History','AMC History','AMC इतिहास'],['Naya AMC','New AMC','नया AMC'],['Renewal Karein','Renew','नवीनीकरण करें'],['Service ho gaya','Service done','सर्विस हो गई'],['Pin save','Save pin','पिन सेव'],['Pin update','Update pin','पिन अपडेट'],['Pin saved','Pin saved','पिन सेव है'],['Job Banao','Create Job','काम बनाएं'],['Inactive — renewal baaki','Inactive — renewal pending','निष्क्रिय — नवीनीकरण बाकी'],['Renewal nahi hui / Cancel','Not renewed / Cancelled','नवीनीकरण नहीं हुआ / रद्द'],['Customer Profile','Customer Profile','ग्राहक प्रोफ़ाइल'],['AMC Contract','AMC Contract','AMC अनुबंध'],['Service History','Service History','सर्विस इतिहास'],['Expiry Date','Expiry Date','समाप्ति तिथि'],['Activation Date','Activation Date','शुरू होने की तिथि'],['Bill Banao','Create Bill','बिल बनाएं'],['Bill bhejo','Send Bill','बिल भेजें'],
+/* attendance / leave */
+['IN Scan','IN Scan','IN स्कैन'],['OUT Scan','OUT Scan','OUT स्कैन'],['Aaj ki Attendance','Today\'s Attendance','आज की हाज़िरी'],['Meri Attendance','My Attendance','मेरी हाज़िरी'],['Poori','Complete','पूरी'],['IN lagi','Checked in','IN लगी'],['Chhutti','Leave','छुट्टी'],['Chhutti Requests ({n})','Leave Requests ({n})','छुट्टी के अनुरोध ({n})'],['Team Attendance ({n})','Team Attendance ({n})','टीम हाज़िरी ({n})'],['Attendance','Attendance','हाज़िरी'],['Chhutti / Attendance','Leave / Attendance','छुट्टी / हाज़िरी'],['Koi chhutti approval baaki nahi.','No leave approvals pending.','कोई छुट्टी मंज़ूरी बाकी नहीं।'],['Sabki IN lag chuki hai.','Everyone has checked in.','सबकी IN लग चुकी है।'],['Koi staff add nahi hai.','No staff added.','कोई स्टाफ नहीं जोड़ा गया।'],
+/* money / incentive */
+['Is mahine ka Incentive','This month\'s Incentive','इस महीने का इंसेंटिव'],['Is mahine naye AMC (office)','New AMC this month (office)','इस महीने नए AMC (ऑफिस)'],['Is mahine mere naye AMC','My new AMC this month','इस महीने मेरे नए AMC'],['Mera Target aur Commission (is mahine)','My Target & Commission (this month)','मेरा टारगेट और कमीशन (इस महीने)'],['Target:','Target:','टारगेट:'],['{n},{n} baaki','{n},{n} left','{n},{n} बाकी'],['{n} baaki','{n} left','{n} बाकी'],['Mera Commission','My Commission','मेरा कमीशन'],['Kamai & Incentive','Earnings & Incentive','कमाई और इंसेंटिव'],['Kul Kamai (sirf bill ka amount)','Total Earnings (bill amount only)','कुल कमाई (सिर्फ़ बिल की रकम)'],['Repairing','Repairing','रिपेयरिंग'],['Renewal','Renewal','नवीनीकरण'],['Extra kaam','Extra work','एक्स्ट्रा काम'],['Paisa baaki','Payment pending','पैसा बाकी'],
+['Travel aur Advance','Travel & Advance','यात्रा और एडवांस'],['Advance (baaki)','Advance (pending)','एडवांस (बाकी)'],['+ Advance do','+ Give Advance','+ एडवांस दें'],['Poori history','Full history','पूरी हिस्ट्री'],['Total baaki','Total pending','कुल बाकी'],['Hisaab ho gaya','Settled','हिसाब हो गया'],['Advance','Advance','एडवांस'],['Salary advance','Salary advance','सैलरी एडवांस'],['Travel advance','Travel advance','यात्रा एडवांस'],['Travel Add','Add Travel','यात्रा जोड़ें'],['+ Travel add','+ Add Travel','+ यात्रा जोड़ें'],['Travel','Travel','यात्रा'],['Mera Target aur Commission','My Target & Commission','मेरा टारगेट और कमीशन'],
+/* settings */
+['Account','Account','अकाउंट'],['Business','Business','बिज़नेस'],['Team PIN','Team PIN','टीम PIN'],['Laptop/QR','Laptop/QR','लैपटॉप/QR'],['Data & Backup','Data & Backup','डेटा और बैकअप'],['Email','Email','ईमेल'],['Advanced','Advanced','एडवांस्ड'],['Backup Download','Backup Download','बैकअप डाउनलोड'],['Backup Restore','Backup Restore','बैकअप रिस्टोर'],['Total Backup Download','Total Backup Download','पूरा बैकअप डाउनलोड'],['Aapki access','Your access','आपकी एक्सेस'],
+/* leads / jobs */
+['Meri Leads','My Leads','मेरी लीड्स'],['Call Ho Gayi','Call Done','कॉल हो गई'],['Baad mein call','Call later','बाद में कॉल'],['Unassigned','Unassigned','बिना असाइन'],['Assigned','Assigned','असाइन'],['Priority','Priority','प्राथमिकता'],['Agli jobs','Upcoming jobs','अगली जॉब्स'],['Aaj ki jobs','Today\'s jobs','आज के काम'],['Baaki jobs','Pending jobs','बाकी काम'],['Aaj complete','Done today','आज पूरे'],['Sab jobs dekhein','View all jobs','सारे काम देखें'],['Abhi koi job baaki nahi hai.','No pending jobs right now.','अभी कोई काम बाकी नहीं है।'],['Namaste,','Hello,','नमस्ते,'],
+/* permission + install */
+['Permissions Check','Permissions Check','अनुमतियों की जाँच'],['Allow Karein','Allow','अनुमति दें'],['Location Zaroori','Location required','लोकेशन ज़रूरी'],['App install karo','Install the app','ऐप इंस्टॉल करें'],['Install karo','Install','इंस्टॉल करें'],['Location band hai','Location is off','लोकेशन बंद है'],
+/* help */
+['Help','Help','मदद']
+];
+const I18N={en:{x:new Map(),n:0},hi:{x:new Map(),n:0}};
+I18N_ROWS.forEach(r=>{ I18N.en.x.set(r[0].toLowerCase(),r[1]); I18N.hi.x.set(r[0].toLowerCase(),r[2]); });
+function trCore(core,lang){
+  const nums=[]; const key=core.replace(/\d+/g,m=>{ nums.push(m); return '{n}'; }).toLowerCase();
+  let out=I18N[lang].x.get(key); if(out===undefined) return null; let i=0; return out.replace(/\{n\}/g,()=>nums[i++]!==undefined?nums[i-1]:'');
+}
+function trText(t){
+  if(LANG==='hing'||!t||t.length>140) return t; const m=t.match(/^(\s*[^\p{L}\p{N}]*)([\s\S]*?)([^\p{L}\p{N})\]%]*\s*)$/u); if(!m||!m[2]) return t;
+  const r=trCore(m[2].trim(),LANG); if(r===null) return t; return m[1]+r+m[3];
+}
+let _trBusy=false, _trObs=null;
+function trNode(root){
+  if(LANG==='hing'||!root) return; _trBusy=true;
+  try{
+    const w=document.createTreeWalker(root.nodeType===3?root.parentNode:root,NodeFilter.SHOW_TEXT,{acceptNode:n=>{ const p=n.parentNode; return (p&&/^(SCRIPT|STYLE|TEXTAREA)$/.test(p.nodeName))?NodeFilter.FILTER_REJECT:NodeFilter.FILTER_ACCEPT; }});
+    let n; const L=[]; while((n=w.nextNode())) L.push(n); if(root.nodeType===3) L.push(root);
+    L.forEach(n=>{ const o=n.nodeValue, v=trText(o); if(v!==o) n.nodeValue=v; });
+    const els=(root.nodeType===1?root:document.body).querySelectorAll?(root.nodeType===1?root:document.body).querySelectorAll('input[placeholder],textarea[placeholder]'):[];
+    els.forEach(e=>{ const o=e.getAttribute('placeholder'), v=trText(o); if(v!==o) e.setAttribute('placeholder',v); });
+  }catch(e){}
+  _trBusy=false;
+}
+function trStart(){
+  if(_trObs) return; if(typeof MutationObserver==='undefined') return;
+  let q=new Set(), raf=0;
+  _trObs=new MutationObserver(ms=>{ if(_trBusy||LANG==='hing') return; ms.forEach(m=>{ if(m.type==='characterData') q.add(m.target); else m.addedNodes.forEach(n=>q.add(n)); }); if(!raf) raf=requestAnimationFrame(()=>{ raf=0; const a=[...q]; q=new Set(); _trObs.disconnect(); a.forEach(n=>{ if(n.isConnected) trNode(n); }); _trObs.observe(document.body,{childList:true,subtree:true,characterData:true}); }); });
+  _trObs.observe(document.body,{childList:true,subtree:true,characterData:true});
+}
+function setLang(l){ if(LANGS.indexOf(l)<0) return; LANG=l; try{ localStorage.setItem('st_lang',l); }catch(e){} try{ document.documentElement.lang=l==='en'?'en':'hi'; }catch(e){} render(); if(l!=='hing') trNode(document.body); }
+function langBtnHtml(){ const nx=LANGS[(LANGS.indexOf(LANG)+1)%3]; return `<button class="mini-btn" data-v9="lang" data-id="${nx}" title="Language" style="margin-right:8px;padding:8px 10px;flex:none;">🌐 ${LANG_LABEL[LANG]}</button>`; }
+
+/* ---------- Help ---------- */
+const HELP=[
+ {t:['📲 Shuruaat','📲 Getting started','📲 शुरुआत'],roles:'all',i:[
+  ['App install: iPhone me Safari → Share → "Add to Home Screen". Android me Chrome → "Install app".','Install the app: on iPhone use Safari → Share → "Add to Home Screen". On Android use Chrome → "Install app".','ऐप इंस्टॉल: iPhone में Safari → Share → "Add to Home Screen"। Android में Chrome → "Install app"।'],
+  ['Login: apna naam chuniye aur PIN daaliye. PIN bhool gaye to Admin se reset karwayein.','Login: select your name and enter your PIN. If you forget the PIN, ask Admin to reset it.','लॉगिन: अपना नाम चुनें और PIN डालें। PIN भूल जाएँ तो एडमिन से रीसेट करवाएँ।'],
+  ['Location aur Notification allow karna zaroori hai (iPhone me sirf Location). Bina iske kaam shuru nahi hota.','Location and Notification permission are required (only Location on iPhone). The app will not start work without them.','लोकेशन और नोटिफिकेशन की अनुमति ज़रूरी है (iPhone में सिर्फ़ लोकेशन)। इसके बिना काम शुरू नहीं होता।'],
+  ['Bhasha badalne ke liye upar 🌐 button dabayein (Hinglish / English / हिंदी). Kuch rare jagah abhi Hinglish me hi dikhegi.','To change language tap the 🌐 button at the top (Hinglish / English / Hindi). A few rarely used screens still show Hinglish.','भाषा बदलने के लिए ऊपर 🌐 बटन दबाएँ (Hinglish / English / हिंदी)। कुछ कम इस्तेमाल वाली जगह अभी Hinglish में दिखेगी।']]},
+ {t:['🔧 Technician','🔧 Technician','🔧 टेक्नीशियन'],roles:'technician,admin,subadmin',i:[
+  ['Subah office ka QR scan karke IN, jaate samay OUT lagayein.','Scan the office QR to mark IN in the morning and OUT when leaving.','सुबह ऑफिस का QR स्कैन करके IN और जाते समय OUT लगाएँ।'],
+  ['Home par aaj ki jobs dikhti hain. Job kholein → Start → kaam karein → Complete (amount, payment mode, signature, photo).','Today\'s jobs are on Home. Open a job → Start → do the work → Complete (amount, payment mode, signature, photo).','होम पर आज के काम दिखते हैं। काम खोलें → Start → काम करें → Complete (रकम, भुगतान का तरीका, हस्ताक्षर, फोटो)।'],
+  ['Bill banate waqt stock ke items suggest hote hain; bill banne par stock apne aap kam hota hai.','While making a bill, stock items are suggested and stock reduces automatically.','बिल बनाते समय स्टॉक के आइटम सुझाए जाते हैं और बिल बनने पर स्टॉक अपने आप घटता है।'],
+  ['Travel add: km ya amount likhein. Advance: apna advance record dekh sakte hain.','Travel: add km or amount. Advance: you can see your advance record.','Travel: km या रकम जोड़ें। Advance: अपना एडवांस रिकॉर्ड देख सकते हैं।'],
+  ['Office se di service me agar repairing nikli aur Admin ne "Extra kaam" confirm kiya, to uspar 5% commission banta hai. Home ka target card (₹1 lakh) progress dikhata hai: ₹50k tak laal, phir narangi, ₹75k ke baad hara.','If repairing is found during an office-assigned service and Admin confirms "Extra work", you earn 5% commission. The Home target card (₹1 lakh) shows progress: red up to ₹50k, then orange, green after ₹75k.','ऑफिस से दी सर्विस में रिपेयरिंग निकले और एडमिन "Extra काम" कन्फर्म करे तो उस पर 5% कमीशन बनता है। होम का टारगेट कार्ड (₹1 लाख) प्रगति दिखाता है: ₹50k तक लाल, फिर नारंगी, ₹75k के बाद हरा।'],
+  ['Chhutti: Attendance screen → Chhutti → request bhejein. Admin/Office approve karenge.','Leave: Attendance screen → Leave → send a request. Admin/Office will approve.','छुट्टी: हाज़िरी स्क्रीन → छुट्टी → अनुरोध भेजें। एडमिन/ऑफिस मंज़ूर करेंगे।']]},
+ {t:['📞 Telecaller','📞 Telecaller','📞 टेलीकॉलर'],roles:'telecaller,admin,subadmin',i:[
+  ['Leads tab me apni leads dikhti hain. Call karke "Call Ho Gayi" ya "Baad mein call" dabayein aur remark likhein.','Your leads are in the Leads tab. After calling tap "Call Done" or "Call later" and add a remark.','Leads टैब में आपकी लीड्स दिखती हैं। कॉल के बाद "Call हो गई" या "बाद में कॉल" दबाएँ और रिमार्क लिखें।'],
+  ['Naya AMC banne par incentive: mahine ka ₹1 lakh target pura hote hi poori rakam par 4%. Bar laal → narangi → hara hota hai.','Incentive on new AMC: once the monthly ₹1 lakh target is met you get 4% on the full amount. The bar goes red → orange → green.','नया AMC बनने पर इंसेंटिव: महीने का ₹1 लाख टारगेट पूरा होते ही पूरी रकम पर 4%। बार लाल → नारंगी → हरा होता है।']]},
+ {t:['🧑‍💼 Office (Sub Admin)','🧑‍💼 Office (Sub Admin)','🧑‍💼 ऑफिस (सब एडमिन)'],roles:'subadmin,admin',i:[
+  ['Home par "Zaroori — abhi dekhein" tiles: chhutti approval, job assign nahi, service ka time nikal gaya, lead follow-up wagairah. Tile dabate hi sirf wahi cheez khulti hai; "Sab dikhao" se poori list.','On Home the "Needs attention" tiles show leave approvals, unassigned jobs, overdue services, lead follow-ups and more. Tap a tile to see only that; "Show all" restores the full list.','होम पर "ज़रूरी — अभी देखें" टाइल: छुट्टी मंज़ूरी, बिना असाइन काम, सर्विस का समय निकलना, लीड फॉलो-अप आदि। टाइल दबाते ही सिर्फ़ वही दिखता है; "सब दिखाओ" से पूरी लिस्ट।'],
+  ['Customers (AMC tab): naya customer jodein, job banayein aur technician ko assign karein. Purane/inactive customer par "Naya AMC" se naya contract ya purani date ki entry.','Customers (AMC tab): add customers, create jobs and assign technicians. For old/inactive customers use "New AMC" for a new contract or a past-dated entry.','ग्राहक (AMC टैब): नया ग्राहक जोड़ें, काम बनाएँ और टेक्नीशियन को असाइन करें। पुराने/निष्क्रिय ग्राहक पर "नया AMC" से नया कॉन्ट्रैक्ट या पुरानी तारीख की एंट्री।'],
+  ['Reminders: active AMC me har 3 mahine par service reminder aur renewal reminder aata hai.','Reminders: active AMC customers get a service reminder every 3 months and a renewal reminder.','रिमाइंडर: चालू AMC में हर 3 महीने पर सर्विस रिमाइंडर और नवीनीकरण रिमाइंडर आता है।'],
+  ['Navigate button customer ke ghar ka rasta Google Maps me kholta hai; "Pin save" se exact jagah save hoti hai.','The Navigate button opens directions in Google Maps; "Save pin" stores the exact location.','Navigate बटन ग्राहक के घर का रास्ता Google Maps में खोलता है; "Pin save" से सही जगह सेव होती है।'],
+  ['Phone par (registered laptop ke bina) customer ka data nahi aata; sirf attendance, chhutti aur tiles dikhte hain.','On a phone (not a registered laptop) customer data is not loaded; you see attendance, leave and tiles only.','फ़ोन पर (रजिस्टर्ड लैपटॉप के बिना) ग्राहक का डेटा नहीं आता; सिर्फ़ हाज़िरी, छुट्टी और टाइल दिखते हैं।']]},
+ {t:['👑 Admin','👑 Admin','👑 एडमिन'],roles:'admin',i:[
+  ['Aaj ka Hisaab (Home): total kamai, role-wise (Technician/Sub Admin/Telecaller) headline aur "kisne kya kiya". Role par tap karein to uski poori halchal dikhti hai.','Today\'s Summary (Home): total earnings, role-wise headline and "who did what". Tap a role to see all its activity.','आज का हिसाब (होम): कुल कमाई, भूमिका-वार हेडलाइन और "किसने क्या किया"। किसी भूमिका पर टैप करें तो उसकी पूरी हलचल दिखती है।'],
+  ['Kamai: extra kaam confirm karein (5% commission), customer ka baaki paisa dekhein, incentive.','Earnings: confirm extra work (5% commission), see pending customer payments and incentives.','कमाई: एक्स्ट्रा काम कन्फर्म करें (5% कमीशन), ग्राहक का बाकी पैसा और इंसेंटिव देखें।'],
+  ['Stock: maal aaya/gaya likhein; kam stock par laal chetavani aati hai. Bill banne par stock apne aap kat-ta hai.','Stock: record items in/out; low stock shows a red warning. Stock is deducted automatically on bills.','स्टॉक: माल आया/गया लिखें; कम स्टॉक पर लाल चेतावनी आती है। बिल बनने पर स्टॉक अपने आप कटता है।'],
+  ['Team: staff jodein, PIN reset, Travel aur Advance (Salary/Travel) record karein; "Hisaab ho gaya" dabane par advance baaki se hat jata hai.','Team: add staff, reset PINs, record Travel and Advance (Salary/Travel); tap "Settled" to remove an advance from pending.','टीम: स्टाफ जोड़ें, PIN रीसेट करें, Travel और Advance (Salary/Travel) दर्ज करें; "हिसाब हो गया" दबाने पर एडवांस बाकी से हट जाता है।'],
+  ['Settings → Laptop/QR: kaam ka laptop register karein (tabhi poora data khulta hai). Settings → Data & Backup: Total Backup aur Restore.','Settings → Laptop/QR: register the work laptop (full data opens only there). Settings → Data & Backup: Total Backup and Restore.','सेटिंग्स → Laptop/QR: काम का लैपटॉप रजिस्टर करें (तभी पूरा डेटा खुलता है)। सेटिंग्स → Data & Backup: Total Backup और Restore।']]},
+ {t:['❓ Aam sawal','❓ Common questions','❓ आम सवाल'],roles:'all',i:[
+  ['Location band dikha raha hai? Phone Settings → Browser/App → Location → Allow.','Location shows off? Phone Settings → Browser/App → Location → Allow.','लोकेशन बंद दिख रही है? फ़ोन Settings → Browser/App → Location → Allow।'],
+  ['Notification nahi aa raha? Android: app install karein aur Battery → Unrestricted. iPhone: app Home Screen se kholein.','No notifications? Android: install the app and set Battery → Unrestricted. iPhone: open the app from the Home Screen.','नोटिफिकेशन नहीं आ रहा? Android: ऐप इंस्टॉल करें और Battery → Unrestricted करें। iPhone: ऐप Home Screen से खोलें।'],
+  ['iPhone me screen lock hone par live location band ho jati hai; Apple ki limit hai.','On iPhone live location stops when the screen locks; this is an Apple limitation.','iPhone में स्क्रीन लॉक होने पर लाइव लोकेशन बंद हो जाती है; यह Apple की सीमा है।']]}
+];
+function helpHtml(){
+  const li=LANG==='en'?1:LANG==='hi'?2:0, role=STATE.session.role;
+  const show=s=>s.roles==='all'||s.roles.split(',').indexOf(role)>-1;
+  return `<div class="row-between sticky-back"><button class="ghost-btn" style="width:auto;padding:8px 14px;margin-top:0;" data-v9="helpback">‹ ${li===1?'Back':li===2?'वापस':'Wapas'}</button><button class="mini-btn" data-v9="lang" data-id="${LANGS[(LANGS.indexOf(LANG)+1)%3]}">🌐 ${LANG_LABEL[LANG]}</button></div>
+  <div class="section-title">❓ ${li===1?'Help':li===2?'मदद':'Help / Madad'}</div>
+  ${HELP.filter(show).map((s,k)=>`<details class="card" ${k===0?'open':''}><summary class="item-name" style="cursor:pointer;">${s.t[li]}</summary>${s.i.map(x=>`<div class="item-sub" style="margin:8px 0;line-height:1.5;">• ${esc(x[li])}</div>`).join('')}</details>`).join('')}`;
+}
+
+if(document.body) trStart(); else document.addEventListener('DOMContentLoaded',trStart);
 /* ===== v9.2k Install banner (iPhone: Add to Home Screen guide, Android: native prompt) ===== */
 (function(){
   const standalone=()=>{ try{ return window.matchMedia('(display-mode: standalone)').matches||navigator.standalone===true; }catch(e){ return false; } };
