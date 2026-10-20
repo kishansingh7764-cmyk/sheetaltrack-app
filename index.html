@@ -1903,7 +1903,7 @@ function jobsGroupedHtml(list, cardFn){
 }
 /* ===== v6.4: Kamai (money) screen, incentives, extra kaam, bills ===== */
 let MONEY={tab:'totals',range:'thism',from:'',to:'',group:'month',cat:'',bq:''};
-const MCAT_L={amcnew:'Naya AMC',renewal:'Renewal',repair:'Repairing',onetime:'One-time Service / Install',amcold:'Purane customer ka AMC'};
+const MCAT_L={amcnew:'Naya AMC',renewal:'Renewal',repair:'Repairing (AMC customer)',onetime:'One-time Service (bina AMC)',amcold:'Purane customer ka AMC'};
 const MODE_L={cash:'Cash',online:'Online',cheque:'Cheque'};
 function normMode(s){ s=String(s==null?'':s).trim().toLowerCase(); if(!s) return ''; if(/^cash|^cod\b/.test(s)) return 'cash'; if(/^cq$|che?que|^chq|^check/.test(s)) return 'cheque'; if(/online|upi|gpay|google|paytm|phonepe|neft|imps|rtgs|bank|transfer/.test(s)) return 'online'; return ''; }
 function classifyWork(t){
@@ -1925,9 +1925,9 @@ function moneyRows(){
     if(j.status!=='done') return;
     const amt=Number(j.amount)||0, tr=Number(j.travelAmount)||0; if(!amt&&!tr) return;
     const c=cmap.get(j.customerId), dt=j.completedAt?ymd(new Date(j.completedAt)):(j.date||'');
-    let cat=j.cat||classifyWork((j.title||'')+' '+(j.notes||'')), amount=amt;
+    let cat=j.cat||classifyWork((j.title||'')+' '+(j.notes||'')), amount=amt; const fx=!!j.cat;
     if(j.tag==='AMC'&&j.amcVisit===false){ if(c&&!(Number(c.amcAmount)>0)&&amt>0){ cat='amcnew'; } else { amount=0; } }
-    rows.push({k:'job',id:j.id,date:dt,cat,amount,due:Number(j.due)||0,mode:normMode(j.payMode),travel:tr,custId:j.customerId,name:c?c.name:'',tech:j.assignedTo||'',title:j.title||'',teli:cat==='amcnew'&&c?String(c.leadTelecaller||c.incentiveTo||'').trim():''});
+    rows.push({k:'job',id:j.id,date:dt,cat,amount,due:Number(j.due)||0,mode:normMode(j.payMode),travel:tr,custId:j.customerId,name:c?c.name:'',tech:j.assignedTo||'',title:j.title||'',fixedCat:fx,teli:cat==='amcnew'&&c?String(c.leadTelecaller||c.incentiveTo||'').trim():''});
   });
   cs.forEach(c=>{
     if(c.type!=='amc') return;
@@ -1941,8 +1941,10 @@ function moneyRows(){
     }
   });
   (STATE.bills||[]).forEach(b=>{ if(!b.date) return;
-    rows.push({k:'bill',id:b.id,date:b.date,cat:b.cat||classifyWork(b.work),amount:Number(b.amount)||0,due:Number(b.due)||0,mode:normMode(b.mode),travel:0,custId:b.customerId||'',name:b.name||'',phone:b.phone||'',tech:b.techName||'',title:b.work||'',teli:''}); });
+    rows.push({k:'bill',id:b.id,date:b.date,cat:b.cat||classifyWork(b.work),fixedCat:!!b.cat,amount:Number(b.amount)||0,due:Number(b.due)||0,mode:normMode(b.mode),travel:0,custId:b.customerId||'',name:b.name||'',phone:b.phone||'',tech:b.techName||'',title:b.work||'',teli:''}); });
   (STATE.travelLogs||[]).forEach(t=>{ const a=Number(t.amount)||0; if(a&&t.date) rows.push({k:'travel',id:t.id,date:t.date,cat:'travelonly',amount:0,due:0,mode:'',travel:a,custId:'',name:t.name||'',tech:t.staffId||'',title:'Travel',teli:''}); });
+  const byPh=new Map(); cs.forEach(c=>{ if(c.phone&&!byPh.has(c.phone)) byPh.set(c.phone,c); });
+  rows.forEach(r=>{ if((r.k==='job'||r.k==='bill')&&(r.cat==='repair'||r.cat==='onetime')&&!r.fixedCat){ const c=r.custId?cmap.get(r.custId):(r.phone?byPh.get(r.phone):null); r.cat=(c&&c.type==='amc')?'repair':'onetime'; } });
   rows.forEach(r=>{ if(r.phone===undefined){ const c=r.custId?cmap.get(r.custId):null; r.phone=c?(c.phone||''):''; } });
   MDUP=new Map(); rows.forEach(r=>{ if((r.k==='bill'||r.k==='job')&&r.amount>0){ const k=[r.date,r.custId||String(r.name||'').toLowerCase(),r.amount].join('|'); MDUP.set(k,(MDUP.get(k)||0)+1); } });
   return rows;
@@ -4116,7 +4118,7 @@ function custCardX(c){
   else if(c.lastService){ const due=addMonths(c.lastService,c.intervalMonths); const d=daysUntil(due); pillClass=d<0?'pill-red':d<=7?'pill-amber':'pill-green'; pillText=d<0?Math.abs(d)+'d overdue':d+'d left'; }
   const head=`<div class="row-between" style="align-items:flex-start;gap:8px;"><div style="min-width:0;"><span data-viewcust="${c.id}" class="item-name" style="cursor:pointer;text-decoration:underline;color:var(--teal);">${esc(c.name)} ›</span> <span class="pill ${customerTypePill(c.type)}" style="margin-left:4px;">${customerTypeLabel(c.type)}</span><div class="item-sub">${esc(c.phone||'no phone')}${c.phone2?' / '+esc(c.phone2):''}</div>${amcStatusOf(c)==='lapsed'?`<div class="item-sub" style="color:#c0392b;font-weight:600;">🔴 Renewal nahi hui / Cancel</div>`:amcStatusOf(c)==='inactive'?`<div class="item-sub" style="color:var(--amber);font-weight:600;">⚪ Inactive — renewal baaki</div>`:amcStatusOf(c)==='active'?`<div class="item-sub" style="color:#1e8e5a;font-weight:600;">🟢 Active</div>`:''}</div>${pillText?`<span class="pill ${pillClass}" style="flex:none;">${pillText}</span>`:''}</div>`;
   const navU=custMapUrl(c);
-  const quick=`${c.phone?`<a class="mini-btn" style="text-decoration:none;" href="tel:${esc(c.phone)}">📞 Call</a>`:''}${navU?`<a class="mini-btn" style="text-decoration:none;" target="_blank" rel="noopener" href="${esc(navU)}">🧭 Navigate</a>`:''}${STATE.session.role!=='technician'?`<button class="mini-btn" data-act="newjobfor" data-id="${c.id}">➕ Job Banao</button>`:''}${canNewAmc(c)?`<button class="mini-btn primary" data-act="newamc" data-id="${c.id}">🆕 Naya AMC</button>`:''}`;
+  const quick=`${c.phone?`<a class="mini-btn" style="text-decoration:none;" href="tel:${esc(c.phone)}">📞 Call</a>`:''}${navU?`<a class="mini-btn" style="text-decoration:none;" target="_blank" rel="noopener" href="${esc(navU)}">🧭 Navigate</a>`:''}${STATE.session.role!=='technician'?`<button class="mini-btn" data-act="newjobfor" data-id="${c.id}">➕ Job Banao</button>`:''}${canNewAmc(c)?`<button class="mini-btn primary" data-act="newamc" data-id="${c.id}">🆕 Naya AMC</button>`:''}${c.type==='amc'&&STATE.session.role!=='technician'?`<button class="mini-btn" data-act="amcpdf" data-id="${c.id}">📄 AMC PDF</button>`:''}`;
   const more=`<div class="item-sub">📍 ${esc(c.address||'no address')}${c.pincode?' - '+esc(c.pincode):''}${c.pin?' · <span style="color:#1e8e5a;font-weight:600;">✅ Pin saved</span>':''}</div>${c.type==='amc'&&c.brand?`<div class="item-sub">❄️ ${esc(c.brand)} ${esc(c.model||'')}</div>`:''}${c.installDate?`<div class="item-sub">🛠 Install: ${fmtDate(c.installDate)}${c.leadTelecaller?' · 📞 '+esc(c.leadTelecaller):''}</div>`:(c.leadTelecaller?`<div class="item-sub">📞 Telecaller: ${esc(c.leadTelecaller)}</div>`:'')}${c.amcHistory&&c.amcHistory.length>1?`<div class="item-sub">🔁 ${c.amcHistory.length-1} baar renewal</div>`:''}
     <div class="card-actions" style="margin-top:8px;">${c.phone?`<a class="mini-btn" style="text-decoration:none;" href="https://wa.me/${waNum(c.phone)}">💬 WhatsApp</a>`:''}<button class="mini-btn primary" data-act="service" data-id="${c.id}">Service ho gaya</button><button class="mini-btn" data-v9="cpin" data-id="${c.id}">📍 ${c.pin?'Pin update':'Pin save'}</button><button class="mini-btn" data-v9="cshare" data-id="${c.id}">📤 Share</button>${STATE.session.role==='admin'?`<button class="mini-btn danger" data-act="delcust" data-id="${c.id}">Delete</button>`:''}</div>`;
   return xCard('cu:'+c.id,head,quick,more);
