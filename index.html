@@ -1264,6 +1264,13 @@ function samePersonCandidates(c,list){
     const op=ph10(o.phone); if(op.length===10&&mine.length===10&&op!==mine&&ph10(o.phone2)!==mine&&ph10(c.phone2)!==op) return false; /* dono ke alag-alag number = alag log */
     const ov=addrOverlap(c,o); if(ov===false&&op.length===10&&mine.length===10) return false; return true; });
 }
+const custAreaOf=c=>String((c&&c.area)||'').trim();
+const areaKey=a=>String(a||'').trim().toLowerCase();
+function areaOpts(custs){ const m=new Map(); (custs||[]).forEach(c=>{ const a=custAreaOf(c); if(!a) return; const k=areaKey(a), o=m.get(k)||{n:a,c:0}; o.c++; m.set(k,o); }); return [...m.values()].sort((x,y)=>x.n.localeCompare(y.n)); }
+function areaSelectHtml(id,cur,custs){ const o=areaOpts(custs); if(!o.length) return ''; const none=(custs||[]).filter(c=>!custAreaOf(c)).length; return `<div class="field" style="margin:0 0 10px;"><select id="${id}"><option value="">📍 Sab area</option>${o.map(x=>`<option value="${esc(areaKey(x.n))}" ${cur===areaKey(x.n)?'selected':''}>${esc(x.n)} (${x.c})</option>`).join('')}${none?`<option value="__none" ${cur==='__none'?'selected':''}>Area nahi likha (${none})</option>`:''}</select></div>`; }
+const areaMatch=(c,cur)=>!cur||(cur==='__none'?!custAreaOf(c):areaKey(custAreaOf(c))===cur);
+function amcNameIdx(){ const m=new Map(); (STATE.customers||[]).forEach(o=>{ if(o.deleted||(o.type||'amc')!=='amc') return; const k=nameKey(o.name); if(k.length<3) return; if(!m.has(k)) m.set(k,[]); m.get(k).push(o); }); return m; }
+function twinsFast(c,idx){ const l=idx.get(nameKey(c.name)); return l?samePersonCandidates(c,l):[]; }
 function amcTwinOf(c){ if(!c||c.type==='amc'||c.deleted) return null; if(ph10(c.phone).length===10) return null; const l=samePersonCandidates(c).filter(o=>(o.type||'amc')==='amc'); return l.length===1?l[0]:null; }
 function nameMergeGroups(){
   const cs=(STATE.customers||[]).filter(c=>!c.deleted), by=new Map();
@@ -2348,8 +2355,9 @@ const DEFAULT_AMC_TERMS=[
  '8. CANCELLATION: The company may suspend or cancel the contract in case of non-payment, misuse, or if the technician is not allowed to work safely.',
  '9. By signing / accepting this contract the customer agrees to the above terms. All disputes are subject to Mumbai jurisdiction only.'].join('\n');
 (function(){ const wo=window.open.bind(window), WA=/^https?:\/\/(wa\.me|api\.whatsapp\.com\/send|web\.whatsapp\.com\/send)/i, MOB=/Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-  function waUrl(u){ if(MOB) return u; try{ const x=new URL(u); let ph='', tx=x.searchParams.get('text')||''; if(/wa\.me$/i.test(x.hostname)) ph=x.pathname.replace(/\D/g,''); else ph=(x.searchParams.get('phone')||'').replace(/\D/g,''); return 'https://web.whatsapp.com/send?'+(ph?'phone='+ph+'&':'')+'text='+encodeURIComponent(tx)+'&type=phone_number&app_absent=0'; }catch(e){ return u; } }
-  window.open=function(u,t,f){ try{ if(typeof u==='string'&&WA.test(u)) return wo(waUrl(u),'wa_tab'); }catch(e){} return wo(u,t,f); };
+  const waMode=()=>{ try{ return localStorage.getItem('st_wa_mode')==='app'?'app':'web'; }catch(e){ return 'web'; } };
+  function waUrl(u){ if(MOB) return u; try{ const x=new URL(u); let ph='', tx=x.searchParams.get('text')||''; if(/wa\.me$/i.test(x.hostname)) ph=x.pathname.replace(/\D/g,''); else ph=(x.searchParams.get('phone')||'').replace(/\D/g,''); if(waMode()==='app') return 'whatsapp://send?'+(ph?'phone='+ph+'&':'')+'text='+encodeURIComponent(tx); return 'https://web.whatsapp.com/send?'+(ph?'phone='+ph+'&':'')+'text='+encodeURIComponent(tx)+'&type=phone_number&app_absent=0'; }catch(e){ return u; } }
+  window.open=function(u,t,f){ try{ if(typeof u==='string'&&WA.test(u)){ const w=waUrl(u); if(/^whatsapp:/i.test(w)){ const a=document.createElement('a'); a.href=w; a.style.display='none'; document.body.appendChild(a); a.click(); setTimeout(()=>a.remove(),500); return null; } return wo(w,'wa_tab'); } }catch(e){} return wo(u,t,f); };
   document.addEventListener('click',e=>{ const a=e.target.closest&&e.target.closest('a[href]'); if(!a) return; const h=a.getAttribute('href')||''; if(WA.test(h)){ e.preventDefault(); window.open(h); } },true); })();
 function htmlToPdfBlob(html,margin){
   return loadPdfLib().then(async()=>{
@@ -3621,7 +3629,7 @@ function remToday(c){ const x=remLast(c); return !!(x&&(x.out==='later'||x.out==
 function remVisible(){
   const f=STATE.remFilter||'all';
   const flt=c=>{ const s=remState(c); if(f==='today') return remToday(c); if(f==='new') return s==='new'; if(f==='followup') return s==='later'||s==='noans'; if(f==='booked') return s==='booked'; if(f==='closed') return s==='notint'||s==='done'||s==='wrong'; if(focusIs('late')&&!(daysUntil(dueOfC(c))<0)) return false; if(focusIs('soon')&&daysUntil(dueOfC(c))<0) return false; return true; };
-  return getAllDueCustomers().filter(flt).sort((a,b)=>(remToday(b)?1:0)-(remToday(a)?1:0)||new Date(a.dueDate)-new Date(b.dueDate));
+  return getAllDueCustomers().filter(c=>areaMatch(c,STATE.remArea)).filter(flt).sort((a,b)=>(remToday(b)?1:0)-(remToday(a)?1:0)||new Date(a.dueDate)-new Date(b.dueDate));
 }
 async function saveRemark(id,due,o){
   if(!isMoneyRole()){ showToast('Ye sirf Admin / Office ke liye hai'); return false; }
@@ -3646,7 +3654,7 @@ async function remSendEmails(){
   showToast(ok+' email gayi'+(bad?', '+bad+' fail':''));
 }
 function renderReminders(){
-  const all=getAllDueCustomers(), f=STATE.remFilter||'all', list=remVisible(), sel=STATE.remSel||{}, chosen=list.filter(c=>sel[c.id]);
+  const all=getAllDueCustomers().filter(c=>areaMatch(c,STATE.remArea)), f=STATE.remFilter||'all', list=remVisible(), sel=STATE.remSel||{}, chosen=list.filter(c=>sel[c.id]);
   const nE=chosen.filter(c=>c.email).length, nW=chosen.filter(c=>waNum(c.phone)).length;
   const n={all:all.length,today:all.filter(remToday).length,new:all.filter(c=>remState(c)==='new').length,followup:all.filter(c=>{ const s=remState(c); return s==='later'||s==='noans'; }).length,booked:all.filter(c=>remState(c)==='booked').length,closed:all.filter(c=>['notint','done','wrong'].indexOf(remState(c))>-1).length};
   const tile=(v,l,k,col)=>`<div data-remf="${k}" style="cursor:pointer;flex:1;min-width:0;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:10px 6px;text-align:center;${f===k?'outline:2px solid var(--teal);':''}"><div style="font-size:20px;font-weight:700;color:${col};">${v}</div><div style="font-size:11px;color:var(--muted);">${l}</div></div>`;
@@ -3665,6 +3673,7 @@ function renderReminders(){
     <div class="section-title">Due Service — Customer Calls</div>
     ${focusBannerHtml('late','soon')}
     <div style="display:flex;gap:6px;margin-bottom:10px;">${tile(n.all,'Kul due','all','var(--teal)')}${tile(n.today,'Aaj call','today','#c0392b')}${tile(n.new,'Call baaki','new','#a8741a')}${tile(n.booked,'Booked','booked','#2e9e6b')}</div>
+    ${areaSelectHtml('remAreaSel',STATE.remArea||'',getAllDueCustomers())}
     <div style="display:flex;gap:6px;overflow-x:auto;margin-bottom:10px;">${tabs.map(([k,l])=>`<button class="mini-btn ${f===k?'primary':''}" data-remf="${k}" style="flex:none;white-space:nowrap;">${l} (${n[k]})</button>`).join('')}</div>
     <div class="card"><div class="row-between"><div class="item-name">📣 Bulk Message (Email / WhatsApp)</div><button class="mini-btn" data-act="rembulk" style="flex:none;">${STATE.remBulkOpen?'Band karein':'Kholein'}</button></div>
       <div style="${STATE.remBulkOpen?'':'display:none;'}margin-top:8px;"><div class="field"><label>Message ({naam} {due} {date} {phone} {business} apne aap bhar jate hain)</label><textarea id="f_remTpl" rows="4">${esc(STATE.remTpl||DEFAULT_REM_TPL)}</textarea></div>
@@ -3685,8 +3694,13 @@ function billTabHtml(){
 function renderCustomers(){
   const q=STATE.custSearch.trim().toLowerCase();
   const filterType=STATE.custTypeFilter||'all';
-  let list=STATE.customers.filter(c=> !q || c.name.toLowerCase().includes(q) || (c.phone||'').includes(q) || (c.phone2||'').includes(q));
+  let list=STATE.customers.filter(c=> !q || c.name.toLowerCase().includes(q) || (c.phone||'').includes(q) || (c.phone2||'').includes(q) || String(c.area||'').toLowerCase().includes(q));
   if(filterType!=='all') list=list.filter(c=>(c.type||'amc')===filterType);
+  const areaBase=list.slice(), selArea=STATE.custArea||'';
+  if(selArea) list=list.filter(c=>areaMatch(c,selArea));
+  let otCnt=null;
+  if(filterType==='onetime'){ const idx=amcNameIdx(), tw=new Map(list.map(c=>[c.id,twinsFast(c,idx).length>0])); otCnt={amc:list.filter(c=>tw.get(c.id)).length,alone:list.filter(c=>!tw.get(c.id)).length};
+    if(STATE.custOt==='amc') list=list.filter(c=>tw.get(c.id)); else if(STATE.custOt==='alone') list=list.filter(c=>!tw.get(c.id)); }
   list=list.slice().sort((a,b)=>custRecent(b)-custRecent(a));
   const amcCnt={all:0,active:0,inactive:0,cancel:0}; STATE.customers.forEach(c=>{ if((c.type||'amc')==='amc'){ amcCnt.all++; const st=amcStatusOf(c); if(st==='active') amcCnt.active++; else if(st==='lapsed') amcCnt.cancel++; else amcCnt.inactive++; } });
   if(filterType==='amc'&&STATE.custStatus) list=list.filter(c=>{ const st=amcStatusOf(c); return STATE.custStatus==='active'?st==='active':STATE.custStatus==='lapsed'?st==='lapsed':st==='inactive'; });
@@ -3703,6 +3717,8 @@ function renderCustomers(){
       ${isMoneyRole()?`<button class="tabbtn ${filterType==='bill'?'active':''}" data-typefilter="bill">🧾 Bill</button>`:''}
       <button class="tabbtn ${filterType==='quotation'?'active':''}" data-typefilter="quotation">Quotation (${typeCounts.quotation})</button>
     </div>
+    ${areaSelectHtml('custAreaSel',selArea,areaBase)}
+    ${otCnt?`<div class="tabbar"><button class="tabbtn ${!STATE.custOt?'active':''}" data-custot="">Sab One-time</button><button class="tabbtn ${STATE.custOt==='amc'?'active':''}" data-custot="amc">🔗 AMC se mila (${otCnt.amc})</button><button class="tabbtn ${STATE.custOt==='alone'?'active':''}" data-custot="alone">Alag — AMC nahi (${otCnt.alone})</button></div>`:''}
     ${filterType==='amc'?`<div class="tabbar"><button class="tabbtn ${!STATE.custStatus?'active':''}" data-custstatus="">Sab AMC (${amcCnt.all})</button><button class="tabbtn ${STATE.custStatus==='active'?'active':''}" data-custstatus="active">🟢 Active (${amcCnt.active})</button><button class="tabbtn ${STATE.custStatus==='expired'?'active':''}" data-custstatus="expired">⚪ Inactive (${amcCnt.inactive})</button><button class="tabbtn ${STATE.custStatus==='lapsed'?'active':''}" data-custstatus="lapsed">🔴 Cancel (${amcCnt.cancel})</button></div>`:''}
     ${filterType==='bill'&&isMoneyRole()?billTabHtml():''}
     <div id="custListWrap" style="${filterType==='bill'&&isMoneyRole()?'display:none;':''}">${list.length===0?`<div class="empty-state"><span class="ic">👥</span><p>${q?'Koi match nahi mila.':'Abhi tak koi customer add nahi hua.<br>Neeche + button se add karein.'}</p></div>`:
@@ -3955,6 +3971,7 @@ function renderJobs(){
   const filt=STATE.jobStatusFilter||'', per=STATE.jobPeriod||'';
   let base=STATE.jobs.slice();
   if(filt){ base=base.filter(j=>j.status===filt); if(per&&per!=='total') base=base.filter(j=>jobInPeriod(j,per)); }
+  const jcm=new Map((STATE.customers||[]).map(c=>[c.id,c])), jar=STATE.jobArea||''; if(jar) base=base.filter(j=>areaMatch(jcm.get(j.customerId)||{},jar));
   const tf=STATE.jobTech||''; if(tf) base=base.filter(j=>tf==='__none'?!j.assignedTo:j.assignedTo===tf);
   const FJ=focusIs('unassigned','todayjobs')?STATE.focus.k:'';
   if(FJ==='unassigned') base=base.filter(j=>jobIsOpen(j)&&!j.assignedTo);
@@ -3979,7 +3996,7 @@ function renderJobs(){
   return `
     ${filt?`<div class="row-between" style="margin-bottom:12px;"><div class="pill pill-sky">Filter: ${statusLabel(filt)}${per&&perL[per]?' · '+perL[per]:''}</div><button class="mini-btn" style="flex:none;padding:6px 12px;" id="clearJobFilterBtn">Clear ✕</button></div>`:''}
     ${(()=>{ const o=base.filter(jobIsOpen), pr=base.filter(jobPriority).length, ds=base.filter(j=>j.status==='done'), amt=isMoneyRole()?ds.reduce((x,j)=>x+(Number(j.amount)||0),0):0; return `<div class="stat-grid" style="margin-bottom:10px;"><div class="stat-card"><div class="stat-num">${base.length}</div><div class="stat-label">Kul Jobs</div></div><div class="stat-card"><div class="stat-num" style="color:var(--amber);">${o.length}</div><div class="stat-label">Baaki</div></div><div class="stat-card"><div class="stat-num" style="color:var(--green);">${ds.length}</div><div class="stat-label">Complete${amt?' · '+rupee(amt):''}</div></div>${pr?`<div class="stat-card" style="background:#fdecea;border:1px solid #c0392b;"><div class="stat-num" style="color:#c0392b;">${pr}</div><div class="stat-label">🔥 Priority</div></div>`:''}</div>`; })()}
-    ${tabs}${tsel}
+    ${tabs}${tsel}${areaSelectHtml('jobAreaSel',jar,[...new Set(STATE.jobs.map(j=>j.customerId))].map(id=>jcm.get(id)).filter(Boolean))}
     <div class="section-title">${filt?'Jobs':(JT_TABS.find(t=>t[0]===tab)||[0,'Jobs'])[1]} (${list.length})</div>
     <div class="item-sub" style="margin:-4px 0 8px;">Job par tap karein — poori detail khulegi. Customer ke naam par tap karein — profile khulegi.</div>
     ${body}
@@ -4384,10 +4401,12 @@ function settingsBody(role,extra){
   const tabs=profTabsHtml([['access','⚙️ Access'],['leave','🏖 Chhutti'],['docs','🪪 Documents'],['activity','🕘 Activity']],tab);
   return hd+tabs+(tab==='access'?settingsBody0(role,extra):tab==='leave'?leaveCardHtml():tab==='docs'?kycCardHtml(sid):auditHtml(sid));
 }
+function waModeCardHtml(){ if(/Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) return ''; let m='web'; try{ m=localStorage.getItem('st_wa_mode')==='app'?'app':'web'; }catch(e){}
+  return `<div class="card"><div class="item-name">💬 WhatsApp kaise khule (laptop)</div><div class="item-sub">Web = browser tab me WhatsApp Web. App = laptop ka WhatsApp Desktop app (pehle se login rehta hai, naya login nahi maangta).</div><div class="card-actions" style="margin-top:8px;"><button class="mini-btn ${m==='web'?'primary':''}" data-v9="wamode" data-id="web">🌐 Web</button><button class="mini-btn ${m==='app'?'primary':''}" data-v9="wamode" data-id="app">🖥 Desktop App</button></div></div>`; }
 function settingsBody0(role,extra){
   const cur=(STATE.setTab==='backup'?'data':STATE.setTab)||'account';
   const acc={admin:['Sab kuch dekh aur badal sakte hain','Team, PIN, customers, jobs, attendance, map, kamai, backup'],subadmin:['Customers add/edit, jobs assign, attendance aur map dekh sakte hain','Delete, kamai ke total, team PIN aur data settings nahi dikhti']}[role];
-  if(role!=='admin'||cur==='account') return (acc?`<div class="card"><div class="item-name">Aapki access</div><div class="item-sub">${acc[0]}<br>${acc[1]}</div></div>`:'')+(role==='admin'?recoveryCardHtml():'');
+  if(role!=='admin'||cur==='account') return waModeCardHtml()+(acc?`<div class="card"><div class="item-name">Aapki access</div><div class="item-sub">${acc[0]}<br>${acc[1]}</div></div>`:'')+(role==='admin'?recoveryCardHtml():'');
   if(cur==='dev') return devicesTabHtml();
   const secs=extra.split('<div class="section-title" style="margin-top:20px;">').slice(1).map(x=>'<div class="section-title" style="margin-top:0;">'+x);
   const map={biz:[0],team:[1,5],data:[3,4,7],mail:[2,6],adv:[8]};
@@ -5082,6 +5101,10 @@ function bindShellEvents(){
   document.querySelectorAll('[data-proftab]').forEach(el=>el.onclick=()=>{ STATE.profTab=el.dataset.proftab; render(); });
   document.querySelectorAll('[data-jexp]').forEach(el=>el.onclick=e=>{ if(hasTextSel()) return; if(e.target.closest('select,button,a,input,textarea,label,[data-viewstaff],[data-viewcust],[data-lightbox],[data-video],details,.photo-thumb')) return; if(e.detail>1){ clearTimeout(el._jt); return; } const id=el.dataset.jexp; clearTimeout(el._jt); el._jt=setTimeout(()=>{ if(hasTextSel()) return; STATE.jobOpenMap=STATE.jobOpenMap||{}; STATE.jobOpenMap[id]=!STATE.jobOpenMap[id]; render(); },170); });
   const ltcs=document.getElementById('leadTcSel'); if(ltcs) ltcs.onchange=()=>{ STATE.leadTc=ltcs.value; STATE.leadsShown=40; STATE.leadMonth=''; render(); };
+  { const a=document.getElementById('custAreaSel'); if(a) a.onchange=()=>{ STATE.custArea=a.value; STATE.custShown=60; render(); };
+    const b=document.getElementById('remAreaSel'); if(b) b.onchange=()=>{ STATE.remArea=b.value; STATE.remShown=50; render(); };
+    const c=document.getElementById('jobAreaSel'); if(c) c.onchange=()=>{ STATE.jobArea=c.value; STATE.jobsShown=60; render(); };
+    document.querySelectorAll('[data-custot]').forEach(el=>el.onclick=()=>{ STATE.custOt=el.dataset.custot; STATE.custShown=60; render(); }); }
   const jtf=document.getElementById('jobTechFilter'); if(jtf) jtf.onchange=()=>{ STATE.jobTech=jtf.value; render(); };
   const mPeriod=document.getElementById('mPeriod'); if(mPeriod) mPeriod.onchange=()=>moneyPeriodSet(mPeriod.value);
   const bellBtn=document.getElementById('bellBtn'); if(bellBtn) bellBtn.onclick=()=>{ activeModal={type:'notifs',data:{}}; render(); };
@@ -6034,6 +6057,7 @@ document.addEventListener('click',async ev=>{
   else if(a==='idsave'){ const s=STATE.staff.find(x=>x.id===id); if(s){ s.bloodGroup=val('v9_bg').slice(0,5); s.emergency=val('v9_em').replace(/\D/g,'').slice(0,10); await saveKey(SKEY.STAFF,STATE.staff); showToast('Save ho gaya'); render(); } }
   else if(a==='idblock'){ const s=STATE.staff.find(x=>x.id===id); if(s){ s.idBlocked=!s.idBlocked; await saveKey(SKEY.STAFF,STATE.staff); showToast(s.idBlocked?'ID block ho gaya':'ID valid ho gaya'); render(); } }
   else if(a==='idpdf'||a==='idimg'){ const s=STATE.staff.find(x=>x.id===id); if(s){ showToast('Tayyar ho raha hai…'); try{ await idRender(a==='idpdf'?'pdf':'img',s); }catch(e){ console.error(e); showToast('Download nahi ho paya — internet check karein'); } } }
+  else if(a==='wamode'){ try{ localStorage.setItem('st_wa_mode',id==='app'?'app':'web'); }catch(e){} showToast(id==='app'?'WhatsApp Desktop App use hoga':'WhatsApp Web use hoga'); render(); }
   else if(a==='nmone'){ const c=STATE.customers.find(x=>x.id===id), t=amcTwinOf(c); if(!c||!t){ showToast('Match nahi mila'); return; } if(!confirm('"'+c.name+'" (One-time) ko AMC customer "'+t.name+(t.phone?' ('+t.phone+')':'')+'" ke saath jodein?\nSab job/bill/history AMC profile me aa jayegi (purani profile Recycle Bin me safe).')) return;
     const r=mergeCustGroupInMemory([t,c],t.id); await saveAfterMerge(); showToast('✅ Jud gaya — AMC profile me'); render(); }
   else if(a==='cpin'){ const c=STATE.customers.find(x=>x.id===id); if(!c) return; if(c.pin&&!confirm('Is customer ka purana pin badal dein? Aap abhi customer ki jagah par hone chahiye.')) return; if(!c.pin&&!confirm('Kya aap abhi customer ke ghar/site par hain? Isi jagah ko customer ka pin bana diya jayega.')) return; showToast('Location le raha hu…'); try{ const p=await getPos(); const ac=Math.round(p.coords.accuracy||0); if(ac>150&&!confirm('Location sahi nahi hai (±'+ac+' m). Phir bhi save karein?')) return; c.pin={lat:+p.coords.latitude.toFixed(6),lng:+p.coords.longitude.toFixed(6),ac,by:(STATE.session&&STATE.session.name)||'',at:Date.now()}; await saveKey(SKEY.CUSTOMERS,STATE.customers); showToast('📍 Pin save ho gaya (±'+ac+' m) — ab Navigate seedha yahin le jayega'); render(); }catch(e){ showToast('Location nahi mili — GPS/permission on karein'); } }
@@ -6291,7 +6315,7 @@ const I18N_ROWS=[
 /* permission + install */
 ['Permissions Check','Permissions Check','अनुमतियों की जाँच'],['Allow Karein','Allow','अनुमति दें'],['Location Zaroori','Location required','लोकेशन ज़रूरी'],['App install karo','Install the app','ऐप इंस्टॉल करें'],['Install karo','Install','इंस्टॉल करें'],['Location band hai','Location is off','लोकेशन बंद है'],
 /* help */
-['Help','Help','मदद'],
+['Help','Help','मदद'],['Bill PDF Download Karein','Download Bill PDF','बिल PDF डाउनलोड करें'],['PDF Download','PDF Download','PDF डाउनलोड'],['Bill PDF','Bill PDF','बिल PDF'],['Sab area','All areas','सब एरिया'],['Area nahi likha ({n})','No area written ({n})','एरिया नहीं लिखा ({n})'],['Sab One-time','All One-time','सब वन-टाइम'],['AMC se mila ({n})','Matched with AMC ({n})','AMC से मिला ({n})'],['Alag — AMC nahi ({n})','Separate — no AMC ({n})','अलग — AMC नहीं ({n})'],['AMC profile mili — Jodo','AMC profile found — Merge','AMC प्रोफ़ाइल मिली — जोड़ो'],['WhatsApp kaise khule (laptop)','How WhatsApp opens (laptop)','WhatsApp कैसे खुले (लैपटॉप)'],
 /* v9.8 full dictionary */
 ['Naya item','New item','नया आइटम'],
 ['Baad me / Unassigned','Later / Unassigned','बाद में / बिना असाइन'],
@@ -7245,6 +7269,11 @@ const HELP=[
  {t:['💰 Kamai me galti sudharna','💰 Fixing Earnings entries','💰 कमाई में गलती सुधारना'],roles:'admin',i:[
   ['Ek hi customer ki do entry ho to us row par "⚠️ Double?" dikhta hai. Galat wali row ke aage Delete (🗑) dabayein.','If one customer has two entries, the row shows "⚠️ Double?". Tap Delete (🗑) next to the wrong row.','एक ही कस्टमर की दो एंट्री हों तो उस रो पर "⚠️ Double?" दिखता है। गलत रो के आगे Delete (🗑) दबाएँ।'],
   ['AMC aur Renewal ki row par Cash / Online / Cheque chunne ka selector hai; mode badalte hi Kamai ka hisaab sahi ho jata hai.','AMC and Renewal rows have a Cash / Online / Cheque selector; changing the mode corrects the Earnings totals.','AMC और रिन्यूअल की रो पर Cash / Online / Cheque चुनने का सेलेक्टर है; मोड बदलते ही कमाई का हिसाब सही हो जाता है।'],
+ ]},
+ {t:['🔎 Area filter aur WhatsApp','🔎 Area filter and WhatsApp','🔎 एरिया फ़िल्टर और WhatsApp'],roles:'subadmin,admin',i:[
+  ['Customers, Due Service aur Jobs me "📍 Sab area" dropdown se ek area chunein — sirf usi area ke customer/service/job dikhenge. Technician us area me ho to wahi list nikaal kar call/assign karein.','In Customers, Due Service and Jobs use the "📍 All areas" dropdown to pick one area — only that area\'s customers/services/jobs show. If a technician is in that area, pull this list and call/assign.','Customers, Due Service और Jobs में "📍 सब एरिया" ड्रॉपडाउन से एक एरिया चुनें — सिर्फ़ उसी एरिया के कस्टमर/सर्विस/जॉब दिखेंगे। टेक्नीशियन उस एरिया में हो तो वही लिस्ट निकालकर कॉल/असाइन करें।'],
+  ['Customers → One-time me "🔗 AMC se mila" (jinka AMC profile naam+area se mil gayi) aur "Alag — AMC nahi" alag tabs me dikhte hain. "AMC profile mili — Jodo" dabakar dono profile ek kar sakte hain.','In Customers → One-time, "🔗 Matched with AMC" (those whose AMC profile matched by name+area) and "Separate — no AMC" show in separate tabs. Tap "AMC profile found — Merge" to merge the two profiles.','Customers → One-time में "🔗 AMC से मिला" (जिनकी AMC प्रोफ़ाइल नाम+एरिया से मिल गई) और "अलग — AMC नहीं" अलग टैब में दिखते हैं। "AMC प्रोफ़ाइल मिली — जोड़ो" दबाकर दोनों प्रोफ़ाइल एक कर सकते हैं।'],
+  ['Laptop par WhatsApp: Settings → Account me "WhatsApp kaise khule" se Web ya Desktop App chunein. Desktop App chunne par laptop ka pehle se login WhatsApp hi khulta hai.','WhatsApp on laptop: in Settings → Account choose Web or Desktop App under "How WhatsApp opens". With Desktop App the already logged-in WhatsApp on your laptop opens.','लैपटॉप पर WhatsApp: Settings → Account में "WhatsApp कैसे खुले" से Web या Desktop App चुनें। Desktop App चुनने पर लैपटॉप का पहले से लॉगिन WhatsApp ही खुलता है।'],
  ]},
  {t:['🌐 Bhasha (Language)','🌐 Language','🌐 भाषा'],roles:'all',i:[
   ['Upar 🌐 button har baar dabane par Hinglish → English → हिंदी badalta hai. Chunni hui bhasha is phone me yaad rehti hai.','The 🌐 button at the top cycles Hinglish → English → हिंदी each time. The chosen language is remembered on this phone.','ऊपर 🌐 बटन हर बार दबाने पर Hinglish → English → हिंदी बदलता है। चुनी हुई भाषा इस फ़ोन में याद रहती है।'],
