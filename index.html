@@ -1264,7 +1264,7 @@ function samePersonCandidates(c,list){
     const op=ph10(o.phone); if(op.length===10&&mine.length===10&&op!==mine&&ph10(o.phone2)!==mine&&ph10(c.phone2)!==op) return false; /* dono ke alag-alag number = alag log */
     const ov=addrOverlap(c,o); if(ov===false&&op.length===10&&mine.length===10) return false; return true; });
 }
-const custAreaOf=c=>String((c&&c.area)||'').trim();
+const custAreaOf=c=>{ if(!c) return ''; const a=String(c.area||'').trim(); if(a) return a; const ad=String(c.address||''); if(ad.indexOf(',')<0) return ''; let l=ad.split(',').pop().replace(/\b\d{6}\b/g,'').replace(/[-\s]+$/,'').trim(); return (l.length>=3&&l.length<=30&&!/\d{3,}/.test(l))?l:''; };
 const areaKey=a=>String(a||'').trim().toLowerCase();
 function areaOpts(custs){ const m=new Map(); (custs||[]).forEach(c=>{ const a=custAreaOf(c); if(!a) return; const k=areaKey(a), o=m.get(k)||{n:a,c:0}; o.c++; m.set(k,o); }); return [...m.values()].sort((x,y)=>x.n.localeCompare(y.n)); }
 function areaSelectHtml(id,cur,custs){ const o=areaOpts(custs); if(!o.length) return ''; const none=(custs||[]).filter(c=>!custAreaOf(c)).length; return `<div class="field" style="margin:0 0 10px;"><select id="${id}"><option value="">📍 Sab area</option>${o.map(x=>`<option value="${esc(areaKey(x.n))}" ${cur===areaKey(x.n)?'selected':''}>${esc(x.n)} (${x.c})</option>`).join('')}${none?`<option value="__none" ${cur==='__none'?'selected':''}>Area nahi likha (${none})</option>`:''}</select></div>`; }
@@ -2150,7 +2150,7 @@ function billHistoryHtml(c){
   const L=billsOfCustomer(c); if(!L.length) return '';
   const isAdmin=STATE.session.role==='admin';
   return `<div class="card"><div class="item-name" style="margin-bottom:2px;">🧾 Bill History</div><div class="item-sub">${L.length} purane bill · kul ${rupee(L.reduce((s,b)=>s+(Number(b.amount)||0),0))}</div>
-    ${L.slice(0,20).map(b=>`<div class="row-between" style="padding:5px 0;border-top:1px solid var(--border);"><div class="item-sub" style="margin:0;">${fmtDate(b.date)} · ${esc(b.work||'—')}${b.mode?' · '+(MODE_L[normMode(b.mode)]||esc(b.mode)):''}${isAdmin&&Number(b.due)>0?' · <span style="color:#c0392b;">Due '+rupee(b.due)+'</span>':''}</div><div style="text-align:right;"><div class="item-name" style="font-size:14px;">${rupee(b.amount)}</div>${isAdmin?`<button class="mini-btn danger" data-act="mdel" data-k="bill" data-id="${b.id}" style="margin-top:3px;">🗑 Hatao</button>`:''}</div></div>`).join('')}${L.length>20?`<div class="item-sub">…aur ${L.length-20} bill</div>`:''}</div>`;
+    ${L.slice(0,20).map(b=>`<div class="row-between" style="padding:5px 0;border-top:1px solid var(--border);"><div class="item-sub" style="margin:0;">${fmtDate(b.date)} · ${esc(b.work||'—')}${b.mode?' · '+(MODE_L[normMode(b.mode)]||esc(b.mode)):''}${isAdmin&&Number(b.due)>0?' · <span style="color:#c0392b;">Due '+rupee(b.due)+'</span>':''}</div><div style="text-align:right;"><div class="item-name" style="font-size:14px;">${rupee(b.amount)}</div><button class="mini-btn" data-act="billrecpdf" data-id="${b.id}" style="margin-top:3px;">📄 PDF</button>${isAdmin?`<button class="mini-btn danger" data-act="mdel" data-k="bill" data-id="${b.id}" style="margin-top:3px;">🗑 Hatao</button>`:''}</div></div>`).join('')}${L.length>20?`<div class="item-sub">…aur ${L.length-20} bill</div>`:''}</div>`;
 }
 async function renewAmc(id,o){
   const c=STATE.customers.find(x=>x.id===id); if(!c||c.type!=='amc') return false;
@@ -2491,6 +2491,18 @@ function invBillText(j,c,inv){
 }
 let _pdfLibP=null;
 function loadPdfLib(){ if(window.html2pdf) return Promise.resolve(); if(_pdfLibP) return _pdfLibP; _pdfLibP=new Promise((res,rej)=>{ const sc=document.createElement('script'); sc.src='https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js'; sc.onload=res; sc.onerror=()=>{ _pdfLibP=null; rej(new Error('pdf lib')); }; document.head.appendChild(sc); }); return _pdfLibP; }
+function billRecordInv(b){ const c=STATE.customers.find(x=>x.id===b.customerId)||{}; const items=(b.items&&b.items.length)?b.items:[{name:b.work||'Service / Repair',qty:1,unit:'QTY',rate:Number(b.amount)||0,disc:0}];
+  const inv={no:String(b.no||b.invNo||('B'+String(b.id).slice(-4))),kind:'invoice',date:b.date||todayStr(),items,billTo:{name:b.name||c.name||'Customer',phone:b.phone||c.phone||'',address:c.address||''}};
+  return {j:{id:'rec_'+b.id,customerId:b.customerId||'',assignedTo:'',invoice:inv,title:b.work||'',amount:b.amount},c:Object.assign({},c,{name:inv.billTo.name,phone:inv.billTo.phone}),inv}; }
+async function generateBillRecordPdf(bid){ const b=(STATE.bills||[]).find(x=>x.id===bid); if(!b) return; const o=billRecordInv(b), html=invoiceDocHtml(o.j,o.c,o.inv,null,null,null), base='Bill-'+o.inv.no+'-'+String(o.inv.billTo.name).replace(/[^A-Za-z0-9]+/g,'-');
+  try{ showToast('PDF ban raha hai…'); const pdf=await htmlToPdfBlob(html,8); await saveFileCompat(pdf,base+'.pdf'); showToast('✅ PDF download ho gaya'); }
+  catch(e){ console.error(e); await saveFileCompat(new Blob([html],{type:'text/html'}),base+'.html'); showToast('PDF nahi ban payi (internet check karein) — HTML file download hui'); } }
+async function sendPdfToCustomer(blob,fname,phone,text){
+  const file=new File([blob],fname,{type:'application/pdf'});
+  try{ if(navigator.canShare&&navigator.canShare({files:[file]})){ await navigator.share({files:[file],text}); return 'shared'; } }catch(e){ if(e&&e.name==='AbortError') return 'cancel'; }
+  await saveFileCompat(blob,fname); const n=waNum(phone);
+  window.open('https://wa.me/'+(n||'')+'?text='+encodeURIComponent(text+'\n(PDF file: '+fname+')'),'_blank');
+  showToast('📎 PDF download ho gayi — WhatsApp chat me 📎 se is PDF ko attach karke Send karein'); return 'manual'; }
 async function billPdfBlob(j){
   const c=STATE.customers.find(x=>x.id===j.customerId), tech=STATE.staff.find(s=>s.id===j.assignedTo);
   let sig=STATE.signatures[j.id]; if(sig===undefined){ sig=await loadKey(jobSigKey(j.id),null); STATE.signatures[j.id]=sig; }
@@ -2506,11 +2518,8 @@ async function shareBill(jobId,how){
   const rec=how==='wa'?'whatsapp':'email';
   if(how==='wa'){
     if(phone&&!phoneOk(phone)){ showToast('Mobile 10 digit ka hona chahiye'); return; }
-    let shared=false;
-    try{ showToast('Bill ka PDF ban raha hai…'); const blob=await billPdfBlob(j), file=new File([blob],fname,{type:'application/pdf'});
-      if(navigator.canShare&&navigator.canShare({files:[file]})){ await navigator.share({files:[file],text}); shared=true; } }
-    catch(e){ if(e&&e.name==='AbortError'){ return; } console.error('bill share',e); }
-    if(!shared){ const n=waNum(phone); window.open('https://wa.me/'+(n||'')+'?text='+encodeURIComponent(text),'_blank'); showToast('WhatsApp khul raha hai (bill text ke roop mein)'); }
+    try{ showToast('Bill ka PDF ban raha hai…'); const blob=await billPdfBlob(j); const r=await sendPdfToCustomer(blob,fname,phone,text); if(r==='cancel') return; }
+    catch(e){ console.error('bill share',e); const n=waNum(phone); window.open('https://wa.me/'+(n||'')+'?text='+encodeURIComponent(text),'_blank'); showToast('PDF nahi ban payi — bill text WhatsApp me khul raha hai'); }
   } else {
     if(!email||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ showToast('Pehle customer ka sahi email likhein'); return; }
     let att=null; try{ showToast('Bill ka PDF ban raha hai…'); att={name:fname,mime:'application/pdf',data:await blobToB64(await billPdfBlob(j))}; }catch(e){ console.error('pdf for email',e); }
@@ -2747,7 +2756,8 @@ async function moneyFixDate(d,iso){
 const rowDup=r=>(r.k==='bill'||r.k==='job')&&r.amount>0&&(MDUP.get([r.date,r.custId||String(r.name||'').toLowerCase(),r.amount].join('|'))||0)>1;
 const delBtn=r=>(STATE.session.role==='admin'&&(r.k==='bill'||r.k==='job'))?`<button class="mini-btn danger" data-act="mdel" data-id="${esc(r.id)}" data-k="${r.k}" style="margin-top:5px;margin-right:6px;">🗑 ${r.k==='bill'?'Bill Hatao':'Kamai se Hatao'}</button>`:'';
 const modeSel=r=>{ if(!(r.k==='amc'||r.k==='bill'||r.k==='job')) return ''; if(r.k!=='amc'&&r.mode) return ''; return `<select data-mmode="${esc(r.id)}" data-k="${r.k}" style="margin-top:5px;margin-right:6px;font-size:12px;padding:3px 6px;width:auto;"><option value="">💳 Mode chunein</option>${Object.keys(MODE_L).map(m=>`<option value="${m}" ${m===r.mode?'selected':''}>${MODE_L[m]}</option>`).join('')}</select>`; };
-const fixBtn=r=>!isMoneyRole()?'':(modeSel(r)+delBtn(r)+(rowOdd(r)?`<button class="mini-btn" data-act="fixdate" data-id="${esc(r.id)}" data-k="${r.k}" style="margin-top:5px;margin-right:6px;">📅 Date theek karein</button>`:'')+(rowBigAmt(r)?`<button class="mini-btn" data-act="fixamt" data-id="${esc(r.id)}" data-k="${r.k}" style="margin-top:5px;">💰 Amount theek karein</button>`:''));
+const pdfBtn=r=>r.k==='job'?`<button class="mini-btn" data-act="billpdf" data-id="${esc(r.id)}" style="margin-top:5px;margin-right:6px;">📄 PDF</button>`:r.k==='bill'?`<button class="mini-btn" data-act="billrecpdf" data-id="${esc(r.id)}" style="margin-top:5px;margin-right:6px;">📄 PDF</button>`:'';
+const fixBtn=r=>!isMoneyRole()?'':(pdfBtn(r)+modeSel(r)+delBtn(r)+(rowOdd(r)?`<button class="mini-btn" data-act="fixdate" data-id="${esc(r.id)}" data-k="${r.k}" style="margin-top:5px;margin-right:6px;">📅 Date theek karein</button>`:'')+(rowBigAmt(r)?`<button class="mini-btn" data-act="fixamt" data-id="${esc(r.id)}" data-k="${r.k}" style="margin-top:5px;">💰 Amount theek karein</button>`:''));
 (function(){ const vv=window.visualViewport; if(!vv) return;
   const fit=()=>{ const o=document.querySelector('.modal-overlay'); if(!o) return; const kb=Math.max(0,window.innerHeight-vv.height-vv.offsetTop); o.style.paddingBottom=kb+'px'; const sh=o.querySelector('.modal-sheet'); if(sh) sh.style.maxHeight=Math.max(200,Math.round(vv.height*0.94))+'px'; };
   vv.addEventListener('resize',fit); vv.addEventListener('scroll',fit);
@@ -3096,7 +3106,7 @@ function amcDocHtml(c,sig){
   <div class="hd">${b.logo?`<img src="${b.logo}">`:''}<div><h1>${e(b.name||'Super Air Cool')}</h1><div>${e(b.address||'')}</div>${b.phone?`<div><b>Mobile:</b> ${e(b.phone)}</div>`:''}${b.email?`<div><b>Email:</b> ${e(b.email)}</div>`:''}</div></div>
   <div class="ttl">ANNUAL MAINTENANCE CONTRACT (AMC)</div>
   <div class="two nobreak"><div><div class="sh">Customer Details</div><table><tr><td>Name</td><td><b>${e(c.name)}</b></td></tr><tr><td>Mobile</td><td>${e(c.phone||'—')}${c.phone2?' / '+e(c.phone2):''}</td></tr><tr><td>Address</td><td>${e([c.address,c.area,c.landmark,c.city,c.pincode].filter(Boolean).join(', ')||'—')}</td></tr></table></div>
-  <div><div class="sh">Product Details</div><table><tr><td>Brand / Model</td><td>${e([c.brand,c.model].filter(Boolean).join(' ')||'—')}</td></tr><tr><td>No. of ACs</td><td>${c.units?e(String(c.units)):((c.acs&&c.acs.length)?c.acs.length:'—')}</td></tr><tr><td>Serial No.</td><td>${e(c.serialNo||'—')}</td></tr><tr><td>AMC Active Date</td><td><b>${c.activationDate?fmtDMY(c.activationDate):'—'}</b></td></tr><tr><td>AMC End Date</td><td><b>${c.expiryDate?fmtDMY(c.expiryDate):'—'}</b></td></tr></table></div></div>
+  <div><div class="sh">Product Details</div><table><tr><td>Brand / Model</td><td>${e([c.brand,c.model].filter(Boolean).join(' ')||'—')}</td></tr><tr><td>No. of ACs</td><td>${c.units?e(String(c.units)):((c.acs&&c.acs.length)?c.acs.length:'—')}</td></tr><tr><td>Serial No.</td><td>${e(c.serialNo||'—')}</td></tr></table></div></div>
   <div class="sh">Contract Details</div>
   <table class="nobreak"><tr><td>Contract Period</td><td><b>${c.activationDate?fmtDMY(c.activationDate):'—'} &nbsp;to&nbsp; ${c.expiryDate?fmtDMY(c.expiryDate):'—'}</b></td></tr><tr><td>Total Services</td><td>${total} (one service every ~3 months)</td></tr><tr><td>AMC Amount</td><td><b>₹ ${(Number(c.amcAmount)||0).toLocaleString('en-IN')}</b>${mode?' &nbsp;·&nbsp; Paid by '+mode:''}</td></tr><tr><td>Status</td><td>${({active:'Active',inactive:'Services completed — renewal due',lapsed:'Cancelled'})[st]||'Active'}</td></tr></table>
   <div class="sh">Service Schedule</div><table class="nobreak"><tr><th>Visit</th><th>Date</th><th>Status</th></tr>${rows.join('')}</table>
@@ -3105,12 +3115,12 @@ function amcDocHtml(c,sig){
   <div class="tc"><b style="font-size:11.5px;">TERMS AND CONDITIONS</b>\n${e(terms)}</div>
   <button onclick="window.print()" style="margin-top:22px;padding:10px 20px;background:#0E4C5C;color:#fff;border:none;border-radius:6px;font-size:14px;">Print / Save as PDF</button></body></html>`;
 }
-async function generateAmcPdf(customerId){
+async function generateAmcPdf(customerId,send){
   const c=STATE.customers.find(x=>x.id===customerId); if(!c) return;
   let sig=STATE.amcSignatures[customerId];
   if(sig===undefined){ sig=await loadKey(amcSigKey(customerId), null); STATE.amcSignatures[customerId]=sig; }
   const html=amcDocHtml(c,sig), base='AMC-'+String(c.amcName||c.name).replace(/[^A-Za-z0-9]+/g,'-');
-  try{ showToast('AMC PDF ban raha hai…'); const pdf=await htmlToPdfBlob(html,8); await saveFileCompat(pdf,base+'.pdf'); showToast('✅ AMC PDF download ho gaya'); }
+  try{ showToast('AMC PDF ban raha hai…'); const pdf=await htmlToPdfBlob(html,8); if(send){ await sendPdfToCustomer(pdf,base+'.pdf',c.phone,'Namaste '+c.name+' ji, aapka AMC contract (PDF) — '+((STATE.businessInfo&&STATE.businessInfo.name)||'Super Air Cool')); return; } await saveFileCompat(pdf,base+'.pdf'); showToast('✅ AMC PDF download ho gaya'); }
   catch(e){ console.error(e); await saveFileCompat(new Blob([html],{type:'text/html'}),base+'.html'); showToast('PDF nahi ban payi (internet check karein) — HTML file download hui, usse khol ke Print/PDF karein'); }
 }
 
@@ -3685,16 +3695,16 @@ function renderReminders(){
   `;
 }
 function billTabHtml(){
-  const rows=[]; (STATE.jobs||[]).forEach(j=>{ const inv=j.invoice; if(!inv||!inv.items||!inv.items.length) return; const T=invTotals(inv), c=STATE.customers.find(x=>x.id===j.customerId)||{}, t=(STATE.staff||[]).find(x=>x.id===(inv.techId!==undefined?inv.techId:j.assignedTo)); rows.push({q:inv.kind==='quotation',no:inv.no,date:inv.date||'',amt:T.grand,name:(inv.billTo&&inv.billTo.name)||c.name||'—',cid:c.id,tech:t?t.name:''}); });
+  const rows=[]; (STATE.jobs||[]).forEach(j=>{ const inv=j.invoice; if(!inv||!inv.items||!inv.items.length) return; const T=invTotals(inv), c=STATE.customers.find(x=>x.id===j.customerId)||{}, t=(STATE.staff||[]).find(x=>x.id===(inv.techId!==undefined?inv.techId:j.assignedTo)); rows.push({jid:j.id,q:inv.kind==='quotation',no:inv.no,date:inv.date||'',amt:T.grand,name:(inv.billTo&&inv.billTo.name)||c.name||'—',cid:c.id,tech:t?t.name:''}); });
   rows.sort((a,b)=>String(b.date).localeCompare(String(a.date)));
   const bl=rows.filter(r=>!r.q), qt=rows.filter(r=>r.q), tot=bl.reduce((x,r)=>x+r.amt,0), ym=todayStr().slice(0,7), mt=bl.filter(r=>r.date.slice(0,7)===ym).reduce((x,r)=>x+r.amt,0), sh=STATE.billShown||60;
   return `<div class="card" style="background:var(--sky-pale);"><div class="row-between"><div><div class="item-sub" style="margin:0;">Kul Bill (${bl.length})</div><div class="item-name" style="font-size:22px;">${rupee(tot)}</div></div><div style="text-align:right;"><div class="item-sub" style="margin:0;">Is mahine</div><div class="item-name">${rupee(mt)}</div></div></div>${qt.length?`<div class="item-sub" style="margin-top:6px;">📄 Quotation: ${qt.length} (total me nahi ginti)</div>`:''}</div>`+
-    (rows.length?rows.slice(0,sh).map(r=>`<div class="card" ${r.cid?`data-viewcust="${esc(r.cid)}" style="cursor:pointer;"`:''}><div class="row-between"><div style="min-width:0;"><div class="item-name">${esc(r.name)} ›</div><div class="item-sub" style="margin:0;">${r.q?'📄 Quotation':'🧾 Bill'} #${esc(r.no||'')} · ${fmtDate(r.date)}${r.tech?' · 🧑‍🔧 '+esc(r.tech):''}</div></div><div class="item-name" style="flex:none;">${r.q?'<span class="item-sub">'+rupee(r.amt)+'</span>':rupee(r.amt)}</div></div></div>`).join('')+(rows.length>sh?`<button class="ghost-btn" data-act="billmore">Aur dikhayein (${rows.length-sh} baaki)</button>`:''):`<div class="empty-state"><span class="ic">🧾</span><p>Abhi koi bill nahi bana.</p></div>`);
+    (rows.length?rows.slice(0,sh).map(r=>`<div class="card"><div class="row-between"><div style="min-width:0;"><div class="item-name" ${r.cid?`data-viewcust="${esc(r.cid)}" style="cursor:pointer;"`:''}>${esc(r.name)} ›</div><div class="item-sub" style="margin:0;">${r.q?'📄 Quotation':'🧾 Bill'} #${esc(r.no||'')} · ${fmtDate(r.date)}${r.tech?' · 🧑‍🔧 '+esc(r.tech):''}</div></div><div class="item-name" style="flex:none;">${r.q?'<span class="item-sub">'+rupee(r.amt)+'</span>':rupee(r.amt)}</div></div><div class="card-actions" style="margin-top:6px;"><button class="mini-btn primary" data-act="billpdf" data-id="${esc(r.jid)}">📄 PDF Download</button><button class="mini-btn" data-act="billsend" data-id="${esc(r.jid)}">📲 Customer ko bhejo</button></div></div>`).join('')+(rows.length>sh?`<button class="ghost-btn" data-act="billmore">Aur dikhayein (${rows.length-sh} baaki)</button>`:''):`<div class="empty-state"><span class="ic">🧾</span><p>Abhi koi bill nahi bana.</p></div>`);
 }
 function renderCustomers(){
   const q=STATE.custSearch.trim().toLowerCase();
   const filterType=STATE.custTypeFilter||'all';
-  let list=STATE.customers.filter(c=> !q || c.name.toLowerCase().includes(q) || (c.phone||'').includes(q) || (c.phone2||'').includes(q) || String(c.area||'').toLowerCase().includes(q));
+  let list=STATE.customers.filter(c=> !q || c.name.toLowerCase().includes(q) || (c.phone||'').includes(q) || (c.phone2||'').includes(q) || String(c.area||'').toLowerCase().includes(q) || String(c.address||'').toLowerCase().includes(q));
   if(filterType!=='all') list=list.filter(c=>(c.type||'amc')===filterType);
   const areaBase=list.slice(), selArea=STATE.custArea||'';
   if(selArea) list=list.filter(c=>areaMatch(c,selArea));
@@ -3800,7 +3810,7 @@ function renderCustomerProfile(){
       <div style="height:8px;background:#e6eef0;border-radius:5px;overflow:hidden;margin-bottom:10px;"><div style="height:100%;width:${c.totalServices?Math.min(100,Math.round((c.servicesDone||0)*100/c.totalServices)):0}%;background:var(--teal);"></div></div>
       ${amcTimelineHtml(c)}
       ${STATE.amcSignatures[c.id]?`<div class="item-sub" style="margin-top:8px;">✅ Customer ne sign kiya hai</div>`:''}
-      <div class="card-actions"><button class="mini-btn" data-act="amcservice" data-id="${c.id}">Manual Service +1 (agar job na banayi ho)</button>${(c.serviceLog||[]).some(x=>x.manual)&&STATE.session.role!=='technician'?`<button class="mini-btn danger" data-act="amcsvcundo" data-id="${c.id}">↩️ Galti se hui? Manual Service Hatayein</button>`:''}<button class="mini-btn" data-act="amcpdf" data-id="${c.id}">AMC PDF</button><button class="mini-btn" data-act="amcsign" data-id="${c.id}">${STATE.amcSignatures[c.id]?'Re-Sign':'Customer Sign'}</button></div>
+      <div class="card-actions"><button class="mini-btn" data-act="amcservice" data-id="${c.id}">Manual Service +1 (agar job na banayi ho)</button>${(c.serviceLog||[]).some(x=>x.manual)&&STATE.session.role!=='technician'?`<button class="mini-btn danger" data-act="amcsvcundo" data-id="${c.id}">↩️ Galti se hui? Manual Service Hatayein</button>`:''}<button class="mini-btn" data-act="amcpdf" data-id="${c.id}">📄 AMC PDF</button><button class="mini-btn" data-act="amcpdfsend" data-id="${c.id}">📲 AMC PDF bhejo</button><button class="mini-btn" data-act="amcsign" data-id="${c.id}">${STATE.amcSignatures[c.id]?'Re-Sign':'Customer Sign'}</button></div>
     </div>`:''}
     <div class="stat-grid">
       <div class="stat-card"><div class="stat-num">${customerJobs.length}</div><div class="stat-label">Total Services/Jobs</div></div>
@@ -4142,7 +4152,7 @@ function custCardX(c){
   else if(c.lastService){ const due=addMonths(c.lastService,c.intervalMonths); const d=daysUntil(due); pillClass=d<0?'pill-red':d<=7?'pill-amber':'pill-green'; pillText=d<0?Math.abs(d)+'d overdue':d+'d left'; }
   const head=`<div class="row-between" style="align-items:flex-start;gap:8px;"><div style="min-width:0;"><span data-viewcust="${c.id}" class="item-name" style="cursor:pointer;text-decoration:underline;color:var(--teal);">${esc(c.name)} ›</span> <span class="pill ${customerTypePill(c.type)}" style="margin-left:4px;">${customerTypeLabel(c.type)}</span><div class="item-sub">${esc(c.phone||'no phone')}${c.phone2?' / '+esc(c.phone2):''}</div>${amcStatusOf(c)==='lapsed'?`<div class="item-sub" style="color:#c0392b;font-weight:600;">🔴 Renewal nahi hui / Cancel</div>`:amcStatusOf(c)==='inactive'?`<div class="item-sub" style="color:var(--amber);font-weight:600;">⚪ Inactive — renewal baaki</div>`:amcStatusOf(c)==='active'?`<div class="item-sub" style="color:#1e8e5a;font-weight:600;">🟢 Active</div>`:''}</div>${pillText?`<span class="pill ${pillClass}" style="flex:none;">${pillText}</span>`:''}</div>`;
   const navU=custMapUrl(c);
-  const quick=`${c.phone?`<a class="mini-btn" style="text-decoration:none;" href="tel:${esc(c.phone)}">📞 Call</a>`:''}${navU?`<a class="mini-btn" style="text-decoration:none;" target="_blank" rel="noopener" href="${esc(navU)}">🧭 Navigate</a>`:''}${STATE.session.role!=='technician'?`<button class="mini-btn" data-act="newjobfor" data-id="${c.id}">➕ Job Banao</button>`:''}${canNewAmc(c)?`<button class="mini-btn primary" data-act="newamc" data-id="${c.id}">🆕 Naya AMC</button>`:''}${c.type==='amc'&&STATE.session.role!=='technician'?`<button class="mini-btn" data-act="amcpdf" data-id="${c.id}">📄 AMC PDF</button>`:''}${(c.type!=='amc'&&STATE.session.role!=='technician'&&amcTwinOf(c))?`<button class="mini-btn" style="background:#fff4d6;border-color:#e0b100;" data-v9="nmone" data-id="${c.id}">🔗 AMC profile mili — Jodo</button>`:''}`;
+  const quick=`${c.phone?`<a class="mini-btn" style="text-decoration:none;" href="tel:${esc(c.phone)}">📞 Call</a>`:''}${navU?`<a class="mini-btn" style="text-decoration:none;" target="_blank" rel="noopener" href="${esc(navU)}">🧭 Navigate</a>`:''}${STATE.session.role!=='technician'?`<button class="mini-btn" data-act="newjobfor" data-id="${c.id}">➕ Job Banao</button>`:''}${canNewAmc(c)?`<button class="mini-btn primary" data-act="newamc" data-id="${c.id}">🆕 Naya AMC</button>`:''}${c.type==='amc'&&STATE.session.role!=='technician'?`<button class="mini-btn" data-act="amcpdf" data-id="${c.id}">📄 AMC PDF</button><button class="mini-btn" data-act="amcpdfsend" data-id="${c.id}">📲 AMC PDF bhejo</button>`:''}${(c.type!=='amc'&&STATE.session.role!=='technician'&&amcTwinOf(c))?`<button class="mini-btn" style="background:#fff4d6;border-color:#e0b100;" data-v9="nmone" data-id="${c.id}">🔗 AMC profile mili — Jodo</button>`:''}`;
   const more=`<div class="item-sub">📍 ${esc(c.address||'no address')}${c.pincode?' - '+esc(c.pincode):''}${c.pin?' · <span style="color:#1e8e5a;font-weight:600;">✅ Pin saved</span>':''}</div>${c.type==='amc'&&c.brand?`<div class="item-sub">❄️ ${esc(c.brand)} ${esc(c.model||'')}</div>`:''}${c.installDate?`<div class="item-sub">🛠 Install: ${fmtDate(c.installDate)}${c.leadTelecaller?' · 📞 '+esc(c.leadTelecaller):''}</div>`:(c.leadTelecaller?`<div class="item-sub">📞 Telecaller: ${esc(c.leadTelecaller)}</div>`:'')}${c.amcHistory&&c.amcHistory.length>1?`<div class="item-sub">🔁 ${c.amcHistory.length-1} baar renewal</div>`:''}
     <div class="card-actions" style="margin-top:8px;">${c.phone?`<a class="mini-btn" style="text-decoration:none;" href="https://wa.me/${waNum(c.phone)}">💬 WhatsApp</a>`:''}<button class="mini-btn primary" data-act="service" data-id="${c.id}">Service ho gaya</button><button class="mini-btn" data-v9="cpin" data-id="${c.id}">📍 ${c.pin?'Pin update':'Pin save'}</button><button class="mini-btn" data-v9="cshare" data-id="${c.id}">📤 Share</button>${STATE.session.role==='admin'?`<button class="mini-btn danger" data-act="delcust" data-id="${c.id}">Delete</button>`:''}</div>`;
   return xCard('cu:'+c.id,head,quick,more);
@@ -5249,6 +5259,7 @@ function bindShellEvents(){
     else if(act==='amcsvcundo'){ await removeAmcManualService(id,0); render(); }
     else if(act==='amcsvcdel'){ await removeAmcManualService(id,Number(el.dataset.visit)); render(); }
     else if(act==='amcpdf'){ await generateAmcPdf(id); }
+    else if(act==='amcpdfsend'){ await generateAmcPdf(id,true); }
     else if(act==='amcsign'){ activeModal={type:'amcSign', data:{id}}; render(); }
     else if(act==='jobstatus'){ let why=''; if(el.dataset.status==='onhold'){ why=prompt('Hold ka reason likhna zaroori hai (kam se kam 10 akshar)'); if(why===null) return; if(why.trim().length<10){ showToast('Reason bahut chhota hai — detail likhein'); return; } } await updateJobStatus(id, el.dataset.status, why); render(); }
     else if(act==='completejob'){ const j=STATE.jobs.find(x=>x.id===id); activeModal={type:'completeJob', data:{id, existingAmount:j?j.amount||0:0, existingTravel:j?j.travelAmount||0:0}}; render(); }
@@ -5289,6 +5300,7 @@ function bindShellEvents(){
     else if(act==='showvisitlist'){ const k=el.dataset.kind; STATE.dashVisitOpen=(STATE.dashVisitOpen===k)?null:k; render(); }
     else if(act==='recvideo'){ activeModal={type:'recVideo',data:{jobId:id}}; render(); }
     else if(act==='newbill'){ if(!isMoneyRole()) return; activeModal={type:'billMake',data:{customerId:id}}; render(); }
+    else if(act==='billrecpdf'){ try{ await generateBillRecordPdf(id); }catch(e){ console.error(e); showToast('PDF nahi bani'); } }
     else if(act==='billpdf'){ try{ await generateInvoice(id); }catch(e){ console.error(e); showToast('PDF nahi bani'); } }
     else if(act==='invoice'){ if(isMoneyRole()){ activeModal={type:'billMake',data:{id}}; render(); } else { await generateInvoice(id); } }
     else if(act==='deljob'){ if(STATE.session.role!=='admin'){ showToast('Sirf Admin delete kar sakta hai'); return; } if(confirm('Job delete karein?')){ await deleteJob(id); render(); } }
@@ -6315,7 +6327,7 @@ const I18N_ROWS=[
 /* permission + install */
 ['Permissions Check','Permissions Check','अनुमतियों की जाँच'],['Allow Karein','Allow','अनुमति दें'],['Location Zaroori','Location required','लोकेशन ज़रूरी'],['App install karo','Install the app','ऐप इंस्टॉल करें'],['Install karo','Install','इंस्टॉल करें'],['Location band hai','Location is off','लोकेशन बंद है'],
 /* help */
-['Help','Help','मदद'],['Bill PDF Download Karein','Download Bill PDF','बिल PDF डाउनलोड करें'],['PDF Download','PDF Download','PDF डाउनलोड'],['Bill PDF','Bill PDF','बिल PDF'],['Sab area','All areas','सब एरिया'],['Area nahi likha ({n})','No area written ({n})','एरिया नहीं लिखा ({n})'],['Sab One-time','All One-time','सब वन-टाइम'],['AMC se mila ({n})','Matched with AMC ({n})','AMC से मिला ({n})'],['Alag — AMC nahi ({n})','Separate — no AMC ({n})','अलग — AMC नहीं ({n})'],['AMC profile mili — Jodo','AMC profile found — Merge','AMC प्रोफ़ाइल मिली — जोड़ो'],['WhatsApp kaise khule (laptop)','How WhatsApp opens (laptop)','WhatsApp कैसे खुले (लैपटॉप)'],
+['Help','Help','मदद'],['Bill PDF Download Karein','Download Bill PDF','बिल PDF डाउनलोड करें'],['PDF Download','PDF Download','PDF डाउनलोड'],['Bill PDF','Bill PDF','बिल PDF'],['AMC PDF bhejo','Send AMC PDF','AMC PDF भेजो'],['PDF Download','PDF Download','PDF डाउनलोड'],['Customer ko bhejo','Send to customer','कस्टमर को भेजो'],['Sab area','All areas','सब एरिया'],['Area nahi likha ({n})','No area written ({n})','एरिया नहीं लिखा ({n})'],['Sab One-time','All One-time','सब वन-टाइम'],['AMC se mila ({n})','Matched with AMC ({n})','AMC से मिला ({n})'],['Alag — AMC nahi ({n})','Separate — no AMC ({n})','अलग — AMC नहीं ({n})'],['AMC profile mili — Jodo','AMC profile found — Merge','AMC प्रोफ़ाइल मिली — जोड़ो'],['WhatsApp kaise khule (laptop)','How WhatsApp opens (laptop)','WhatsApp कैसे खुले (लैपटॉप)'],
 /* v9.8 full dictionary */
 ['Naya item','New item','नया आइटम'],
 ['Baad me / Unassigned','Later / Unassigned','बाद में / बिना असाइन'],
