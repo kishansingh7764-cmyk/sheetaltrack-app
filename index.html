@@ -266,6 +266,15 @@ html{scroll-padding-top:120px;}
   body.desk .fab{width:52px;height:52px;border-radius:16px;}
 }
 
+
+/* v9.8.7 polish */
+.card{box-shadow:0 1px 2px rgba(14,76,92,.06),0 4px 14px rgba(14,76,92,.05)}
+.stat-card{transition:transform .15s ease,box-shadow .15s ease}.stat-card:active{transform:scale(.97)}
+button,.primary-btn{transition:transform .12s ease,filter .15s ease}button:active{transform:scale(.97)}
+.earnchart .ec-bars{display:flex;align-items:flex-end;gap:8px;height:128px;margin-top:10px}
+.ec-col{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:4px}
+.ec-bar{width:100%;max-width:34px;border-radius:6px 6px 2px 2px;background:linear-gradient(180deg,#5aa9bb,#0E4C5C);opacity:.55}
+.ec-bar.cur{opacity:1}.ec-val{font-size:10.5px;color:#4b5b63;min-height:13px}.ec-lbl{font-size:11px;color:#6b7a82}
 </style>
 </head>
 <body>
@@ -909,7 +918,7 @@ async function resetStaffPin(id, newPin){
 
 /* ============ Business info ============ */
 async function saveBusinessInfo(data){
-  STATE.businessInfo=Object.assign({},STATE.businessInfo||{},{name:data.name||'Super Air Cool', phone:data.phone||'', address:data.address||'', email:data.email||'', terms:data.terms||'', amcTerms:data.amcTerms||''});
+  STATE.businessInfo=Object.assign({},STATE.businessInfo||{},{name:data.name||'Super Air Cool', phone:data.phone||'', address:data.address||'', email:data.email||'', terms:data.terms||'', amcTerms:data.amcTerms||'', upi:data.upi||''});
   await saveKey(SKEY.BUSINESS, STATE.businessInfo); showToast('Business details save ho gayi');
 }
 
@@ -1206,7 +1215,7 @@ async function addCustomer(data){
 }
 async function updateCustomer(id, data){
   const c=STATE.customers.find(x=>x.id===id); if(!c) return;
-  Object.assign(c,data); c.updAt=Date.now(); computeAutoIncentive(c); await saveKey(SKEY.CUSTOMERS, STATE.customers); linkBillsToCustomer(c); showToast('Customer update ho gaya');
+  Object.assign(c,data); c.updAt=Date.now(); try{ if(STATE.custHistReq) delete STATE.custHistReq[id]; }catch(e){} computeAutoIncentive(c); await saveKey(SKEY.CUSTOMERS, STATE.customers); linkBillsToCustomer(c); showToast('Customer update ho gaya');
 }
 async function deleteCustomer(id){
   STATE.customers=STATE.customers.filter(x=>x.id!==id); await saveKey(SKEY.CUSTOMERS, STATE.customers); showToast('Customer delete ho gaya');
@@ -1270,8 +1279,8 @@ function areaOpts(custs){ const m=new Map(); (custs||[]).forEach(c=>{ const a=cu
 function areaSelectHtml(id,cur,custs){ const o=areaOpts(custs); if(!o.length) return ''; const none=(custs||[]).filter(c=>!custAreaOf(c)).length; return `<div class="field" style="margin:0 0 10px;"><select id="${id}"><option value="">📍 Sab area</option>${o.map(x=>`<option value="${esc(areaKey(x.n))}" ${cur===areaKey(x.n)?'selected':''}>${esc(x.n)} (${x.c})</option>`).join('')}${none?`<option value="__none" ${cur==='__none'?'selected':''}>Area nahi likha (${none})</option>`:''}</select></div>`; }
 const areaMatch=(c,cur)=>!cur||(cur==='__none'?!custAreaOf(c):areaKey(custAreaOf(c))===cur);
 function amcNameIdx(){ const m=new Map(); (STATE.customers||[]).forEach(o=>{ if(o.deleted||(o.type||'amc')!=='amc') return; const k=nameKey(o.name); if(k.length<3) return; if(!m.has(k)) m.set(k,[]); m.get(k).push(o); }); return m; }
-function twinsFast(c,idx){ const l=idx.get(nameKey(c.name)); return l?samePersonCandidates(c,l):[]; }
-function amcTwinOf(c){ if(!c||c.type==='amc'||c.deleted) return null; if(ph10(c.phone).length===10) return null; const l=samePersonCandidates(c).filter(o=>(o.type||'amc')==='amc'); return l.length===1?l[0]:null; }
+function twinsFast(c,idx){ const l=idx.get(nameKey(c.name)); return l?samePersonCandidates(c,l).filter(o=>addrOverlap(c,o)!==false):[]; }
+function amcTwinOf(c){ if(!c||c.type==='amc'||c.deleted) return null; if(ph10(c.phone).length===10) return null; const l=samePersonCandidates(c).filter(o=>(o.type||'amc')==='amc'&&addrOverlap(c,o)!==false); return l.length===1?l[0]:null; }
 function nameMergeGroups(){
   const cs=(STATE.customers||[]).filter(c=>!c.deleted), by=new Map();
   cs.forEach(c=>{ const k=nameKey(c.name); if(k.length<3) return; if(!by.has(k)) by.set(k,[]); by.get(k).push(c); });
@@ -2331,8 +2340,10 @@ function invoiceDocHtml(j,c,inv,sig,techSig,tech){
   <table><tr><th>ITEMS/SERVICES</th><th class="r">QTY.</th><th class="r">RATE</th><th class="r">DISC.</th><th class="r">AMOUNT</th></tr>${rowsH}<tr class="fill"><td colspan="5"></td></tr>
   <tr class="sub"><td>SUBTOTAL</td><td class="r">${K.qty}</td><td></td><td class="r">₹ ${K.disc.toLocaleString('en-IN')}</td><td class="r">₹ ${K.total.toLocaleString('en-IN')}</td></tr></table>
   <div class="ft"><div class="tc"><b>TERMS AND CONDITIONS</b><br>${esc(terms)}</div><div class="tt">${(T.ed>0||T.gstAmt>0)?`<div class="tot" style="font-weight:400;border-bottom:0;"><span>Subtotal</span><span>₹ ${invMoney(T.sub)}</span></div>${T.ed>0?`<div class="tot" style="font-weight:400;border:0;"><span>Discount${inv.extraDisc&&inv.extraDisc.type==='pct'?' ('+inv.extraDisc.val+'%)':''}</span><span>− ₹ ${invMoney(T.ed)}</span></div>`:''}${T.gstAmt>0?`<div class="tot" style="font-weight:400;border:0;"><span>GST (${T.gstPct}%)</span><span>₹ ${invMoney(T.gstAmt)}</span></div>`:''}`:''}<div class="tot"><span>Total Amount</span><span>₹ ${invMoney(T.grand)}</span></div><div class="words">Total Amount (in words)<div>${numToWordsIN(Math.round(T.grand))}</div></div></div></div>
+  ${b.upi?`<div style="margin-top:14px;font-size:13px;"><b>Pay via UPI:</b> ${esc(b.upi)}</div>`:''}
   <div class="sgs">${sig?`<div><img src="${sig}"><div class="muted">Customer Signature</div></div>`:'<span></span>'}${techSig?`<div><img src="${techSig}"><div class="muted">Technician Signature${tech?' ('+esc(tech.name)+')':''}</div></div>`:'<span></span>'}</div>
   <div class="sg">${b.signature?`<img src="${b.signature}"><br>`:'<br><br>'}<b>AUTHORISED SIGNATORY FOR</b><br>${esc(b.name||'Super Air Cool')}</div>
+  <div class="muted" style="text-align:center;margin-top:16px;font-size:12px;">Thank you for your business! 🙏</div>
   <button onclick="window.print()" style="margin-top:26px;padding:10px 20px;background:#0E4C5C;color:#fff;border:none;border-radius:6px;font-size:14px;">Print / Save as PDF</button></body></html>`;
 }
 const DEFAULT_BILL_TERMS=[
@@ -2365,7 +2376,8 @@ function htmlToPdfBlob(html,margin){
     const css=[...doc.querySelectorAll('style')].map(x=>x.textContent).join('\n').replace(/(^|[}\s,])body\s*\{/g,'$1.pdfsrc{').replace(/@media print\{[^}]*\}[^}]*\}/g,'')+'\nhtml,body,.pdfsrc,.pdfsrc *{-webkit-text-size-adjust:none!important;text-size-adjust:none!important;max-height:999999px;}.pdfsrc table{table-layout:auto;max-width:100%;}.pdfsrc td,.pdfsrc th,.pdfsrc div{word-wrap:break-word;overflow-wrap:break-word;}';
     const src=document.createElement('div'); src.className='pdfsrc'; src.style.cssText='background:#fff;width:794px;box-sizing:border-box;padding:0;margin:0;'; src.innerHTML='<style>'+css+'</style>'+doc.body.innerHTML; src.querySelectorAll('button').forEach(x=>x.remove()); host.appendChild(src); document.body.appendChild(host);
     const sy=window.scrollY||0, sx=window.scrollX||0; try{ window.scrollTo(0,0); }catch(e){}
-    try{ await new Promise(r=>setTimeout(r,80)); return await window.html2pdf().from(src).set({margin:margin==null?8:margin,filename:'doc.pdf',image:{type:'jpeg',quality:0.92},html2canvas:{scale:2,useCORS:true,windowWidth:794,width:794,x:0,y:0,scrollX:0,scrollY:0,onclone:d=>{ try{ const m=d.createElement('meta'); m.name='viewport'; m.content='width=794,initial-scale=1'; d.head.appendChild(m); const st=d.createElement('style'); st.textContent='html,body{-webkit-text-size-adjust:none!important;text-size-adjust:none!important;margin:0;}'; d.head.appendChild(st); }catch(e){} }},pagebreak:{mode:['css','legacy'],avoid:['tr','.nobreak']},jsPDF:{unit:'mm',format:'a4',orientation:'portrait'}}).outputPdf('blob'); } finally{ host.remove(); try{ window.scrollTo(sx,sy); }catch(e){} }
+    let W=794;
+    try{ await new Promise(r=>setTimeout(r,80)); W=Math.max(794,Math.ceil(src.scrollWidth||0),Math.ceil(src.getBoundingClientRect().width||0)); if(W>794){ host.style.width=W+'px'; src.style.width=W+'px'; } return await window.html2pdf().from(src).set({margin:margin==null?8:margin,filename:'doc.pdf',image:{type:'jpeg',quality:0.92},html2canvas:{scale:2,useCORS:true,windowWidth:W,width:W,x:0,y:0,scrollX:0,scrollY:0,onclone:d=>{ try{ const m=d.createElement('meta'); m.name='viewport'; m.content='width='+W+',initial-scale=1'; d.head.appendChild(m); const st=d.createElement('style'); st.textContent='html,body{-webkit-text-size-adjust:none!important;text-size-adjust:none!important;margin:0;}'; d.head.appendChild(st); }catch(e){} }},pagebreak:{mode:['css','legacy'],avoid:['tr','.nobreak']},jsPDF:{unit:'mm',format:'a4',orientation:'portrait'}}).outputPdf('blob'); } finally{ host.remove(); try{ window.scrollTo(sx,sy); }catch(e){} }
   });
 }
 async function ensureInvoiceMeta(j,kind){
@@ -2807,6 +2819,17 @@ function amcStatusOf(c){
   if(tot>0) return done>=tot?'inactive':'active';
   return (c.expiryDate&&c.expiryDate<todayStr()&&!lastRenewed)?'inactive':'active';
 }
+async function loadCustHist(cid){ try{ if(!firestoreDB){ STATE.custHist[cid]=[]; return; } const snap=await firestoreDB.collection('st_audit').where('recId','==',cid).limit(150).get(); const rows=[]; snap.forEach(d=>{ const r=d.data(); if(r&&r.type==='chg') rows.push(r); }); rows.sort((a,b)=>b.ts-a.ts); STATE.custHist[cid]=rows; }catch(e){ console.error('custHist',e); STATE.custHist[cid]=[]; } bgRender(); }
+function custHistVal(e,which){ try{ const j=which==='old'?e.bj:e.aj; if(j!==undefined&&j!=='__u'){ const v=JSON.parse(j); return (v===''||v===null)?'—':(typeof v==='object'?JSON.stringify(v):String(v)); } if(j==='__u') return '—'; }catch(x){} return which==='old'?e.a:e.b; }
+function custHistHtml(c){
+  const me=STATE.session; if(!me||!(me.role==='admin'||me.role==='subadmin')) return '';
+  STATE.custHist=STATE.custHist||{}; STATE.custHistReq=STATE.custHistReq||{};
+  if(!STATE.custHistReq[c.id]){ STATE.custHistReq[c.id]=1; loadCustHist(c.id); }
+  const rows=STATE.custHist[c.id]; if(rows===undefined) return '<div class="card"><div class="item-sub">🕘 Badlav ka history load ho raha hai…</div></div>';
+  const ed=rows.filter(r=>r.act==='edit'&&(r.ch||[]).length);
+  const FL={name:'Naam',phone:'Mobile',phone2:'Mobile 2',address:'Address',area:'Area',landmark:'Landmark',city:'City',pincode:'Pincode',email:'Email',type:'Type',brand:'Brand',model:'Model',units:'ACs',amcAmount:'AMC amount',activationDate:'AMC start',expiryDate:'AMC end'};
+  return `<details class="card"><summary class="item-name" style="cursor:pointer;">🕘 Badlav ka History (${ed.length})</summary>${ed.length?ed.map(r=>`<div style="padding:8px 0;border-top:1px solid var(--border);"><div class="item-sub" style="margin:0;"><b>${fmtT(r.ts)}</b> · ✏️ ${esc(r.by||'?')}</div>${(r.ch||[]).map(e=>`<div class="item-sub" style="margin:3px 0 0;"><b>${esc(FL[e.f]||e.f)}:</b> <span style="text-decoration:line-through;color:#c0392b;">${esc(custHistVal(e,'old'))}</span> → <span style="color:#1e8e5a;">${esc(custHistVal(e,'new'))}</span></div>`).join('')}</div>`).join(''):'<div class="item-sub" style="margin-top:6px;">Abhi koi badlav record nahi hua. Aage se har badlav (pehle → baad me) yahan dikhega.</div>'}</details>`;
+}
 function amcHistoryHtml(c){
   const h=c.amcHistory; if(!h||!h.length) return '';
   const ren=h.filter(x=>x.renewedOn!==undefined&&x.status==='renewed').length;
@@ -3115,6 +3138,7 @@ function amcDocHtml(c,sig){
   <table class="nobreak"><tr><td>Contract Period</td><td><b>${c.activationDate?fmtDMY(c.activationDate):'—'} &nbsp;to&nbsp; ${c.expiryDate?fmtDMY(c.expiryDate):'—'}</b></td></tr><tr><td>Total Services</td><td>${total} (one service every ~3 months)</td></tr><tr><td>AMC Amount</td><td><b>₹ ${(Number(c.amcAmount)||0).toLocaleString('en-IN')}</b>${mode?' &nbsp;·&nbsp; Paid by '+mode:''}</td></tr><tr><td>Status</td><td>${({active:'Active',inactive:'Services completed — renewal due',lapsed:'Cancelled'})[st]||'Active'}</td></tr></table>
   <div class="sh">Service Schedule</div><table class="nobreak"><tr><th>Visit</th><th>Date</th><th>Status</th></tr>${rows.join('')}</table>
   ${hist}
+  ${b.upi?`<div style="margin-top:12px;font-size:12px;"><b>Pay via UPI:</b> ${esc(b.upi)}</div>`:''}
   <div class="sgs nobreak"><div>${sig?`<img src="${sig}">`:'<div style="height:50px;border-bottom:1px solid #333;"></div>'}<div class="muted">Customer Signature — Contract Accepted</div></div><div style="text-align:right;">${b.signature?`<img src="${b.signature}" style="margin-left:auto;">`:'<div style="height:50px;border-bottom:1px solid #333;"></div>'}<div class="muted"><b>AUTHORISED SIGNATORY</b><br>${e(b.name||'Super Air Cool')}</div></div></div>
   <div class="tc"><b style="font-size:11.5px;">TERMS AND CONDITIONS</b>\n${e(terms)}</div>
   <button onclick="window.print()" style="margin-top:22px;padding:10px 20px;background:#0E4C5C;color:#fff;border:none;border-radius:6px;font-size:14px;">Print / Save as PDF</button></body></html>`;
@@ -3315,7 +3339,7 @@ function render(){
 function renderSetup(){
   return `
   <div class="login-wrap">
-    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v9.8</p><div style="margin-top:10px;">${langBtnHtml()}</div></div>
+    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v9.8.7</p><div style="margin-top:10px;">${langBtnHtml()}</div></div>
     <div class="setup-note">Yeh app ab Firebase (Google ka free real-time database) use karti hai — pehle se tez aur reliable. Firebase Console se apna config copy karke neeche paste karein.</div>
     <div class="field"><label>Firebase Config (poora object paste karein)</label><textarea id="setupConfig" rows="8" placeholder='{"apiKey": "...", "authDomain": "...", "projectId": "...", ...}'>${setupUrlInput}</textarea></div>
     <button class="primary-btn" id="connectBtn">Connect Karein</button>
@@ -3383,7 +3407,7 @@ function renderLogin(){
   }
   return `
   <div class="login-wrap">
-    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v9.8</p><div style="margin-top:10px;">${langBtnHtml()}</div></div>
+    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v9.8.7</p><div style="margin-top:10px;">${langBtnHtml()}</div></div>
     <div class="role-grid">
       <button class="role-opt ${loginRole==='admin'?'active':''}" data-role="admin"><span class="ic">🗝️</span>Admin</button>
       <button class="role-opt ${loginRole==='subadmin'?'active':''}" data-role="subadmin"><span class="ic">🧑‍💼</span>Office</button>
@@ -3514,6 +3538,17 @@ function attentionMobHtml(){
   add('🙋',(STATE.staff||[]).filter(x=>x.role!=='admin'&&x.id!==STATE.session.staffId&&!((STATE.attendance||{})[x.id]||{})[t]).length,FOCUS_L.absent,1,'absent');
   return attTilesHtml(T);
 }
+function earnChartHtml(){
+  try{
+    const now=new Date(), keys=[]; for(let i=5;i>=0;i--){ const d=new Date(now.getFullYear(),now.getMonth()-i,1); keys.push(d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')); }
+    const tot={}; keys.forEach(k=>tot[k]=0);
+    moneyRows().forEach(r=>{ const k=String(r.date||'').slice(0,7); if(k in tot) tot[k]+=(Number(r.amount)||0)+(Number(r.travel)||0); });
+    const mx=Math.max(1,...keys.map(k=>tot[k])), MN=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const sum=keys.reduce((a,k)=>a+tot[k],0); if(!sum) return '';
+    const fm=v=>v>=100000?(v/100000).toFixed(1)+'L':v>=1000?(v/1000).toFixed(v>=10000?0:1)+'k':String(v);
+    return `<div class="card earnchart"><div class="row-between"><div class="item-name">📈 Pichhle 6 mahine ki kamai</div><div class="item-sub">₹ ${sum.toLocaleString('en-IN')}</div></div><div class="ec-bars">${keys.map((k,i)=>`<div class="ec-col"><div class="ec-val">${tot[k]?fm(tot[k]):''}</div><div class="ec-bar${i===5?' cur':''}" style="height:${Math.max(3,Math.round(tot[k]/mx*80))}px"></div><div class="ec-lbl">${MN[Number(k.slice(5))-1]}</div></div>`).join('')}</div></div>`;
+  }catch(e){ return ''; }
+}
 function renderDashboard(){
   if(!STATE.taskPeriod) STATE.taskPeriod='total';
   const amcCustomers=STATE.customers.filter(c=>c.type==='amc' && c.expiryDate);
@@ -3555,6 +3590,7 @@ function renderDashboard(){
       <div class="stat-card" data-navto="map" style="cursor:pointer;"><div class="stat-num" style="color:var(--green)">${liveNow.length}/${techs.length}</div><div class="stat-label">Technicians Live ›</div></div>
     </div>
 
+    ${STATE.session.role==='admin'?earnChartHtml():''}
     <div class="row-between" style="margin-bottom:12px;align-items:center;">
       <div class="section-title" style="margin:0;">Task Status</div>
       <select id="taskPeriodSelect" style="width:auto;padding:6px 10px;font-size:12.5px;">
@@ -3740,7 +3776,8 @@ function renderCustomers(){
     ${filterType==='amc'?`<div class="tabbar"><button class="tabbtn ${!STATE.custStatus?'active':''}" data-custstatus="">Sab AMC (${amcCnt.all})</button><button class="tabbtn ${STATE.custStatus==='active'?'active':''}" data-custstatus="active">🟢 Active (${amcCnt.active})</button><button class="tabbtn ${STATE.custStatus==='expired'?'active':''}" data-custstatus="expired">⚪ Inactive (${amcCnt.inactive})</button><button class="tabbtn ${STATE.custStatus==='lapsed'?'active':''}" data-custstatus="lapsed">🔴 Cancel (${amcCnt.cancel})</button></div>`:''}
     ${filterType==='bill'&&isMoneyRole()?billTabHtml():''}
     <div id="custListWrap" style="${filterType==='bill'&&isMoneyRole()?'display:none;':''}">${list.length===0?`<div class="empty-state"><span class="ic">👥</span><p>${q?'Koi match nahi mila.':'Abhi tak koi customer add nahi hua.<br>Neeche + button se add karein.'}</p></div>`:
-      list.slice(0,STATE.custShown||60).map(custCardX).join('')}${list.length>(STATE.custShown||60)?`<button class="ghost-btn" data-act="custmore">Aur dikhayein (${list.length-(STATE.custShown||60)} baaki)</button>`:''}</div>
+      `${(filterType==='onetime'&&STATE.custOt==='amc'&&STATE.session.role!=='technician'&&list.length)?`<div class="card" style="background:var(--sky-pale);"><div class="card-actions"><button class="mini-btn" data-v9="otselall">☑ Sab select (${list.length})</button><button class="mini-btn" data-v9="otselnone">Sab hatao</button><button class="mini-btn primary" data-v9="otmerge">🔗 Select kiye AMC se jodo (${Object.keys(STATE.otSel||{}).filter(k=>STATE.otSel[k]).length})</button></div><div class="item-sub" style="margin-top:6px;">Naam same + address/area me koi common shabd ho, aur sirf ek AMC profile mile — tabhi jodta hai. Baaki chhoot jate hain.</div></div>`:''}
+      ${list.slice(0,STATE.custShown||60).map(c=>(filterType==='onetime'&&STATE.custOt==='amc'&&STATE.session.role!=='technician')?`<div style="display:flex;gap:8px;align-items:flex-start;"><input type="checkbox" data-otsel="${esc(c.id)}" ${(STATE.otSel||{})[c.id]?'checked':''} style="margin-top:18px;width:20px;height:20px;flex:none;"><div style="flex:1;min-width:0;">${custCardX(c)}</div></div>`:custCardX(c)).join('')}`}${list.length>(STATE.custShown||60)?`<button class="ghost-btn" data-act="custmore">Aur dikhayein (${list.length-(STATE.custShown||60)} baaki)</button>`:''}</div>
     <button class="fab" id="addCustBtn">+</button>
   `;
 }
@@ -3809,7 +3846,7 @@ function renderCustomerProfile(){
       <div class="item-sub">${c.address||''}${c.landmark?', '+c.landmark:''}${c.city?', '+c.city:''}${c.state?', '+c.state:''}${c.pincode?' - '+c.pincode:''}</div>
       <div class="card-actions" style="margin-top:10px;">${c.phone?`<a class="mini-btn primary" style="text-decoration:none;" href="tel:${c.phone}">📞 Call</a>`:''}${c.phone?`<a class="mini-btn" style="text-decoration:none;" href="https://wa.me/${waNum(c.phone)}?text=${encodeURIComponent(custWaMsg(c))}">💬 WhatsApp</a>`:''}${custMapUrl(c)?`<a class="mini-btn" style="text-decoration:none;" target="_blank" rel="noopener" href="${esc(custMapUrl(c))}">🧭 Navigate</a>`:''}<button class="mini-btn" data-v9="cpin" data-id="${c.id}">📍 ${c.pin?'Pin update':'Pin save'}</button>${STATE.session.role==='technician'?'':`<button class="mini-btn" data-v9="cshare" data-id="${c.id}">📤 Share</button><button class="mini-btn" data-act="editcust" data-id="${c.id}">✏️ Details Badlein</button><button class="mini-btn primary" data-act="newjobfor" data-id="${c.id}">➕ Job Banao</button>${isMoneyRole()?`<button class="mini-btn" data-act="newbill" data-id="${c.id}">🧾 Bill Banao</button>`:''}${canNewAmc(c)?`<button class="mini-btn primary" data-act="newamc" data-id="${c.id}">🆕 Naya AMC</button>`:''}${(c.type!=='amc'&&STATE.session.role!=='technician'&&amcTwinOf(c))?`<button class="mini-btn" style="background:#fff4d6;border-color:#e0b100;" data-v9="nmone" data-id="${c.id}">🔗 AMC profile mili — Jodo</button>`:''}${c.type==='amc'?`<button class="mini-btn" data-act="renewamc" data-id="${c.id}">🔁 Renewal Karein</button>`:''}`}</div>
     </div>
-    ${STATE.session.role==='technician'?'':amcDetailsHtml(c)+acCardHtml(c)+amcHistoryHtml(c)+(STATE.session.role==='admin'?billHistoryHtml(c):'')}
+    ${STATE.session.role==='technician'?'':amcDetailsHtml(c)+acCardHtml(c)+amcHistoryHtml(c)+(STATE.session.role==='admin'?billHistoryHtml(c):'')+custHistHtml(c)}
     ${c.type==='amc'?`<div class="card">
       <div class="section-title" style="margin:0 0 8px 0;">AMC Contract</div>
       <div class="item-sub">${c.brand||''} ${c.model||''} ${c.serialNo?'· SN: '+c.serialNo:''}</div>
@@ -4759,7 +4796,7 @@ function renderSettings(){
     const b=STATE.businessInfo;
     extra=`
       <div class="section-title" style="margin-top:20px;">Business Details (Invoice/AMC PDF ke liye)</div>
-      <div class="card"><div class="field"><label>Business Naam</label><input id="f_bizname" value="${esc(b.name||'')}"></div><div class="field"><label>Phone</label><input id="f_bizphone" value="${esc(b.phone||'')}"></div><div class="field"><label>Address</label><input id="f_bizaddress" value="${esc(b.address||'')}"></div><div class="field"><label>Email (invoice par)</label><input id="f_bizemail" value="${esc(b.email||'')}"></div><div class="field"><label>Terms & Conditions (Invoice/AMC PDF mein dikhega)</label><textarea id="f_bizterms" rows="5" placeholder="Khali chhodenge to ye pakki Terms (8 points) invoice par lagengi">${esc(b.terms||'')}</textarea><div class="item-sub" style="margin-top:4px;">Khali rakhne par app ki badhiya default Terms apne aap Bill/Invoice par aayengi.</div></div><div class="field"><label>AMC Contract ki Terms & Conditions (AMC PDF mein dikhegi)</label><textarea id="f_bizamcterms" rows="5" placeholder="Khali chhodenge to default AMC Terms (9 points) lagengi">${esc(b.amcTerms||'')}</textarea></div><div class="field"><label>Logo (invoice par)</label>${b.logo?`<img src="${b.logo}" style="max-height:60px;display:block;margin-bottom:6px;">`:''}<input type="file" id="f_bizlogo" accept="image/*"></div><div class="field"><label>Signature (invoice par — Authorised Signatory)</label>${b.signature?`<img src="${b.signature}" style="max-height:50px;display:block;margin-bottom:6px;">`:''}<input type="file" id="f_bizsign" accept="image/*"></div><button class="primary-btn" id="saveBizBtn" style="margin-top:0;">Save Karein</button></div>
+      <div class="card"><div class="field"><label>Business Naam</label><input id="f_bizname" value="${esc(b.name||'')}"></div><div class="field"><label>Phone</label><input id="f_bizphone" value="${esc(b.phone||'')}"></div><div class="field"><label>Address</label><input id="f_bizaddress" value="${esc(b.address||'')}"></div><div class="field"><label>Email (invoice par)</label><input id="f_bizemail" value="${esc(b.email||'')}"></div><div class="field"><label>UPI ID (Bill/AMC PDF par payment ke liye)</label><input id="f_bizupi" value="${esc(b.upi||'')}" placeholder="jaise name@upi" autocapitalize="off"></div><div class="field"><label>Terms & Conditions (Invoice/AMC PDF mein dikhega)</label><textarea id="f_bizterms" rows="5" placeholder="Khali chhodenge to ye pakki Terms (8 points) invoice par lagengi">${esc(b.terms||'')}</textarea><div class="item-sub" style="margin-top:4px;">Khali rakhne par app ki badhiya default Terms apne aap Bill/Invoice par aayengi.</div></div><div class="field"><label>AMC Contract ki Terms & Conditions (AMC PDF mein dikhegi)</label><textarea id="f_bizamcterms" rows="5" placeholder="Khali chhodenge to default AMC Terms (9 points) lagengi">${esc(b.amcTerms||'')}</textarea></div><div class="field"><label>Logo (invoice par)</label>${b.logo?`<img src="${b.logo}" style="max-height:60px;display:block;margin-bottom:6px;">`:''}<input type="file" id="f_bizlogo" accept="image/*"></div><div class="field"><label>Signature (invoice par — Authorised Signatory)</label>${b.signature?`<img src="${b.signature}" style="max-height:50px;display:block;margin-bottom:6px;">`:''}<input type="file" id="f_bizsign" accept="image/*"></div><button class="primary-btn" id="saveBizBtn" style="margin-top:0;">Save Karein</button></div>
       <div class="section-title" style="margin-top:20px;">Team ke PIN Reset Karein</div>
       ${STATE.staff.filter(s=>s.role!=='admin').length===0?`<div class="empty-state"><span class="ic">🧑‍🔧</span><p>Koi staff add nahi hai.</p></div>`:
         STATE.staff.filter(s=>s.role!=='admin').map(s=>`<div class="card"><div class="row-between"><div><div class="item-name">${s.name}</div><div class="item-sub">${s.role==='technician'?'Technician':'Office'}</div></div><button class="mini-btn" style="flex:none;padding:8px 12px;" data-act="resetpin" data-id="${s.id}">Reset PIN</button></div></div>`).join('')}
@@ -5123,6 +5160,7 @@ function bindShellEvents(){
   { const a=document.getElementById('custAreaSel'); if(a) a.onchange=()=>{ STATE.custArea=a.value; STATE.custShown=60; render(); };
     const b=document.getElementById('remAreaSel'); if(b) b.onchange=()=>{ STATE.remArea=b.value; STATE.remShown=50; render(); };
     const c=document.getElementById('jobAreaSel'); if(c) c.onchange=()=>{ STATE.jobArea=c.value; STATE.jobsShown=60; render(); };
+    document.querySelectorAll('[data-otsel]').forEach(el=>el.onchange=()=>{ STATE.otSel=STATE.otSel||{}; STATE.otSel[el.dataset.otsel]=el.checked; render(); });
     document.querySelectorAll('[data-custot]').forEach(el=>el.onclick=()=>{ STATE.custOt=el.dataset.custot; STATE.custShown=60; render(); }); }
   const jtf=document.getElementById('jobTechFilter'); if(jtf) jtf.onchange=()=>{ STATE.jobTech=jtf.value; render(); };
   const mPeriod=document.getElementById('mPeriod'); if(mPeriod) mPeriod.onchange=()=>moneyPeriodSet(mPeriod.value);
@@ -5321,7 +5359,7 @@ function bindShellEvents(){
 
   const changePinBtn=document.getElementById('changePinBtn'); if(changePinBtn) changePinBtn.onclick=async ()=>{ await changeOwnPin(val('f_newOwnPin')); render(); };
   const f_newOwnPin=document.getElementById('f_newOwnPin'); if(f_newOwnPin) f_newOwnPin.onkeydown=(e)=>{ if(e.key==='Enter'){ e.preventDefault(); changePinBtn.click(); } };
-  const saveBizBtn=document.getElementById('saveBizBtn'); if(saveBizBtn) saveBizBtn.onclick=async ()=>{ await saveBusinessInfo({name:val('f_bizname'), phone:val('f_bizphone'), address:val('f_bizaddress'), email:val('f_bizemail'), terms:val('f_bizterms'), amcTerms:val('f_bizamcterms')}); render(); };
+  const saveBizBtn=document.getElementById('saveBizBtn'); if(saveBizBtn) saveBizBtn.onclick=async ()=>{ await saveBusinessInfo({name:val('f_bizname'), phone:val('f_bizphone'), address:val('f_bizaddress'), email:val('f_bizemail'), terms:val('f_bizterms'), amcTerms:val('f_bizamcterms'), upi:val('f_bizupi')}); render(); };
   const exportBtn=document.getElementById('exportBtn'); if(exportBtn) exportBtn.onclick=exportData;
   const importBtn=document.getElementById('importBtn'); const importFile=document.getElementById('importFile');
   if(importBtn && importFile){ importBtn.onclick=()=>importFile.click(); importFile.onchange=(e)=>{ if(e.target.files[0]) importData(e.target.files[0]); }; }
@@ -6078,6 +6116,12 @@ document.addEventListener('click',async ev=>{
   else if(a==='idsave'){ const s=STATE.staff.find(x=>x.id===id); if(s){ s.bloodGroup=val('v9_bg').slice(0,5); s.emergency=val('v9_em').replace(/\D/g,'').slice(0,10); await saveKey(SKEY.STAFF,STATE.staff); showToast('Save ho gaya'); render(); } }
   else if(a==='idblock'){ const s=STATE.staff.find(x=>x.id===id); if(s){ s.idBlocked=!s.idBlocked; await saveKey(SKEY.STAFF,STATE.staff); showToast(s.idBlocked?'ID block ho gaya':'ID valid ho gaya'); render(); } }
   else if(a==='idpdf'||a==='idimg'){ const s=STATE.staff.find(x=>x.id===id); if(s){ showToast('Tayyar ho raha hai…'); try{ await idRender(a==='idpdf'?'pdf':'img',s); }catch(e){ console.error(e); showToast('Download nahi ho paya — internet check karein'); } } }
+  else if(a==='otselall'||a==='otselnone'){ STATE.otSel={}; if(a==='otselall'){ const idx=amcNameIdx(); let L=(STATE.customers||[]).filter(c=>!c.deleted&&(c.type||'amc')==='onetime'&&twinsFast(c,idx).length>0); if(STATE.custArea) L=L.filter(c=>areaMatch(c,STATE.custArea)); L.forEach(c=>{ STATE.otSel[c.id]=true; }); } render(); }
+  else if(a==='otmerge'){ const ids=Object.keys(STATE.otSel||{}).filter(k=>STATE.otSel[k]); if(!ids.length){ showToast('Pehle customers select karein'); return; }
+    const idx=amcNameIdx(); const pairs=[]; let skip=0; ids.forEach(id=>{ const c=STATE.customers.find(x=>x.id===id&&!x.deleted); if(!c) return; const t=twinsFast(c,idx); if(t.length===1) pairs.push([t[0],c]); else skip++; });
+    if(!pairs.length){ showToast('Koi bhi pakka match nahi mila'); return; }
+    if(!confirm(pairs.length+' one-time profile AMC profile se jodein?'+(skip?'\n('+skip+' ko chhod rahe hain — ek se zyada ya koi match nahi)':'')+'\nJobs/bills/history AMC profile me aa jayegi. Purani profile Recycle Bin me safe.')) return;
+    pairs.forEach(p=>{ mergeCustGroupInMemory([p[0],p[1]],p[0].id); }); await saveAfterMerge(); STATE.otSel={}; showToast('✅ '+pairs.length+' profile jud gaye'+(skip?' · '+skip+' chhoot gaye':'')); render(); }
   else if(a==='wamode'){ try{ localStorage.setItem('st_wa_mode',id==='app'?'app':'web'); }catch(e){} showToast(id==='app'?'WhatsApp Desktop App use hoga':'WhatsApp Web use hoga'); render(); }
   else if(a==='nmone'){ const c=STATE.customers.find(x=>x.id===id), t=amcTwinOf(c); if(!c||!t){ showToast('Match nahi mila'); return; } if(!confirm('"'+c.name+'" (One-time) ko AMC customer "'+t.name+(t.phone?' ('+t.phone+')':'')+'" ke saath jodein?\nSab job/bill/history AMC profile me aa jayegi (purani profile Recycle Bin me safe).')) return;
     const r=mergeCustGroupInMemory([t,c],t.id); await saveAfterMerge(); showToast('✅ Jud gaya — AMC profile me'); render(); }
@@ -6336,7 +6380,7 @@ const I18N_ROWS=[
 /* permission + install */
 ['Permissions Check','Permissions Check','अनुमतियों की जाँच'],['Allow Karein','Allow','अनुमति दें'],['Location Zaroori','Location required','लोकेशन ज़रूरी'],['App install karo','Install the app','ऐप इंस्टॉल करें'],['Install karo','Install','इंस्टॉल करें'],['Location band hai','Location is off','लोकेशन बंद है'],
 /* help */
-['Help','Help','मदद'],['Area (jaise Andheri West) — filter ke liye','Area (e.g. Andheri West) — for filtering','एरिया (जैसे अंधेरी वेस्ट) — फ़िल्टर के लिए'],['Bill PDF Download Karein','Download Bill PDF','बिल PDF डाउनलोड करें'],['PDF Download','PDF Download','PDF डाउनलोड'],['Bill PDF','Bill PDF','बिल PDF'],['AMC PDF bhejo','Send AMC PDF','AMC PDF भेजो'],['PDF Download','PDF Download','PDF डाउनलोड'],['Customer ko bhejo','Send to customer','कस्टमर को भेजो'],['Sab area','All areas','सब एरिया'],['Area nahi likha ({n})','No area written ({n})','एरिया नहीं लिखा ({n})'],['Sab One-time','All One-time','सब वन-टाइम'],['AMC se mila ({n})','Matched with AMC ({n})','AMC से मिला ({n})'],['Alag — AMC nahi ({n})','Separate — no AMC ({n})','अलग — AMC नहीं ({n})'],['AMC profile mili — Jodo','AMC profile found — Merge','AMC प्रोफ़ाइल मिली — जोड़ो'],['WhatsApp kaise khule (laptop)','How WhatsApp opens (laptop)','WhatsApp कैसे खुले (लैपटॉप)'],
+['Help','Help','मदद'],['UPI ID (Bill/AMC PDF par payment ke liye)','UPI ID (for payment on Bill/AMC PDF)','UPI ID (बिल/AMC PDF पर पेमेंट के लिए)'],['Pichhle 6 mahine ki kamai','Earnings of the last 6 months','पिछले 6 महीने की कमाई'],['Area (jaise Andheri West) — filter ke liye','Area (e.g. Andheri West) — for filtering','एरिया (जैसे अंधेरी वेस्ट) — फ़िल्टर के लिए'],['Bill PDF Download Karein','Download Bill PDF','बिल PDF डाउनलोड करें'],['PDF Download','PDF Download','PDF डाउनलोड'],['Bill PDF','Bill PDF','बिल PDF'],['AMC PDF bhejo','Send AMC PDF','AMC PDF भेजो'],['PDF Download','PDF Download','PDF डाउनलोड'],['Customer ko bhejo','Send to customer','कस्टमर को भेजो'],['Sab area','All areas','सब एरिया'],['Area nahi likha ({n})','No area written ({n})','एरिया नहीं लिखा ({n})'],['Sab One-time','All One-time','सब वन-टाइम'],['AMC se mila ({n})','Matched with AMC ({n})','AMC से मिला ({n})'],['Alag — AMC nahi ({n})','Separate — no AMC ({n})','अलग — AMC नहीं ({n})'],['AMC profile mili — Jodo','AMC profile found — Merge','AMC प्रोफ़ाइल मिली — जोड़ो'],['WhatsApp kaise khule (laptop)','How WhatsApp opens (laptop)','WhatsApp कैसे खुले (लैपटॉप)'],
 /* v9.8 full dictionary */
 ['Naya item','New item','नया आइटम'],
 ['Baad me / Unassigned','Later / Unassigned','बाद में / बिना असाइन'],
