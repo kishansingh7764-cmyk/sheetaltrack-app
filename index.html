@@ -267,7 +267,7 @@ html{scroll-padding-top:120px;}
 }
 
 
-/* v9.8.9 polish */
+/* v9.9.0 polish */
 .card{box-shadow:0 1px 2px rgba(14,76,92,.06),0 4px 14px rgba(14,76,92,.05)}
 .stat-card{transition:transform .15s ease,box-shadow .15s ease}.stat-card:active{transform:scale(.97)}
 button,.primary-btn{transition:transform .12s ease,filter .15s ease}button:active{transform:scale(.97)}
@@ -2824,6 +2824,58 @@ function amcStatusOf(c){
 }
 async function loadCustHist(cid){ try{ if(!firestoreDB){ STATE.custHist[cid]=[]; return; } const snap=await firestoreDB.collection('st_audit').where('recId','==',cid).limit(150).get(); const rows=[]; snap.forEach(d=>{ const r=d.data(); if(r&&r.type==='chg') rows.push(r); }); rows.sort((a,b)=>b.ts-a.ts); STATE.custHist[cid]=rows; }catch(e){ console.error('custHist',e); STATE.custHist[cid]=[]; } bgRender(); }
 function custHistVal(e,which){ try{ const j=which==='old'?e.bj:e.aj; if(j!==undefined&&j!=='__u'){ const v=JSON.parse(j); return (v===''||v===null)?'—':(typeof v==='object'?JSON.stringify(v):String(v)); } if(j==='__u') return '—'; }catch(x){} return which==='old'?e.a:e.b; }
+/* ===== Lead se compare (manual — kuch apne aap nahi badlta) ===== */
+const LS_FIELDS=[['name','Naam'],['address','Address'],['area','Area'],['pincode','Pincode'],['phone','Mobile'],['phone2','Mobile 2'],['installDate','Install / Purchase date']];
+const LS_LABEL=Object.fromEntries(LS_FIELDS);
+const lsNz=x=>String(x||'').toLowerCase().replace(/[^a-z0-9ऀ-ॿ]+/g,' ').trim();
+function lsLeadIdx(){ const L=STATE.leads||[]; if(STATE._lsIdxRef===L&&STATE._lsIdx&&STATE._lsIdxN===L.length) return STATE._lsIdx; const m=new Map(); L.forEach(l=>[ph10(l.mobile),ph10(l.resTel)].forEach(p=>{ if(p.length!==10) return; if(!m.has(p)) m.set(p,[]); m.get(p).push(l); })); STATE._lsIdx=m; STATE._lsIdxRef=L; STATE._lsIdxN=L.length; return m; }
+function leadForCust(c,idx){ const L=STATE.leads||[]; if(!L.length||!c) return null; let m=[];
+  if(c.leadId){ const x=L.find(l=>l.id===c.leadId); if(x) m=[x]; }
+  if(!m.length){ idx=idx||lsLeadIdx(); const seen=new Set(); [ph10(c.phone),ph10(c.phone2)].forEach(p=>{ if(p.length===10) (idx.get(p)||[]).forEach(l=>{ if(!seen.has(l.id)){ seen.add(l.id); m.push(l); } }); }); }
+  if(!m.length) return null; if(m.length>1){ const k=nameKey(c.name); const nm=m.filter(l=>nameKey(l.customer)===k); if(nm.length) m=nm; m.sort((a,b)=>String(b.purchaseDate||'').localeCompare(String(a.purchaseDate||''))); }
+  return m[0]; }
+function lsLeadVals(l){ const raw=[l.address1,l.address2,l.address3].filter(x=>x&&String(x).trim()).join(', '); const pm=raw.match(/\b\d{6}\b/); const pin=pm?pm[0]:''; const addr=raw.replace(/[,\s-]*\b\d{6}\b/,'').replace(/[,\s-]+$/,'').trim();
+  const ph=ph10(l.mobile), ph2=ph10(l.resTel);
+  return {name:String(l.customer||'').trim(), address:addr, area:String(l.area||'').trim(), pincode:pin, phone:ph.length===10?ph:'', phone2:(ph2.length===10&&ph2!==ph)?ph2:'', installDate:/^\d{4}-\d{2}-\d{2}$/.test(String(l.purchaseDate||''))?l.purchaseDate:''}; }
+function lsDiff(c,l){ const v=lsLeadVals(l), out=[];
+  const cur={name:c.name||'',address:c.address||'',area:custAreaOf(c)||'',pincode:c.pincode||'',phone:ph10(c.phone),phone2:ph10(c.phone2),installDate:c.installDate||''};
+  const add=(f,diff)=>{ if(v[f]&&diff) out.push({f,label:LS_LABEL[f],cur:cur[f],lead:v[f]}); };
+  add('name',nameKey(cur.name)!==nameKey(v.name));
+  { const a=lsNz(cur.address+' '+(c.area||'')), b=lsNz(v.address); add('address',!(a&&b&&(a.includes(b)||b.includes(a)||lsNz(cur.address).includes(b)))); }
+  add('area',areaCanon(cur.area)!==areaCanon(v.area)&&!lsNz(cur.address).includes(lsNz(v.area)));
+  add('pincode',cur.pincode!==v.pincode);
+  add('phone',cur.phone!==v.phone);
+  add('phone2',cur.phone2!==v.phone2&&cur.phone!==v.phone2);
+  add('installDate',cur.installDate!==v.installDate);
+  return out; }
+function lsApply(c,l,fields,by){ const v=lsLeadVals(l), log=[]; let n=0, skipped=[];
+  fields.forEach(f=>{ const nv=v[f]; if(!nv) return; let old=(f==='area')?custAreaOf(c):(c[f]||'');
+    if(f==='phone'||f==='phone2'){ const dup=dupCustomerByPhone(nv,''); if(dup&&dup.id!==c.id){ skipped.push(LS_LABEL[f]+' ('+nv+' — "'+dup.name+'" ke profile me hai)'); return; } }
+    if(String(old)===String(nv)) return; c[f]=nv; log.push({f,old:String(old||''),nw:String(nv)}); n++; });
+  if(n){ c.leadSyncLog=(c.leadSyncLog||[]).concat(log.map(x=>Object.assign({ts:Date.now(),by:by||''},x))).slice(-40); c.updAt=Date.now(); try{ if(STATE.custHistReq) delete STATE.custHistReq[c.id]; }catch(e){} }
+  return {n,skipped}; }
+const lsRole=()=>{ const r=STATE.session&&STATE.session.role; return r==='admin'||r==='subadmin'; };
+const lsShow=x=>String(x||'')?esc(f_lsFmt(x)):'<i style="color:#999;">khali</i>';
+function f_lsFmt(x){ return /^\d{4}-\d{2}-\d{2}$/.test(x)?fmtDate(x):x; }
+function leadSyncHtml(c){ if(!lsRole()||c.deleted) return ''; const l=leadForCust(c); if(!l) return '';
+  const d=lsDiff(c,l), sel=(STATE.lsSel&&STATE.lsSel[c.id])||{}, log=(c.leadSyncLog||[]).slice(-6).reverse();
+  const logH=log.length?`<div class="item-sub" style="margin-top:8px;"><b>Pichhli baar lead se liya (purani value):</b>${log.map(x=>`<div>${fmtT?fmtT(x.ts):''} · ${esc(LS_LABEL[x.f]||x.f)}: <s>${lsShow(x.old)}</s> → ${lsShow(x.nw)}</div>`).join('')}</div>`:'';
+  if(!d.length) return `<div class="card"><div class="item-sub">✅ Lead (${esc(l.customer||'')}) ke saath naam, address, mobile, install date sab mil rahe hain.</div>${logH}</div>`;
+  return `<details class="card" ${STATE.lsOpen===c.id?'open':''}><summary style="cursor:pointer;font-weight:700;">🆚 Lead se compare — ${d.length} fark</summary>
+    <div class="item-sub" style="margin:6px 0;">Lead me jo details hain wo neeche dikh rahi hain. Jo field customer me lani ho use tick karein — kuch bhi apne aap nahi badlega. Purani value history me safe rahegi.</div>
+    ${d.map(x=>`<label style="display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-top:1px solid #e3ecef;"><input type="checkbox" data-lsf="${x.f}" data-cid="${c.id}" ${sel[x.f]?'checked':''} style="width:20px;height:20px;margin-top:2px;"><div style="flex:1;"><b>${esc(x.label)}</b><div class="item-sub" style="margin:2px 0;">Abhi (customer): ${lsShow(x.cur)}</div><div class="item-sub" style="margin:0;color:#1e7a4d;font-weight:600;">Lead me: ${lsShow(x.lead)}</div></div></label>`).join('')}
+    <div class="card-actions" style="margin-top:8px;"><button class="mini-btn" data-v9="lsall" data-id="${c.id}">☑ Sab select</button><button class="mini-btn" data-v9="lsnone" data-id="${c.id}">Sab hatao</button><button class="mini-btn primary" data-v9="lsapply" data-id="${c.id}">🔗 Select kiye fields customer me lao</button></div>${logH}</details>`; }
+function lsAllDiffs(){ const idx=lsLeadIdx(), out=[]; (STATE.customers||[]).forEach(c=>{ if(c.deleted) return; const l=leadForCust(c,idx); if(!l) return; const d=lsDiff(c,l); if(d.length) out.push({c,l,d}); }); return out; }
+function lsPanelHtml(){ if(!lsRole()||!(STATE.leads||[]).length) return '';
+  const open=!!STATE.lsPanel; if(!open) return `<div class="field" style="margin:0 0 10px;"><button class="mini-btn" data-v9="lspanel">🆚 Lead se Mismatch dekhein</button></div>`;
+  const all=lsAllDiffs(), ft=STATE.lsFT||{}, sel=STATE.lsBulk||{}, nSel=all.filter(x=>sel[x.c.id]).length;
+  const fts=LS_FIELDS.filter(([f])=>all.some(x=>x.d.some(y=>y.f===f)));
+  return `<div class="card" style="border:1px solid #0E4C5C;"><div class="row-between"><div class="item-name">🆚 Lead se Mismatch (${all.length} customer)</div><button class="mini-btn" data-v9="lspanel">✕ Band</button></div>
+    <div class="item-sub" style="margin:6px 0;">Kuch apne aap nahi badlega. Pehle kaun si details leni hain wo chunein, phir customers tick karke "Lao" dabayein.</div>
+    <div style="margin:6px 0;"><b>1) Kaun si details lani hain:</b><div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;">${fts.map(([f,l])=>`<label style="display:flex;gap:6px;align-items:center;background:#eef5f7;padding:6px 10px;border-radius:14px;"><input type="checkbox" data-lsft="${f}" ${ft[f]?'checked':''}>${esc(l)} (${all.filter(x=>x.d.some(y=>y.f===f)).length})</label>`).join('')}</div></div>
+    <div class="card-actions" style="margin:8px 0;"><button class="mini-btn" data-v9="lsbsall">☑ Sab customers select (${all.length})</button><button class="mini-btn" data-v9="lsbsnone">Sab hatao</button><button class="mini-btn primary" data-v9="lsbapply">🔗 Select kiye (${nSel}) me chuni details lao</button></div>
+    ${all.slice(0,50).map(x=>`<label style="display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-top:1px solid #e3ecef;"><input type="checkbox" data-lsb="${x.c.id}" ${sel[x.c.id]?'checked':''} style="width:20px;height:20px;margin-top:2px;"><div style="flex:1;min-width:0;"><b>${esc(x.c.name)}</b> <span class="item-sub">${esc(x.c.phone||'')}</span>${x.d.map(y=>`<div class="item-sub" style="margin:2px 0;"><b>${esc(y.label)}:</b> ${lsShow(y.cur)} <span style="color:#1e7a4d;">→ ${lsShow(y.lead)}</span></div>`).join('')}</div></label>`).join('')}
+    ${all.length>50?`<div class="item-sub" style="margin-top:6px;">Pehle 50 dikh rahe hain. "Sab customers select" sabko select karta hai (sirf chuni hui details lagengi).</div>`:''}</div>`; }
 function custHistHtml(c){
   const me=STATE.session; if(!me||!(me.role==='admin'||me.role==='subadmin')) return '';
   STATE.custHist=STATE.custHist||{}; STATE.custHistReq=STATE.custHistReq||{};
@@ -3342,7 +3394,7 @@ function render(){
 function renderSetup(){
   return `
   <div class="login-wrap">
-    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v9.8.9</p><div style="margin-top:10px;">${langBtnHtml()}</div></div>
+    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v9.9.0</p><div style="margin-top:10px;">${langBtnHtml()}</div></div>
     <div class="setup-note">Yeh app ab Firebase (Google ka free real-time database) use karti hai — pehle se tez aur reliable. Firebase Console se apna config copy karke neeche paste karein.</div>
     <div class="field"><label>Firebase Config (poora object paste karein)</label><textarea id="setupConfig" rows="8" placeholder='{"apiKey": "...", "authDomain": "...", "projectId": "...", ...}'>${setupUrlInput}</textarea></div>
     <button class="primary-btn" id="connectBtn">Connect Karein</button>
@@ -3410,7 +3462,7 @@ function renderLogin(){
   }
   return `
   <div class="login-wrap">
-    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v9.8.9</p><div style="margin-top:10px;">${langBtnHtml()}</div></div>
+    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v9.9.0</p><div style="margin-top:10px;">${langBtnHtml()}</div></div>
     <div class="role-grid">
       <button class="role-opt ${loginRole==='admin'?'active':''}" data-role="admin"><span class="ic">🗝️</span>Admin</button>
       <button class="role-opt ${loginRole==='subadmin'?'active':''}" data-role="subadmin"><span class="ic">🧑‍💼</span>Office</button>
@@ -3775,6 +3827,7 @@ function renderCustomers(){
       <button class="tabbtn ${filterType==='quotation'?'active':''}" data-typefilter="quotation">Quotation (${typeCounts.quotation})</button>
     </div>
     ${areaSelectHtml('custAreaSel',selArea,areaBase)}
+    ${lsPanelHtml()}
     ${otCnt?`<div class="tabbar"><button class="tabbtn ${!STATE.custOt?'active':''}" data-custot="">Sab One-time</button><button class="tabbtn ${STATE.custOt==='amc'?'active':''}" data-custot="amc">🔗 AMC se mila (${otCnt.amc})</button><button class="tabbtn ${STATE.custOt==='alone'?'active':''}" data-custot="alone">Alag — AMC nahi (${otCnt.alone})</button></div>`:''}
     ${filterType==='amc'?`<div class="tabbar"><button class="tabbtn ${!STATE.custStatus?'active':''}" data-custstatus="">Sab AMC (${amcCnt.all})</button><button class="tabbtn ${STATE.custStatus==='active'?'active':''}" data-custstatus="active">🟢 Active (${amcCnt.active})</button><button class="tabbtn ${STATE.custStatus==='expired'?'active':''}" data-custstatus="expired">⚪ Inactive (${amcCnt.inactive})</button><button class="tabbtn ${STATE.custStatus==='lapsed'?'active':''}" data-custstatus="lapsed">🔴 Cancel (${amcCnt.cancel})</button></div>`:''}
     ${filterType==='bill'&&isMoneyRole()?billTabHtml():''}
@@ -3849,7 +3902,7 @@ function renderCustomerProfile(){
       <div class="item-sub">${c.address||''}${c.landmark?', '+c.landmark:''}${c.city?', '+c.city:''}${c.state?', '+c.state:''}${c.pincode?' - '+c.pincode:''}</div>
       <div class="card-actions" style="margin-top:10px;">${c.phone?`<a class="mini-btn primary" style="text-decoration:none;" href="tel:${c.phone}">📞 Call</a>`:''}${c.phone?`<a class="mini-btn" style="text-decoration:none;" href="https://wa.me/${waNum(c.phone)}?text=${encodeURIComponent(custWaMsg(c))}">💬 WhatsApp</a>`:''}${custMapUrl(c)?`<a class="mini-btn" style="text-decoration:none;" target="_blank" rel="noopener" href="${esc(custMapUrl(c))}">🧭 Navigate</a>`:''}<button class="mini-btn" data-v9="cpin" data-id="${c.id}">📍 ${c.pin?'Pin update':'Pin save'}</button>${STATE.session.role==='technician'?'':`<button class="mini-btn" data-v9="cshare" data-id="${c.id}">📤 Share</button><button class="mini-btn" data-act="editcust" data-id="${c.id}">✏️ Details Badlein</button><button class="mini-btn primary" data-act="newjobfor" data-id="${c.id}">➕ Job Banao</button>${isMoneyRole()?`<button class="mini-btn" data-act="newbill" data-id="${c.id}">🧾 Bill Banao</button>`:''}${canNewAmc(c)?`<button class="mini-btn primary" data-act="newamc" data-id="${c.id}">🆕 Naya AMC</button>`:''}${(c.type!=='amc'&&STATE.session.role!=='technician'&&amcTwinOf(c))?`<button class="mini-btn" style="background:#fff4d6;border-color:#e0b100;" data-v9="nmone" data-id="${c.id}">🔗 AMC profile mili — Jodo</button>`:''}${twinPickHtml(c)}${c.type==='amc'?`<button class="mini-btn" data-act="renewamc" data-id="${c.id}">🔁 Renewal Karein</button>`:''}`}</div>
     </div>
-    ${STATE.session.role==='technician'?'':amcDetailsHtml(c)+acCardHtml(c)+amcHistoryHtml(c)+(STATE.session.role==='admin'?billHistoryHtml(c):'')+custHistHtml(c)}
+    ${STATE.session.role==='technician'?'':amcDetailsHtml(c)+acCardHtml(c)+amcHistoryHtml(c)+(STATE.session.role==='admin'?billHistoryHtml(c):'')+leadSyncHtml(c)+custHistHtml(c)}
     ${c.type==='amc'?`<div class="card">
       <div class="section-title" style="margin:0 0 8px 0;">AMC Contract</div>
       <div class="item-sub">${c.brand||''} ${c.model||''} ${c.serialNo?'· SN: '+c.serialNo:''}</div>
@@ -5164,6 +5217,9 @@ function bindShellEvents(){
   { const a=document.getElementById('custAreaSel'); if(a) a.onchange=()=>{ STATE.custArea=a.value; STATE.custShown=60; render(); };
     const b=document.getElementById('remAreaSel'); if(b) b.onchange=()=>{ STATE.remArea=b.value; STATE.remShown=50; render(); };
     const c=document.getElementById('jobAreaSel'); if(c) c.onchange=()=>{ STATE.jobArea=c.value; STATE.jobsShown=60; render(); };
+    document.querySelectorAll('[data-lsf]').forEach(el=>el.onchange=()=>{ STATE.lsSel=STATE.lsSel||{}; const k=el.dataset.cid; STATE.lsSel[k]=STATE.lsSel[k]||{}; STATE.lsSel[k][el.dataset.lsf]=el.checked; STATE.lsOpen=k; render(); });
+    document.querySelectorAll('[data-lsft]').forEach(el=>el.onchange=()=>{ STATE.lsFT=STATE.lsFT||{}; STATE.lsFT[el.dataset.lsft]=el.checked; render(); });
+    document.querySelectorAll('[data-lsb]').forEach(el=>el.onchange=()=>{ STATE.lsBulk=STATE.lsBulk||{}; STATE.lsBulk[el.dataset.lsb]=el.checked; render(); });
     document.querySelectorAll('[data-otsel]').forEach(el=>el.onchange=()=>{ STATE.otSel=STATE.otSel||{}; STATE.otSel[el.dataset.otsel]=el.checked; render(); });
     document.querySelectorAll('[data-custot]').forEach(el=>el.onclick=()=>{ STATE.custOt=el.dataset.custot; STATE.custShown=60; render(); }); }
   const jtf=document.getElementById('jobTechFilter'); if(jtf) jtf.onchange=()=>{ STATE.jobTech=jtf.value; render(); };
@@ -6127,6 +6183,18 @@ document.addEventListener('click',async ev=>{
     if(!confirm(pairs.length+' one-time profile AMC profile se jodein?'+(skip?'\n('+skip+' ko chhod rahe hain — ek se zyada ya koi match nahi)':'')+'\nJobs/bills/history AMC profile me aa jayegi. Purani profile Recycle Bin me safe.')) return;
     showToast('Jod raha hu… ('+pairs.length+')'); try{ pairs.forEach(p=>{ mergeCustGroupInMemory([p[0],p[1]],p[0].id); }); await saveAfterMerge(); }catch(e){ console.error(e); showToast('⚠️ Jodne me dikkat aayi: '+(e&&e.message||e)+' — page refresh karke dekhein'); render(); return; } STATE.otSel={}; showToast('✅ '+pairs.length+' profile jud gaye'+(skip?' · '+skip+' chhoot gaye (same naam ke ek se zyada AMC profile — unhe ek-ek karke dekhein)':'')); render(); }
   else if(a==='wamode'){ try{ localStorage.setItem('st_wa_mode',id==='app'?'app':'web'); }catch(e){} showToast(id==='app'?'WhatsApp Desktop App use hoga':'WhatsApp Web use hoga'); render(); }
+  else if(a==='lspanel'){ STATE.lsPanel=!STATE.lsPanel; render(); }
+  else if(a==='lsall'||a==='lsnone'){ const c=STATE.customers.find(x=>x.id===id), l=c&&leadForCust(c); if(!c||!l) return; STATE.lsSel=STATE.lsSel||{}; STATE.lsSel[id]={}; if(a==='lsall') lsDiff(c,l).forEach(x=>STATE.lsSel[id][x.f]=true); STATE.lsOpen=id; render(); }
+  else if(a==='lsapply'){ const c=STATE.customers.find(x=>x.id===id), l=c&&leadForCust(c); if(!c||!l) return; const f=Object.keys((STATE.lsSel&&STATE.lsSel[id])||{}).filter(k=>STATE.lsSel[id][k]); if(!f.length){ showToast('Pehle jo details leni hain unhe tick karein'); return; }
+    if(!confirm('Lead se ye details customer me lein?\n'+f.map(k=>'• '+LS_LABEL[k]).join('\n')+'\n(Purani value history me safe rahegi)')) return;
+    const r=lsApply(c,l,f,(STATE.session&&STATE.session.name)||''); if(r.n){ await saveKey(SKEY.CUSTOMERS,STATE.customers); try{ linkBillsToCustomer(c); }catch(e){} } STATE.lsSel[id]={}; STATE.lsOpen=id; showToast(r.n?('✅ '+r.n+' details lead se aa gayi'+(r.skipped.length?' · chhoot gaye: '+r.skipped.join(', '):'')):(r.skipped.length?'Chhoot gaye: '+r.skipped.join(', '):'Kuch badla nahi')); render(); }
+  else if(a==='lsbsall'||a==='lsbsnone'){ STATE.lsBulk={}; if(a==='lsbsall') lsAllDiffs().forEach(x=>STATE.lsBulk[x.c.id]=true); render(); }
+  else if(a==='lsbapply'){ const ft=Object.keys(STATE.lsFT||{}).filter(k=>STATE.lsFT[k]); if(!ft.length){ showToast('Pehle upar se jo details leni hain wo chunein'); return; }
+    const all=lsAllDiffs().filter(x=>STATE.lsBulk&&STATE.lsBulk[x.c.id]); if(!all.length){ showToast('Pehle customers select karein'); return; }
+    if(!confirm(all.length+' customers me lead se ye details lein?\n'+ft.map(k=>'• '+LS_LABEL[k]).join('\n')+'\n(Purani values har customer ki profile me "Pichhli baar lead se liya" me safe rahengi)')) return;
+    const me=(STATE.session&&STATE.session.name)||''; let tot=0, cust=0, sk=0; all.forEach(x=>{ const r=lsApply(x.c,x.l,ft.filter(f=>x.d.some(y=>y.f===f)),me); if(r.n){ cust++; tot+=r.n; try{ linkBillsToCustomer(x.c); }catch(e){} } sk+=r.skipped.length; });
+    showToast('Save ho raha hai…'); try{ await saveKey(SKEY.CUSTOMERS,STATE.customers); }catch(e){ showToast('⚠️ Save me dikkat: '+(e&&e.message||e)); render(); return; }
+    STATE.lsBulk={}; showToast('✅ '+cust+' customers me '+tot+' details lead se aa gayi'+(sk?' · '+sk+' chhoot gaye (mobile kisi aur profile me)':'')); render(); }
   else if(a==='nmto'){ const c=STATE.customers.find(x=>x.id===id), t=STATE.customers.find(x=>x.id===el.dataset.to); if(!c||!t){ showToast('Match nahi mila'); return; } if(!confirm('"'+c.name+'" (One-time) ko AMC customer "'+t.name+(t.phone?' ('+t.phone+')':'')+'" ke saath jodein?\nSab job/bill/history AMC profile me aa jayegi (purani profile Recycle Bin me safe).')) return;
     mergeCustGroupInMemory([t,c],t.id); await saveAfterMerge(); showToast('✅ Jud gaya — AMC profile me'); render(); }
   else if(a==='nmone'){ const c=STATE.customers.find(x=>x.id===id), t=amcTwinOf(c); if(!c||!t){ showToast('Match nahi mila'); return; } if(!confirm('"'+c.name+'" (One-time) ko AMC customer "'+t.name+(t.phone?' ('+t.phone+')':'')+'" ke saath jodein?\nSab job/bill/history AMC profile me aa jayegi (purani profile Recycle Bin me safe).')) return;
@@ -6386,7 +6454,7 @@ const I18N_ROWS=[
 /* permission + install */
 ['Permissions Check','Permissions Check','अनुमतियों की जाँच'],['Allow Karein','Allow','अनुमति दें'],['Location Zaroori','Location required','लोकेशन ज़रूरी'],['App install karo','Install the app','ऐप इंस्टॉल करें'],['Install karo','Install','इंस्टॉल करें'],['Location band hai','Location is off','लोकेशन बंद है'],
 /* help */
-['Help','Help','मदद'],['UPI ID (Bill/AMC PDF par payment ke liye)','UPI ID (for payment on Bill/AMC PDF)','UPI ID (बिल/AMC PDF पर पेमेंट के लिए)'],['Pichhle 6 mahine ki kamai','Earnings of the last 6 months','पिछले 6 महीने की कमाई'],['Area (jaise Andheri West) — filter ke liye','Area (e.g. Andheri West) — for filtering','एरिया (जैसे अंधेरी वेस्ट) — फ़िल्टर के लिए'],['Bill PDF Download Karein','Download Bill PDF','बिल PDF डाउनलोड करें'],['PDF Download','PDF Download','PDF डाउनलोड'],['Bill PDF','Bill PDF','बिल PDF'],['AMC PDF bhejo','Send AMC PDF','AMC PDF भेजो'],['PDF Download','PDF Download','PDF डाउनलोड'],['Customer ko bhejo','Send to customer','कस्टमर को भेजो'],['Sab area','All areas','सब एरिया'],['Area nahi likha ({n})','No area written ({n})','एरिया नहीं लिखा ({n})'],['Sab One-time','All One-time','सब वन-टाइम'],['AMC se mila ({n})','Matched with AMC ({n})','AMC से मिला ({n})'],['Alag — AMC nahi ({n})','Separate — no AMC ({n})','अलग — AMC नहीं ({n})'],['AMC profile mili — Jodo','AMC profile found — Merge','AMC प्रोफ़ाइल मिली — जोड़ो'],['WhatsApp kaise khule (laptop)','How WhatsApp opens (laptop)','WhatsApp कैसे खुले (लैपटॉप)'],
+['Help','Help','मदद'], ['🆚 Lead se Mismatch dekhein','🆚 View mismatch with Lead','🆚 लीड से मिसमैच देखें'],['✕ Band','✕ Close','✕ बंद'],['🔗 Select kiye fields customer me lao','🔗 Bring selected fields into customer','🔗 चुने हुए फ़ील्ड कस्टमर में लाएँ'],['☑ Sab select','☑ Select all','☑ सब चुनें'],['Sab hatao','Clear all','सब हटाएँ'],['Naam','Name','नाम'],['Install / Purchase date','Install / Purchase date','इंस्टॉल / खरीद की तारीख'],['Pehle jo details leni hain unhe tick karein','First tick the details you want to bring','पहले जो जानकारी लेनी है उसे टिक करें'],['UPI ID (Bill/AMC PDF par payment ke liye)','UPI ID (for payment on Bill/AMC PDF)','UPI ID (बिल/AMC PDF पर पेमेंट के लिए)'],['Pichhle 6 mahine ki kamai','Earnings of the last 6 months','पिछले 6 महीने की कमाई'],['Area (jaise Andheri West) — filter ke liye','Area (e.g. Andheri West) — for filtering','एरिया (जैसे अंधेरी वेस्ट) — फ़िल्टर के लिए'],['Bill PDF Download Karein','Download Bill PDF','बिल PDF डाउनलोड करें'],['PDF Download','PDF Download','PDF डाउनलोड'],['Bill PDF','Bill PDF','बिल PDF'],['AMC PDF bhejo','Send AMC PDF','AMC PDF भेजो'],['PDF Download','PDF Download','PDF डाउनलोड'],['Customer ko bhejo','Send to customer','कस्टमर को भेजो'],['Sab area','All areas','सब एरिया'],['Area nahi likha ({n})','No area written ({n})','एरिया नहीं लिखा ({n})'],['Sab One-time','All One-time','सब वन-टाइम'],['AMC se mila ({n})','Matched with AMC ({n})','AMC से मिला ({n})'],['Alag — AMC nahi ({n})','Separate — no AMC ({n})','अलग — AMC नहीं ({n})'],['AMC profile mili — Jodo','AMC profile found — Merge','AMC प्रोफ़ाइल मिली — जोड़ो'],['WhatsApp kaise khule (laptop)','How WhatsApp opens (laptop)','WhatsApp कैसे खुले (लैपटॉप)'],
 /* v9.8 full dictionary */
 ['Naya item','New item','नया आइटम'],
 ['Baad me / Unassigned','Later / Unassigned','बाद में / बिना असाइन'],
