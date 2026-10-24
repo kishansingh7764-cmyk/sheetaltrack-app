@@ -267,7 +267,7 @@ html{scroll-padding-top:120px;}
 }
 
 
-/* v9.9.3 polish */
+/* v9.9.4 polish */
 .card{box-shadow:0 1px 2px rgba(14,76,92,.06),0 4px 14px rgba(14,76,92,.05)}
 .stat-card{transition:transform .15s ease,box-shadow .15s ease}.stat-card:active{transform:scale(.97)}
 button,.primary-btn{transition:transform .12s ease,filter .15s ease}button:active{transform:scale(.97)}
@@ -2892,12 +2892,13 @@ function areaFixHtml(){ if(!lsRole()) return ''; if(!STATE.areaFix) return `<div
    ${gs.length?`<div class="card-actions" style="margin-top:8px;"><button class="mini-btn primary" data-v9="afapply">✅ Select kiye (${nSel} customer) ka area theek karo</button></div>`:''}</div>`; }
 function lsFtKeys(){ return Object.keys(STATE.lsFT||{}).filter(k=>STATE.lsFT[k]); }
 function lsFiltered(){ const ft=lsFtKeys(), all=lsAllDiffs(); if(!ft.length) return all; return all.filter(x=>x.d.some(y=>ft.includes(y.f))).map(x=>({c:x.c,l:x.l,d:x.d.filter(y=>ft.includes(y.f))})); }
-function lsAllDiffs(){ const idx=lsLeadIdx(), out=[]; (STATE.customers||[]).forEach(c=>{ if(c.deleted) return; const l=leadForCust(c,idx); if(!l) return; const d=lsDiff(c,l); if(d.length) out.push({c,l,d}); }); return out; }
+function lsScopeLabel(){ const f=STATE.custTypeFilter||'all'; return f==='amc'?'AMC':(f==='onetime'||f==='bill')?'One-time':''; }
+function lsAllDiffs(){ const idx=lsLeadIdx(), out=[], f=STATE.custTypeFilter||'all'; (STATE.customers||[]).forEach(c=>{ if(c.deleted) return; const ty=c.type||'amc'; if(f==='amc'&&ty!=='amc') return; if((f==='onetime'||f==='bill')&&ty!=='onetime') return; const l=leadForCust(c,idx); if(!l) return; const d=lsDiff(c,l); if(d.length) out.push({c,l,d}); }); return out; }
 function lsPanelHtml(){ if(!lsRole()||!(STATE.leads||[]).length) return '';
   const open=!!STATE.lsPanel; if(!open) return `<div class="field" style="margin:0 0 10px;"><button class="mini-btn" data-v9="lspanel">🆚 Lead se Mismatch dekhein</button></div>`;
   const full=lsAllDiffs(), all=lsFiltered(), ft=STATE.lsFT||{}, sel=STATE.lsBulk||{}, nSel=all.filter(x=>sel[x.c.id]).length, anyFt=lsFtKeys().length;
   const fts=LS_FIELDS.filter(([f])=>full.some(x=>x.d.some(y=>y.f===f)));
-  return `<div class="card" style="border:1px solid #0E4C5C;"><div class="row-between"><div class="item-name">🆚 Lead se Mismatch (${all.length} customer${anyFt?' — chuni detail ke':''})</div><button class="mini-btn" data-v9="lspanel">✕ Band</button></div>
+  return `<div class="card" style="border:1px solid #0E4C5C;"><div class="row-between"><div class="item-name">🆚 Lead se Mismatch${lsScopeLabel()?' — '+lsScopeLabel():''} (${all.length} customer${anyFt?' — chuni detail ke':''})</div><button class="mini-btn" data-v9="lspanel">✕ Band</button></div>
     <div class="item-sub" style="margin:6px 0;">Kuch apne aap nahi badlega. Pehle kaun si details leni hain wo chunein, phir customers tick karke "Lao" dabayein.</div>
     <div style="margin:6px 0;"><b>1) Kaun si details lani hain:</b><div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;">${fts.map(([f,l])=>`<label style="display:flex;gap:6px;align-items:center;background:#eef5f7;padding:6px 10px;border-radius:14px;"><input type="checkbox" data-lsft="${f}" ${ft[f]?'checked':''}>${esc(l)} (${full.filter(x=>x.d.some(y=>y.f===f)).length})</label>`).join('')}</div>${anyFt?'':'<div class="item-sub" style="margin-top:6px;">Abhi koi detail chuni nahi — sab fark dikh rahe hain. Detail tick karte hi neeche sirf wahi customers dikhenge jinki wo detail alag hai.</div>'}</div>
     <div class="card-actions" style="margin:8px 0;"><button class="mini-btn" data-v9="lsbsall">☑ Sab customers select (${all.length})</button><button class="mini-btn" data-v9="lsbsnone">Sab hatao</button><button class="mini-btn primary" data-v9="lsbapply">🔗 Select kiye (${nSel}) me chuni details lao</button></div>
@@ -3421,7 +3422,7 @@ function render(){
 function renderSetup(){
   return `
   <div class="login-wrap">
-    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v9.9.3</p><div style="margin-top:10px;">${langBtnHtml()}</div></div>
+    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v9.9.4</p><div style="margin-top:10px;">${langBtnHtml()}</div></div>
     <div class="setup-note">Yeh app ab Firebase (Google ka free real-time database) use karti hai — pehle se tez aur reliable. Firebase Console se apna config copy karke neeche paste karein.</div>
     <div class="field"><label>Firebase Config (poora object paste karein)</label><textarea id="setupConfig" rows="8" placeholder='{"apiKey": "...", "authDomain": "...", "projectId": "...", ...}'>${setupUrlInput}</textarea></div>
     <button class="primary-btn" id="connectBtn">Connect Karein</button>
@@ -3489,7 +3490,7 @@ function renderLogin(){
   }
   return `
   <div class="login-wrap">
-    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v9.9.3</p><div style="margin-top:10px;">${langBtnHtml()}</div></div>
+    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v9.9.4</p><div style="margin-top:10px;">${langBtnHtml()}</div></div>
     <div class="role-grid">
       <button class="role-opt ${loginRole==='admin'?'active':''}" data-role="admin"><span class="ic">🗝️</span>Admin</button>
       <button class="role-opt ${loginRole==='subadmin'?'active':''}" data-role="subadmin"><span class="ic">🧑‍💼</span>Office</button>
