@@ -267,7 +267,7 @@ html{scroll-padding-top:120px;}
 }
 
 
-/* v9.9.6 polish */
+/* v9.9.7 polish */
 .card{box-shadow:0 1px 2px rgba(14,76,92,.06),0 4px 14px rgba(14,76,92,.05)}
 .stat-card{transition:transform .15s ease,box-shadow .15s ease}.stat-card:active{transform:scale(.97)}
 button,.primary-btn{transition:transform .12s ease,filter .15s ease}button:active{transform:scale(.97)}
@@ -1121,7 +1121,7 @@ async function sendEmailViaBackend(to, subject, message, attachment){
 function getAllDueCustomers(){
   const lastDone=new Map(); (STATE.jobs||[]).forEach(j=>{ if(j.status!=='done'||!j.customerId) return; const d=j.completedAt?ymd(new Date(j.completedAt)):j.date; if(d&&(!lastDone.get(j.customerId)||d>lastDone.get(j.customerId))) lastDone.set(j.customerId,d); });
   const amcDue=[];
-  STATE.customers.forEach(c=>{ if(c.type!=='amc') return;
+  STATE.customers.forEach(c=>{ if(c.type!=='amc') return; if(c.cancelInfo&&c.amcStatus==='lapsed') return;
     const ren=(c.expiryDate&&daysUntil(c.expiryDate)<=90)?c.expiryDate:'';
     let svc=''; const tot=Number(c.totalServices)||0;
     if(amcStatusOf(c)==='active'&&tot>0&&(Number(c.servicesDone)||0)<tot){ const last=[c.lastService,lastDone.get(c.id),c.activationDate].filter(Boolean).sort().pop(); if(last){ const d=addMonths(last,Number(c.intervalMonths)||3); if(daysUntil(d)<=15) svc=d; } }
@@ -1790,7 +1790,7 @@ function amcBuildPlan(d){
       else if(raw.length>=2&&(isCall||!findDateIn(raw,2000))&&!/^[\d\s.,\-\/:]+$/.test(raw)){ const hh=String((rows[d.hdrIdx]||[])[ci]||'').trim(); serRem.push((hh?hh+': ':'')+raw); } }); svc.sort(); if(serRem.length) st.serRem=(st.serRem||0)+1;
     const pr=cell(r,'purch'); let purch=pr?dmyParse(pr,1995):''; if(purch&&purch>today) purch=''; if(pr){ if(purch) st.purch++; else st.badPurch++; }
     const sv=cell(r,'status').toLowerCase(); let status='';
-    if(sv){ if(/cancel|red|lapse|not\b|nahi|band|expire/.test(sv)) status='lapsed'; else if(/renew|green|done/.test(sv)) status='renewed'; else if(/active|current|chal/.test(sv)) status='active'; }
+    if(sv){ if(/cancel|\bred\b|lapse|\bnot\b|nahi|\bband\b|expire|\bend(ed)?\b|contract\s*(end|cancel|close|over|khatam|band)|\bclos(e|ed)\b|khatam|shift|\bstop|discontinu|terminat/.test(sv)) status='lapsed'; else if(/renew|green|done/.test(sv)) status='renewed'; else if(/active|current|chal/.test(sv)) status='active'; }
     const amount=Number(cell(r,'amount').replace(/[^0-9.]/g,''))||0, units=Number(cell(r,'units').replace(/[^0-9]/g,''))||0;
     const amtRaw=String(r[M.amount]==null?'':r[M.amount]);
     const modeTxt=[cell(r,'mode'),cell(r,'desc'),cell(r,'renewal'),amtRaw].join(' ');
@@ -1902,7 +1902,7 @@ function amcIdx(){
 }
 function amcCustForLead(l){ const m=amcIdx(); return m.get(ph10(l.mobile))||m.get(ph10(l.resTel))||null; }
 function dupCustomerByPhone(p1,p2){ const a=ph10(p1), b=ph10(p2); if(a.length<10&&b.length<10) return null; return (STATE.customers||[]).find(c=>{ const x=ph10(c.phone), y=ph10(c.phone2); return (a.length===10&&(x===a||y===a))||(b.length===10&&(x===b||y===b)); })||null; }
-function amcStatusLabel(c){ const st=amcStatusOf(c); return st==='active'?'AMC chal rahi'+(c.expiryDate?' — '+fmtDate(c.expiryDate)+' tak':''):st==='inactive'?'AMC Inactive — saari services ho gayin, renewal baaki':st==='lapsed'?'AMC cancel / renewal nahi hui':'AMC'; }
+function amcStatusLabel(c){ const st=amcStatusOf(c); return st==='active'?'AMC chal rahi'+(c.expiryDate?' — '+fmtDate(c.expiryDate)+' tak':''):st==='inactive'?'AMC Inactive — saari services ho gayin, renewal baaki':st==='lapsed'?(c.cancelInfo?'AMC Cancel — '+(c.cancelInfo.reason||'')+(c.cancelInfo.date?' ('+fmtDate(c.cancelInfo.date)+')':''):'AMC cancel / renewal nahi hui'):'AMC'; }
 function leadAmcChip(l){
   const c=amcCustForLead(l); if(!c) return '';
   const act=amcStatusOf(c)==='active';
@@ -2901,6 +2901,16 @@ function areaFixHtml(){ if(!lsRole()) return ''; if(!STATE.areaFix) return `<div
    <div class="item-sub" style="margin:6px 0;">Jaise "Andheri W", "andheri (w)", "Andheri West Mumbai", "Andheri Wset" ek hi "Andheri West" ban jayenge. Sirf Area badlega, address nahi. Jo group nahi chahiye uska tick hata dein. ${gs.length?'':'<b>Abhi sab area pehle se ek jaise hain ✅</b>'}</div>
    ${gs.map(o=>`<label style="display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-top:1px solid #e3ecef;"><input type="checkbox" data-afk="${esc(o.k)}" ${off[o.k]?'':'checked'} style="width:20px;height:20px;margin-top:2px;"><div style="flex:1;min-width:0;"><b>→ ${esc(o.title)}</b> <span class="item-sub">(${o.chg.length} customer badlenge)</span><div class="item-sub" style="margin:2px 0;">${[...o.vars.entries()].sort((a,b)=>b[1]-a[1]).slice(0,6).map(([v,n])=>esc(v)+' ('+n+')').join(' · ')}</div></div></label>`).join('')}
    ${gs.length?`<div class="card-actions" style="margin-top:8px;"><button class="mini-btn primary" data-v9="afapply">✅ Select kiye (${nSel} customer) ka area theek karo</button></div>`:''}</div>`; }
+const AMC_CANCEL_REASONS=['Dusre shehar / area me shift ho gaye','Renewal nahi karwana','Mehnga laga','Service se khush nahi','Contract khatam — renew nahi hua','Dusri company se karwa liya','Anya (note me likhein)'];
+function amcCancelHtml(c){ if(!lsRole()||c.deleted||(c.type||'amc')!=='amc') return '';
+  const ci=c.cancelInfo;
+  if(c.amcStatus==='lapsed') return `<div class="card" style="border-left:4px solid #c0392b;"><div class="item-name">🔴 AMC Cancel</div>${ci?`<div class="item-sub" style="margin-top:4px;">Wajah: <b>${esc(ci.reason||'')}</b>${ci.note?' — '+esc(ci.note):''}</div><div class="item-sub">Date: ${ci.date?fmtDate(ci.date):'—'} · Kisne: ${esc(ci.by||'')}</div>`:'<div class="item-sub" style="margin-top:4px;">Import se cancel / renewal nahi hui mark hai.</div>'}<div class="card-actions" style="margin-top:8px;"><button class="mini-btn" data-v9="amcreact" data-id="${c.id}">↩️ Wapas chalu karein</button></div></div>`;
+  return `<details class="card"><summary style="cursor:pointer;font-weight:700;">🚫 AMC Cancel karein</summary>
+    <div class="item-sub" style="margin:6px 0;">Customer shift ho gaya, renewal nahi karwana, ya contract band ho gaya ho to yahan cancel karein. History me sab safe rahega, aur baad me wapas chalu kar sakte hain. Cancel ke baad service/renewal reminders nahi aayenge.</div>
+    <div class="field"><label>Wajah</label><select id="f_cxr">${AMC_CANCEL_REASONS.map(r=>`<option>${esc(r)}</option>`).join('')}</select></div>
+    <div class="field"><label>Note (optional)</label><input id="f_cxn" placeholder="jaise Delhi shift ho gaye"></div>
+    <div class="field"><label>Cancel ki date</label><input id="f_cxd" type="date" value="${todayStr()}"></div>
+    <button class="mini-btn primary" data-v9="amccancel" data-id="${c.id}">🚫 AMC Cancel kar do</button></details>`; }
 function lsFtKeys(){ return Object.keys(STATE.lsFT||{}).filter(k=>STATE.lsFT[k]); }
 function lsFiltered(){ const ft=lsFtKeys(), all=lsAllDiffs(); if(!ft.length) return all; return all.filter(x=>x.d.some(y=>ft.includes(y.f))).map(x=>({c:x.c,l:x.l,d:x.d.filter(y=>ft.includes(y.f))})); }
 function lsScopeLabel(){ const f=STATE.custTypeFilter||'all'; return f==='amc'?'AMC':(f==='onetime'||f==='bill')?'One-time':''; }
@@ -3433,7 +3443,7 @@ function render(){
 function renderSetup(){
   return `
   <div class="login-wrap">
-    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v9.9.6</p><div style="margin-top:10px;">${langBtnHtml()}</div></div>
+    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v9.9.7</p><div style="margin-top:10px;">${langBtnHtml()}</div></div>
     <div class="setup-note">Yeh app ab Firebase (Google ka free real-time database) use karti hai — pehle se tez aur reliable. Firebase Console se apna config copy karke neeche paste karein.</div>
     <div class="field"><label>Firebase Config (poora object paste karein)</label><textarea id="setupConfig" rows="8" placeholder='{"apiKey": "...", "authDomain": "...", "projectId": "...", ...}'>${setupUrlInput}</textarea></div>
     <button class="primary-btn" id="connectBtn">Connect Karein</button>
@@ -3501,7 +3511,7 @@ function renderLogin(){
   }
   return `
   <div class="login-wrap">
-    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v9.9.6</p><div style="margin-top:10px;">${langBtnHtml()}</div></div>
+    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v9.9.7</p><div style="margin-top:10px;">${langBtnHtml()}</div></div>
     <div class="role-grid">
       <button class="role-opt ${loginRole==='admin'?'active':''}" data-role="admin"><span class="ic">🗝️</span>Admin</button>
       <button class="role-opt ${loginRole==='subadmin'?'active':''}" data-role="subadmin"><span class="ic">🧑‍💼</span>Office</button>
@@ -3942,7 +3952,7 @@ function renderCustomerProfile(){
       <div class="item-sub">${c.address||''}${c.landmark?', '+c.landmark:''}${c.city?', '+c.city:''}${c.state?', '+c.state:''}${c.pincode?' - '+c.pincode:''}</div>
       <div class="card-actions" style="margin-top:10px;">${c.phone?`<a class="mini-btn primary" style="text-decoration:none;" href="tel:${c.phone}">📞 Call</a>`:''}${c.phone?`<a class="mini-btn" style="text-decoration:none;" href="https://wa.me/${waNum(c.phone)}?text=${encodeURIComponent(custWaMsg(c))}">💬 WhatsApp</a>`:''}${custMapUrl(c)?`<a class="mini-btn" style="text-decoration:none;" target="_blank" rel="noopener" href="${esc(custMapUrl(c))}">🧭 Navigate</a>`:''}<button class="mini-btn" data-v9="cpin" data-id="${c.id}">📍 ${c.pin?'Pin update':'Pin save'}</button>${STATE.session.role==='technician'?'':`<button class="mini-btn" data-v9="cshare" data-id="${c.id}">📤 Share</button><button class="mini-btn" data-act="editcust" data-id="${c.id}">✏️ Details Badlein</button><button class="mini-btn primary" data-act="newjobfor" data-id="${c.id}">➕ Job Banao</button>${isMoneyRole()?`<button class="mini-btn" data-act="newbill" data-id="${c.id}">🧾 Bill Banao</button>`:''}${canNewAmc(c)?`<button class="mini-btn primary" data-act="newamc" data-id="${c.id}">🆕 Naya AMC</button>`:''}${(c.type!=='amc'&&STATE.session.role!=='technician'&&amcTwinOf(c))?`<button class="mini-btn" style="background:#fff4d6;border-color:#e0b100;" data-v9="nmone" data-id="${c.id}">🔗 AMC profile mili — Jodo (${TWIN_TIER_TXT[amcTwinTier(c)]||''})</button>`:''}${twinPickHtml(c)}${c.type==='amc'?`<button class="mini-btn" data-act="renewamc" data-id="${c.id}">🔁 Renewal Karein</button>`:''}`}</div>
     </div>
-    ${STATE.session.role==='technician'?'':amcDetailsHtml(c)+acCardHtml(c)+amcHistoryHtml(c)+(STATE.session.role==='admin'?billHistoryHtml(c):'')+leadSyncHtml(c)+custHistHtml(c)}
+    ${STATE.session.role==='technician'?'':amcDetailsHtml(c)+acCardHtml(c)+amcHistoryHtml(c)+(STATE.session.role==='admin'?billHistoryHtml(c):'')+amcCancelHtml(c)+leadSyncHtml(c)+custHistHtml(c)}
     ${c.type==='amc'?`<div class="card">
       <div class="section-title" style="margin:0 0 8px 0;">AMC Contract</div>
       <div class="item-sub">${c.brand||''} ${c.model||''} ${c.serialNo?'· SN: '+c.serialNo:''}</div>
@@ -6229,6 +6239,15 @@ document.addEventListener('click',async ev=>{
     if(!confirm(pairs.length+' one-time profile AMC profile se jodein?'+(skip?'\n('+skip+' ko chhod rahe hain — ek se zyada ya koi match nahi)':'')+'\nJobs/bills/history AMC profile me aa jayegi. Purani profile Recycle Bin me safe.')) return;
     showToast('Jod raha hu… ('+pairs.length+')'); try{ pairs.forEach(p=>{ mergeCustGroupInMemory([p[0],p[1]],p[0].id); }); await saveAfterMerge(); }catch(e){ console.error(e); showToast('⚠️ Jodne me dikkat aayi: '+(e&&e.message||e)+' — page refresh karke dekhein'); render(); return; } STATE.otSel={}; showToast('✅ '+pairs.length+' profile jud gaye'+(skip?' · '+skip+' chhoot gaye (sirf naam se mile ya ek se zyada AMC profile — unhe card par se ek-ek karke dekhein)':'')); render(); }
   else if(a==='wamode'){ try{ localStorage.setItem('st_wa_mode',id==='app'?'app':'web'); }catch(e){} showToast(id==='app'?'WhatsApp Desktop App use hoga':'WhatsApp Web use hoga'); render(); }
+  else if(a==='amccancel'){ const c=STATE.customers.find(x=>x.id===id); if(!c) return; const reason=val('f_cxr'), note=val('f_cxn'), date=val('f_cxd')||todayStr();
+    if(!confirm('"'+c.name+'" ka AMC cancel karein?\nWajah: '+reason+(note?' — '+note:'')+'\n(Baad me "Wapas chalu karein" se undo ho sakta hai)')) return;
+    c.amcStatus='lapsed'; c.cancelInfo={reason,note,date,by:(STATE.session&&STATE.session.name)||'',ts:Date.now()}; c.cancelLog=(c.cancelLog||[]).concat({act:'cancel',reason,note,date,by:c.cancelInfo.by,ts:Date.now()}).slice(-10);
+    if(c.amcHistory&&c.amcHistory.length){ const L=c.amcHistory[c.amcHistory.length-1]; L.prevStatus=L.status||''; L.status='lapsed'; L.cancelledOn=date; } c.updAt=Date.now();
+    await saveKey(SKEY.CUSTOMERS,STATE.customers); showToast('🔴 AMC cancel ho gaya'); render(); }
+  else if(a==='amcreact'){ const c=STATE.customers.find(x=>x.id===id); if(!c) return; if(!confirm('"'+c.name+'" ka AMC wapas chalu karein?')) return;
+    c.amcStatus=''; c.cancelLog=(c.cancelLog||[]).concat({act:'reactivate',by:(STATE.session&&STATE.session.name)||'',ts:Date.now()}).slice(-10); delete c.cancelInfo;
+    if(c.amcHistory&&c.amcHistory.length){ const L=c.amcHistory[c.amcHistory.length-1]; if(L.status==='lapsed'){ L.status=L.prevStatus||''; delete L.prevStatus; delete L.cancelledOn; } } c.updAt=Date.now();
+    await saveKey(SKEY.CUSTOMERS,STATE.customers); showToast('✅ AMC wapas chalu'); render(); }
   else if(a==='pwainst'){ const e=window.__instPrompt; if(e){ try{ e.prompt(); const r=await e.userChoice; if(r&&r.outcome==='accepted') showToast('✅ Install ho raha hai'); }catch(x){} window.__instPrompt=null; } else showToast('Browser menu se install karein: Chrome ⋮ → Install app / Add to Home screen'); }
   else if(a==='aftog'){ STATE.areaFix=!STATE.areaFix; render(); }
   else if(a==='afapply'){ const gs=areaFixGroups().filter(o=>!(STATE.afOff||{})[o.k]); const n=gs.reduce((x,o)=>x+o.chg.length,0); if(!n){ showToast('Kuch select nahi hai'); return; }
