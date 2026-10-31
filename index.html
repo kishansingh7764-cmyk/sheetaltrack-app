@@ -267,7 +267,7 @@ html{scroll-padding-top:120px;}
 }
 
 
-/* v9.9.10 polish */
+/* v9.9.12 polish */
 .card{box-shadow:0 1px 2px rgba(14,76,92,.06),0 4px 14px rgba(14,76,92,.05)}
 .stat-card{transition:transform .15s ease,box-shadow .15s ease}.stat-card:active{transform:scale(.97)}
 button,.primary-btn{transition:transform .12s ease,filter .15s ease}button:active{transform:scale(.97)}
@@ -745,6 +745,7 @@ async function init(){
     await migrateLegacy();
     STATE.businessInfo=await loadKey(SKEY.BUSINESS,{name:'Super Air Cool', phone:'', address:'', terms:''});
     await refreshDevices();
+    try{ await refLoad(); }catch(e){}
     const pc=await loadKey(SKEY.PHOTO_COUNTS,{});
     STATE.photos={}; STATE.signatures={}; STATE.techSignatures={}; STATE.amcSignatures={};
     STATE.loading=false; STATE.loadFailed=false; restoreSession(); render();
@@ -3460,7 +3461,7 @@ function render(){
 function renderSetup(){
   return `
   <div class="login-wrap">
-    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v9.9.10</p><div style="margin-top:10px;">${langBtnHtml()}</div></div>
+    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v9.9.12</p><div style="margin-top:10px;">${langBtnHtml()}</div></div>
     <div class="setup-note">Yeh app ab Firebase (Google ka free real-time database) use karti hai — pehle se tez aur reliable. Firebase Console se apna config copy karke neeche paste karein.</div>
     <div class="field"><label>Firebase Config (poora object paste karein)</label><textarea id="setupConfig" rows="8" placeholder='{"apiKey": "...", "authDomain": "...", "projectId": "...", ...}'>${setupUrlInput}</textarea></div>
     <button class="primary-btn" id="connectBtn">Connect Karein</button>
@@ -3528,7 +3529,7 @@ function renderLogin(){
   }
   return `
   <div class="login-wrap">
-    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v9.9.10</p><div style="margin-top:10px;">${langBtnHtml()}</div></div>
+    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v9.9.12</p><div style="margin-top:10px;">${langBtnHtml()}</div></div>
     <div class="role-grid">
       <button class="role-opt ${loginRole==='admin'?'active':''}" data-role="admin"><span class="ic">🗝️</span>Admin</button>
       <button class="role-opt ${loginRole==='subadmin'?'active':''}" data-role="subadmin"><span class="ic">🧑‍💼</span>Office</button>
@@ -3575,7 +3576,7 @@ function renderShell(){
   const nav=navItemsFor(STATE.session.role);
   if(STATE.view==='money'&&STATE.session.role!=='admin') STATE.view=homeViewFor(STATE.session.role);
   if(STATE.view==='stock'&&!isStockRole()) STATE.view=homeViewFor(STATE.session.role);
-  if(officeMobile()){ if(!MV.includes(STATE.view)&&STATE.view!=='help') STATE.view='mhome'; } else if(MV.includes(STATE.view)) STATE.view=homeViewFor(STATE.session.role);
+  if(officeMobile()){ if(!MV.includes(STATE.view)&&STATE.view!=='help'&&STATE.view!=='refer') STATE.view='mhome'; } else if(MV.includes(STATE.view)) STATE.view=homeViewFor(STATE.session.role);
   let body='';
   if(STATE.view==='mhome') body=renderMHome(); else if(STATE.view==='mattend') body=renderMAttend(); else if(STATE.view==='mprofile') body=renderMProfile(); else
   if(STATE.view==='dashboard') body=renderDashboard();
@@ -3584,6 +3585,7 @@ function renderShell(){
   else if(STATE.view==='amccal') body=renderAmcCalendar();
   else if(STATE.view==='daylog') body=renderDayLog();
   else if(STATE.view==='help') body=helpHtml();
+  else if(STATE.view==='refer') body=referHtml();
   else if(STATE.view==='customerProfile') body=renderCustomerProfile();
   else if(STATE.view==='jobs') body=renderJobs();
   else if(STATE.view==='money') body=renderMoney();
@@ -3596,8 +3598,9 @@ function renderShell(){
   else if(STATE.view==='location'||STATE.view==='techhome') body=renderTechHome();
   else if(STATE.view==='attendance') body = (STATE.session.role==='technician'||STATE.session.role==='telecaller') ? renderMyAttendance() : renderAdminAttendance();
   else if(STATE.view==='settings') body=STATE.session.role==='technician'?renderTechProfile():STATE.session.role==='telecaller'?renderTelecallerProfile():renderSettings();
+  if(STATE.view==='techhome'||STATE.view==='location'||STATE.view==='mhome'||STATE.view==='dashboard'||(STATE.view==='leads'&&STATE.session.role==='telecaller')) body=referCardHtml()+body;
   return `
-  <div class="topbar"><div class="brand"><div class="brand-mark" style="width:30px;height:30px;font-size:15px;">❄️</div><div class="brand-text"><div class="name">SheetalTrack</div><div class="who">${esc(STATE.session.name)} · ${roleLabel(STATE.session.role)} · <span id="syncBadge">${PENDING>0?'⏳ Sync ho raha hai':'✅ Saved'}</span></div></div></div>${((STATE.session.role==='admin'||STATE.session.role==='subadmin')&&!officeMobile())?`<button class="mini-btn" id="globalSearchBtn" style="margin-right:8px;padding:8px 11px;flex:none;">🔍</button>`:''}${bellHtml()}${langBtnHtml()}<button class="mini-btn" data-v9="help" title="Help" style="margin-right:8px;padding:8px 11px;flex:none;">❓</button><button class="logout-btn" id="logoutBtn">Logout</button></div>
+  <div class="topbar"><div class="brand"><div class="brand-mark" style="width:30px;height:30px;font-size:15px;">❄️</div><div class="brand-text"><div class="name">SheetalTrack</div><div class="who">${esc(STATE.session.name)} · ${roleLabel(STATE.session.role)} · <span id="syncBadge">${PENDING>0?'⏳ Sync ho raha hai':'✅ Saved'}</span></div></div></div>${((STATE.session.role==='admin'||STATE.session.role==='subadmin')&&!officeMobile())?`<button class="mini-btn" id="globalSearchBtn" style="margin-right:8px;padding:8px 11px;flex:none;">🔍</button>`:''}${bellHtml()}${langBtnHtml()}<button class="mini-btn" data-v9="refer" title="Refer karo, kamao" style="margin-right:5px;padding:8px 8px;flex:none;">🎁</button><button class="mini-btn" data-v9="help" title="Help" style="margin-right:5px;padding:8px 8px;flex:none;">❓</button><button class="logout-btn" id="logoutBtn">Logout</button></div>
   <div class="content">${body}</div>
   ${STATE.toast?`<div class="toast">${STATE.toast}</div>`:''}
   ${modalHtml()}
@@ -3885,6 +3888,8 @@ function renderCustomers(){
   list=list.slice().sort((a,b)=>custRecent(b)-custRecent(a));
   const amcCnt={all:0,active:0,inactive:0,cancel:0}; STATE.customers.forEach(c=>{ if(selArea&&!areaMatch(c,selArea)) return; if((c.type||'amc')==='amc'){ amcCnt.all++; const st=amcStatusOf(c); if(st==='active') amcCnt.active++; else if(st==='lapsed') amcCnt.cancel++; else amcCnt.inactive++; } });
   if(filterType==='amc'&&STATE.custStatus) list=list.filter(c=>{ const st=amcStatusOf(c); return STATE.custStatus==='active'?st==='active':STATE.custStatus==='lapsed'?st==='lapsed':st==='inactive'; });
+  STATE.__cList=list;
+  const cMode=(filterType==='amc'||(filterType==='onetime'&&STATE.custOt!=='amc'))&&STATE.session.role!=='technician'&&list.length>0, cS=STATE.cSel||{}, cK=cMode?list.filter(c=>cS[c.id]).length:0;
   const typeCounts={all:STATE.customers.length, amc:0, onetime:0, enquiry:0, quotation:0};
   STATE.customers.forEach(c=>{ if(selArea&&!areaMatch(c,selArea)) return; const t=c.type||'amc'; if(typeCounts[t]!==undefined) typeCounts[t]++; });
   return `
@@ -3906,8 +3911,8 @@ function renderCustomers(){
     ${filterType==='amc'?`<div class="tabbar"><button class="tabbtn ${!STATE.custStatus?'active':''}" data-custstatus="">Sab AMC (${amcCnt.all})</button><button class="tabbtn ${STATE.custStatus==='active'?'active':''}" data-custstatus="active">🟢 Active (${amcCnt.active})</button><button class="tabbtn ${STATE.custStatus==='expired'?'active':''}" data-custstatus="expired">⚪ Inactive (${amcCnt.inactive})</button><button class="tabbtn ${STATE.custStatus==='lapsed'?'active':''}" data-custstatus="lapsed">🔴 Cancel (${amcCnt.cancel})</button></div>`:''}
     ${filterType==='bill'&&isMoneyRole()?billTabHtml():''}
     <div id="custListWrap" style="${filterType==='bill'&&isMoneyRole()?'display:none;':''}">${list.length===0?`<div class="empty-state"><span class="ic">👥</span><p>${q?'Koi match nahi mila.':'Abhi tak koi customer add nahi hua.<br>Neeche + button se add karein.'}</p></div>`:
-      `${(filterType==='onetime'&&STATE.custOt==='amc'&&STATE.session.role!=='technician'&&list.length)?`<div class="card" style="background:var(--sky-pale);"><div class="card-actions"><button class="mini-btn" data-v9="otselall">☑ Sab select (${list.length})</button><button class="mini-btn" data-v9="otselnone">Sab hatao</button><button class="mini-btn primary" data-v9="otmerge">🔗 Select kiye AMC se jodo (${Object.keys(STATE.otSel||{}).filter(k=>STATE.otSel[k]).length})</button></div><div class="item-sub" style="margin-top:6px;">Pehle number se, phir naam + area/address se match hota hai — tabhi ek saath jodta hai. "⚠️ sirf naam se" wale ek saath nahi judte, unhe card par dekhkar ek-ek karke jodein.</div></div>`:''}
-      ${list.slice(0,STATE.custShown||60).map(c=>(filterType==='onetime'&&STATE.custOt==='amc'&&STATE.session.role!=='technician')?`<div style="display:flex;gap:8px;align-items:flex-start;"><input type="checkbox" data-otsel="${esc(c.id)}" ${(STATE.otSel||{})[c.id]?'checked':''} style="margin-top:18px;width:20px;height:20px;flex:none;"><div style="flex:1;min-width:0;">${custCardX(c)}</div></div>`:custCardX(c)).join('')}`}${list.length>(STATE.custShown||60)?`<button class="ghost-btn" data-act="custmore">Aur dikhayein (${list.length-(STATE.custShown||60)} baaki)</button>`:''}</div>
+      `${cMode?`<div class="card" style="background:var(--sky-pale);"><div class="item-sub" style="margin:0 0 6px;"><b>${cK}</b> select · is list me kul <b>${list.length}</b> customer${(selArea||q)?' ('+esc(selArea?areaTitle(selArea):STATE.custSearch.trim())+')':''}</div><div class="card-actions"><button class="mini-btn" data-v9="cselall">☑ Sab select (${list.length})</button><button class="mini-btn" data-v9="cselnone">Sab hatao</button><button class="mini-btn primary" data-v9="cseldl" ${cK?'':'disabled'}>📥 Select kiye (${cK}) ki list download</button></div></div>`:''}${(filterType==='onetime'&&STATE.custOt==='amc'&&STATE.session.role!=='technician'&&list.length)?`<div class="card" style="background:var(--sky-pale);"><div class="card-actions"><button class="mini-btn" data-v9="otselall">☑ Sab select (${list.length})</button><button class="mini-btn" data-v9="otselnone">Sab hatao</button><button class="mini-btn primary" data-v9="otmerge">🔗 Select kiye AMC se jodo (${Object.keys(STATE.otSel||{}).filter(k=>STATE.otSel[k]).length})</button></div><div class="item-sub" style="margin-top:6px;">Pehle number se, phir naam + area/address se match hota hai — tabhi ek saath jodta hai. "⚠️ sirf naam se" wale ek saath nahi judte, unhe card par dekhkar ek-ek karke jodein.</div></div>`:''}
+      ${list.slice(0,STATE.custShown||60).map(c=>(filterType==='onetime'&&STATE.custOt==='amc'&&STATE.session.role!=='technician')?`<div style="display:flex;gap:8px;align-items:flex-start;"><input type="checkbox" data-otsel="${esc(c.id)}" ${(STATE.otSel||{})[c.id]?'checked':''} style="margin-top:18px;width:20px;height:20px;flex:none;"><div style="flex:1;min-width:0;">${custCardX(c)}</div></div>`:cMode?`<div style="display:flex;gap:8px;align-items:flex-start;"><input type="checkbox" data-csel="${esc(c.id)}" ${cS[c.id]?'checked':''} style="margin-top:18px;width:20px;height:20px;flex:none;"><div style="flex:1;min-width:0;">${custCardX(c)}</div></div>`:custCardX(c)).join('')}`}${list.length>(STATE.custShown||60)?`<button class="ghost-btn" data-act="custmore">Aur dikhayein (${list.length-(STATE.custShown||60)} baaki)</button>`:''}</div>
     <button class="fab" id="addCustBtn">+</button>
   `;
 }
@@ -5303,6 +5308,7 @@ function bindShellEvents(){
     document.querySelectorAll('[data-lsf]').forEach(el=>el.onchange=()=>{ STATE.lsSel=STATE.lsSel||{}; const k=el.dataset.cid; STATE.lsSel[k]=STATE.lsSel[k]||{}; STATE.lsSel[k][el.dataset.lsf]=el.checked; STATE.lsOpen=k; render(); });
     document.querySelectorAll('[data-lsft]').forEach(el=>el.onchange=()=>{ STATE.lsFT=STATE.lsFT||{}; STATE.lsFT[el.dataset.lsft]=el.checked; render(); });
     document.querySelectorAll('[data-lsb]').forEach(el=>el.onchange=()=>{ STATE.lsBulk=STATE.lsBulk||{}; STATE.lsBulk[el.dataset.lsb]=el.checked; render(); });
+    document.querySelectorAll('[data-csel]').forEach(el=>el.onchange=()=>{ STATE.cSel=STATE.cSel||{}; if(el.checked) STATE.cSel[el.dataset.csel]=true; else delete STATE.cSel[el.dataset.csel]; const sc=window.scrollY; render(); window.scrollTo(0,sc); });
     document.querySelectorAll('[data-otsel]').forEach(el=>el.onchange=()=>{ STATE.otSel=STATE.otSel||{}; STATE.otSel[el.dataset.otsel]=el.checked; render(); });
     document.querySelectorAll('[data-custot]').forEach(el=>el.onclick=()=>{ STATE.custOt=el.dataset.custot; STATE.custShown=60; render(); }); }
   const jtf=document.getElementById('jobTechFilter'); if(jtf) jtf.onchange=()=>{ STATE.jobTech=jtf.value; render(); };
@@ -6241,6 +6247,27 @@ document.addEventListener('click',async ev=>{
     if(el.dataset.tab) MONEY.tab=el.dataset.tab; STATE.focus=f?{k:f}:null; STATE.view=to; STATE.jobStatusFilter=''; STATE.jobPeriod=''; STATE.jobTech=''; STATE.remFilter='all'; STATE.remShown=50; STATE.stQ=''; STATE.leadTc=''; render(); window.scrollTo(0,0); }
   else if(a==='focusclr'){ STATE.focus=null; render(); }
   else if(a==='lang'){ setLang(id); }
+  else if(a==='refer'){ if(STATE.view!=='refer') STATE.prevView=STATE.view; STATE.view='refer'; render(); window.scrollTo(0,0); refLoad().then(()=>{ if(STATE.view==='refer') bgRender(); }); }
+  else if(a==='referback'){ STATE.view=(STATE.prevView&&STATE.prevView!=='refer'&&STATE.prevView!=='help')?STATE.prevView:homeViewFor(STATE.session.role); render(); }
+  else if(a==='refcalc'){ STATE.refCalc=STATE.refCalc||{}; STATE.refCalc[id]=Math.max(0,Math.min(99,(Number(STATE.refCalc[id])||0)+Number(el.dataset.d))); render(); }
+  else if(a==='reffil'){ STATE.refFilter=id; render(); }
+  else if(a==='refadd'){ const name=val('rf_name'), ph=val('rf_ph').replace(/\D/g,'').slice(-10), role=val('rf_role'), note=val('rf_note');
+    if(name.length<2){ showToast('Naam likhein'); return; } if(!/^[6-9]\d{9}$/.test(ph)){ showToast('10-digit sahi mobile number likhein'); return; }
+    if((STATE.staff||[]).some(x=>String(x.phone||'').replace(/\D/g,'').slice(-10)===ph)){ showToast('Ye number pehle se staff me hai'); return; }
+    const cfg=refCfg(); let dup=false; const ok=await refMutate(cur=>{ if(cur.some(r=>r.phone===ph&&r.status!=='rejected')){ dup=true; return false; } cur.push({id:uid(),by:STATE.session.staffId||'',byName:STATE.session.name||'',name,phone:ph,role,amount:Number(cfg.rates[role])||0,days:cfg.days,note,status:'new',createdAt:Date.now()}); });
+    if(dup){ showToast('Is number ka refer pehle se ho chuka hai'); return; } if(!ok) return; showToast('✅ Refer bhej diya. Join hone par reward milega'); render(); }
+  else if(a==='refdel'){ if(!confirm('Ye refer hata dein?')) return; await refMutate(cur=>{ const i=cur.findIndex(r=>r.id===id&&r.by===STATE.session.staffId&&r.status==='new'); if(i<0) return false; cur.splice(i,1); }); render(); }
+  else if(a==='refjoin'||a==='refpay'||a==='refrej'||a==='refundo'){ if(STATE.session.role!=='admin') return;
+    const r0=(STATE.refs||[]).find(r=>r.id===id); if(!r0) return;
+    if(a==='refrej'&&!confirm(r0.name+' ka refer reject karein?')) return;
+    if(a==='refpay'){ const st=refSt(r0); if(!confirm((st==='wait'?'⚠️ Abhi '+Math.max(0,Number(r0.days!=null?r0.days:refCfg().days)-refDaysDone(r0))+' din baaki hain.\n':'')+r0.byName+' ko '+rupee(r0.amount)+' reward diya? (UPI se bhejne ke baad hi dabayein)')) return; }
+    await refMutate(cur=>{ const r=cur.find(x=>x.id===id); if(!r) return false; if(a==='refjoin'){ r.status='joined'; r.joinedAt=todayStr(); } else if(a==='refpay'){ r.status='paid'; r.paidAt=Date.now(); } else if(a==='refrej'){ r.status='rejected'; } else { if(r.status==='paid'){ r.status='joined'; delete r.paidAt; } else if(r.status==='joined'){ r.status='new'; delete r.joinedAt; } else if(r.status==='rejected'){ r.status='new'; } } });
+    render(); }
+  else if(a==='refcfg'){ if(STATE.session.role!=='admin') return; const rates={}; for(const r of REF_ROLES){ const v=Number(val('rc_'+r[0])); if(!isFinite(v)||v<0){ showToast(r[2]+' ka amount sahi likhein'); return; } rates[r[0]]=v; } const d=Number(val('rc_days')); if(!isFinite(d)||d<0||d>365){ showToast('Din 0 se 365 ke beech likhein'); return; }
+    STATE.businessInfo=Object.assign({},STATE.businessInfo,{referCfg:{rates,days:d}}); await saveKey(SKEY.BUSINESS,STATE.businessInfo); showToast('✅ Rate save ho gaye'); render(); }
+  else if(a==='helprole'){ STATE.helpRole=id; render(); }
+  else if(a==='hvsave'){ if(STATE.session.role!=='admin') return; const u=val('hv_url'); if(u&&!/^https?:\/\//i.test(u)){ showToast('Link http:// ya https:// se shuru hona chahiye'); return; }
+    const V=Object.assign({},(STATE.businessInfo||{}).helpVideos||{}); if(u) V[id]=u; else delete V[id]; STATE.businessInfo=Object.assign({},STATE.businessInfo,{helpVideos:V}); await saveKey(SKEY.BUSINESS,STATE.businessInfo); showToast(u?'✅ Video link save ho gaya':'Video hata diya'); render(); }
   else if(a==='help'){ if(STATE.view!=='help') STATE.prevView=STATE.view; STATE.view='help'; render(); window.scrollTo(0,0); }
   else if(a==='helpback'){ STATE.view=(STATE.prevView&&STATE.prevView!=='help')?STATE.prevView:homeViewFor(STATE.session.role); render(); }
   else if(a==='dlrole'){ STATE.dl=STATE.dl||{range:'today',from:'',to:'',who:'',type:'',sel:{}}; STATE.dl.role=(STATE.dl.role===id?'':id); STATE.dl.sel={}; render(); }
@@ -6259,6 +6286,10 @@ document.addEventListener('click',async ev=>{
   else if(a==='idsave'){ const s=STATE.staff.find(x=>x.id===id); if(s){ s.bloodGroup=val('v9_bg').slice(0,5); s.emergency=val('v9_em').replace(/\D/g,'').slice(0,10); await saveKey(SKEY.STAFF,STATE.staff); showToast('Save ho gaya'); render(); } }
   else if(a==='idblock'){ const s=STATE.staff.find(x=>x.id===id); if(s){ s.idBlocked=!s.idBlocked; await saveKey(SKEY.STAFF,STATE.staff); showToast(s.idBlocked?'ID block ho gaya':'ID valid ho gaya'); render(); } }
   else if(a==='idpdf'||a==='idimg'){ const s=STATE.staff.find(x=>x.id===id); if(s){ showToast('Tayyar ho raha hai…'); try{ await idRender(a==='idpdf'?'pdf':'img',s); }catch(e){ console.error(e); showToast('Download nahi ho paya — internet check karein'); } } }
+  else if(a==='cselall'||a==='cselnone'){ STATE.cSel={}; if(a==='cselall'){ (STATE.__cList||[]).forEach(c=>{ STATE.cSel[c.id]=true; }); } render(); }
+  else if(a==='cseldl'){ const L=(STATE.__cList||[]).filter(c=>(STATE.cSel||{})[c.id]); if(!L.length){ showToast('Pehle customers select karein'); return; }
+    const q=x=>'"'+String(x==null?'':x).replace(/"/g,'""')+'"', rows=[['Naam','Mobile','Mobile 2','Area','Address','Type','AMC status','AMC khatam','AMC rakam']].concat(L.map(c=>[c.name,c.phone,c.phone2,custAreaOf(c)||c.area||'',c.address,(c.type||'amc')==='amc'?'AMC':'One-time',(c.type||'amc')==='amc'?amcStatusOf(c):'',c.expiryDate||'',c.amcAmount||'']));
+    const csv='\ufeff'+rows.map(r=>r.map(q).join(',')).join('\r\n'); await saveFileCompat(new Blob([csv],{type:'text/csv;charset=utf-8'}),'customers-'+todayStr()+'.csv'); showToast('✅ '+L.length+' customers ki list download hui'); }
   else if(a==='otselall'||a==='otselnone'){ STATE.otSel={}; if(a==='otselall'){ const idx=amcNameIdx(); let L=(STATE.customers||[]).filter(c=>!c.deleted&&(c.type||'amc')==='onetime'&&twinInfo(c,idx).tier>0&&twinInfo(c,idx).tier<3); if(STATE.custArea) L=L.filter(c=>areaMatch(c,STATE.custArea)); L.forEach(c=>{ STATE.otSel[c.id]=true; }); } render(); }
   else if(a==='otmerge'){ const ids=Object.keys(STATE.otSel||{}).filter(k=>STATE.otSel[k]); if(!ids.length){ showToast('Pehle customers select karein'); return; }
     const idx=amcNameIdx(); const pairs=[]; let skip=0; ids.forEach(id=>{ const c=STATE.customers.find(x=>x.id===id&&!x.deleted); if(!c) return; const inf=twinInfo(c,idx); let t=inf.list; if(inf.tier===3){ skip++; return; } if(t.length>1){ const g=t.filter(o=>addrOverlap(c,o)===true); if(g.length===1) t=g; } if(t.length===1) pairs.push([t[0],c]); else skip++; });
@@ -7467,7 +7498,7 @@ const HELP=[
   ['App install: iPhone me Safari → Share → "Add to Home Screen". Android me Chrome → "Install app".','Install the app: on iPhone use Safari → Share → "Add to Home Screen". On Android use Chrome → "Install app".','ऐप इंस्टॉल: iPhone में Safari → Share → "Add to Home Screen"। Android में Chrome → "Install app"।'],
   ['Login: apna naam chuniye aur PIN daaliye. PIN bhool gaye to Admin se reset karwayein.','Login: select your name and enter your PIN. If you forget the PIN, ask Admin to reset it.','लॉगिन: अपना नाम चुनें और PIN डालें। PIN भूल जाएँ तो एडमिन से रीसेट करवाएँ।'],
   ['Location aur Notification allow karna zaroori hai (iPhone me sirf Location). Bina iske kaam shuru nahi hota.','Location and Notification permission are required (only Location on iPhone). The app will not start work without them.','लोकेशन और नोटिफिकेशन की अनुमति ज़रूरी है (iPhone में सिर्फ़ लोकेशन)। इसके बिना काम शुरू नहीं होता।'],
-  ['Bhasha badalne ke liye upar 🌐 button dabayein (Hinglish / English / हिंदी). ','To change language tap the 🌐 button at the top (Hinglish / English / Hindi).','भाषा बदलने के लिए ऊपर 🌐 बटन दबाएँ (Hinglish / English / हिंदी)।']]},
+  ['Bhasha badalne ke liye upar 🌐 button dabayein (Hinglish / English / हिंदी).','To change language tap the 🌐 button at the top (Hinglish / English / Hindi).','भाषा बदलने के लिए ऊपर 🌐 बटन दबाएँ (Hinglish / English / हिंदी)।']]},
  {t:['🔧 Technician','🔧 Technician','🔧 टेक्नीशियन'],roles:'technician,admin,subadmin',i:[
   ['Subah office ka QR scan karke IN, jaate samay OUT lagayein.','Scan the office QR to mark IN in the morning and OUT when leaving.','सुबह ऑफिस का QR स्कैन करके IN और जाते समय OUT लगाएँ।'],
   ['Home par aaj ki jobs dikhti hain. Job kholein → Start → kaam karein → Complete (amount, payment mode, signature, photo).','Today\'s jobs are on Home. Open a job → Start → do the work → Complete (amount, payment mode, signature, photo).','होम पर आज के काम दिखते हैं। काम खोलें → Start → काम करें → Complete (रकम, भुगतान का तरीका, हस्ताक्षर, फोटो)।'],
@@ -7518,7 +7549,7 @@ const HELP=[
   ['Laptop par WhatsApp: Settings → Account me "WhatsApp kaise khule" se Web ya Desktop App chunein. Desktop App chunne par laptop ka pehle se login WhatsApp hi khulta hai.','WhatsApp on laptop: in Settings → Account choose Web or Desktop App under "How WhatsApp opens". With Desktop App the already logged-in WhatsApp on your laptop opens.','लैपटॉप पर WhatsApp: Settings → Account में "WhatsApp कैसे खुले" से Web या Desktop App चुनें। Desktop App चुनने पर लैपटॉप का पहले से लॉगिन WhatsApp ही खुलता है।'],
  ]},
  {t:['🌐 Bhasha (Language)','🌐 Language','🌐 भाषा'],roles:'all',i:[
-  ['Upar 🌐 button har baar dabane par Hinglish → English → हिंदी badalta hai. Chunni hui bhasha is phone me yaad rehti hai.','The 🌐 button at the top cycles Hinglish → English → हिंदी each time. The chosen language is remembered on this phone.','ऊपर 🌐 बटन हर बार दबाने पर Hinglish → English → हिंदी बदलता है। चुनी हुई भाषा इस फ़ोन में याद रहती है।'],
+  ['Upar 🌐 button har baar dabane par Hinglish → English → हिंदी badalta hai. Chuni hui bhasha is phone me yaad rehti hai.','The 🌐 button at the top cycles Hinglish → English → हिंदी each time. The chosen language is remembered on this phone.','ऊपर 🌐 बटन हर बार दबाने पर Hinglish → English → हिंदी बदलता है। चुनी हुई भाषा इस फ़ोन में याद रहती है।'],
   ['Customer ke naam, address aur aapke likhe remark/notes jaise data ka anuvad nahi hota — wo jaise likhe hain waise hi dikhte hain.','Data such as customer names, addresses and the remarks/notes you wrote is not translated — it shows exactly as written.','कस्टमर के नाम, पते और आपके लिखे रिमार्क/नोट्स जैसे डेटा का अनुवाद नहीं होता — वे जैसे लिखे हैं वैसे ही दिखते हैं।'],
  ]},
  {t:['❓ Aam sawal','❓ Common questions','❓ आम सवाल'],roles:'all',i:[
@@ -7526,12 +7557,101 @@ const HELP=[
   ['Notification nahi aa raha? Android: app install karein aur Battery → Unrestricted. iPhone: app Home Screen se kholein.','No notifications? Android: install the app and set Battery → Unrestricted. iPhone: open the app from the Home Screen.','नोटिफिकेशन नहीं आ रहा? Android: ऐप इंस्टॉल करें और Battery → Unrestricted करें। iPhone: ऐप Home Screen से खोलें।'],
   ['iPhone me screen lock hone par live location band ho jati hai; Apple ki limit hai.','On iPhone live location stops when the screen locks; this is an Apple limitation.','iPhone में स्क्रीन लॉक होने पर लाइव लोकेशन बंद हो जाती है; यह Apple की सीमा है।']]}
 ];
+/* ===== v9.9.12 Refer aur Help (role-wise + video) ===== */
+const REF_ROLES=[['helper','🧰','Helper'],['technician','🔧','Technician'],['tele_fresher','📞','Telecaller (Fresher)'],['tele_exp','📞','Telecaller (Experience)']];
+const REF_KEY='st_referrals';
+function refCfg(){ const c=(STATE.businessInfo&&STATE.businessInfo.referCfg)||{}; const r=Object.assign({helper:500,technician:1000,tele_fresher:500,tele_exp:1000},c.rates||{}); const d=(c.days===0||c.days)?Number(c.days):30; return {rates:r,days:isFinite(d)&&d>=0?d:30}; }
+function refRoleName(k){ const x=REF_ROLES.find(r=>r[0]===k); return x?x[2]:k; }
+function refDaysDone(r){ if(!r.joinedAt) return 0; const d=new Date(r.joinedAt+'T00:00:00'); return isNaN(d)?0:Math.max(0,Math.floor((Date.now()-d.getTime())/864e5)); }
+function refSt(r){ if(r.status==='paid'||r.status==='rejected') return r.status; if(r.status==='joined'){ const need=Number(r.days!=null?r.days:refCfg().days); return refDaysDone(r)>=need?'due':'wait'; } return 'new'; }
+const REF_ST_TXT={new:['🆕 Join hona baaki','pill-amber'],wait:['⏳ Kaam kar raha hai','pill-sky'],due:['💰 Reward dena baaki','pill-green'],paid:['✅ Reward mil gaya','pill-green'],rejected:['❌ Reject','pill-amber']};
+function refSummary(list){ const o={paid:0,pend:0,due:0,nDue:0,nNew:0}; list.forEach(r=>{ const st=refSt(r), a=Number(r.amount)||0; if(st==='paid') o.paid+=a; else if(st==='rejected') return; else { o.pend+=a; if(st==='due'){ o.due+=a; o.nDue++; } if(st==='new') o.nNew++; } }); return o; }
+async function refLoad(){ try{ const v=await loadKey(REF_KEY,[]); STATE.refs=Array.isArray(v)?v:[]; return true; }catch(e){ STATE.refs=STATE.refs||[]; return false; } }
+async function refMutate(fn){ let cur; try{ cur=await loadKey(REF_KEY,[]); }catch(e){ showToast('⚠️ Internet/server dikkat — baad me try karein'); return false; } if(!Array.isArray(cur)) cur=[]; const ok=fn(cur); if(ok===false) return false; STATE.refs=cur; const r=await saveKey(REF_KEY,cur); return r!==false; }
+function referCardHtml(){ const c=refCfg(), v=Object.values(c.rates).map(Number), lo=Math.min.apply(null,v), hi=Math.max.apply(null,v); const admin=STATE.session&&STATE.session.role==='admin'; let pill=''; if(admin){ const S=refSummary(STATE.refs||[]); if(S.nDue) pill=`<span class="pill pill-green" style="margin-left:6px;">${S.nDue} reward dena baaki</span>`; else if(S.nNew) pill=`<span class="pill pill-amber" style="margin-left:6px;">${S.nNew} naye refer</span>`; }
+  return `<div class="card" style="border:1px solid var(--teal);display:flex;gap:10px;align-items:center;"><div style="font-size:28px;">💰</div><div style="flex:1;min-width:0;"><div class="item-name">Refer karo, kamao${pill}</div><div class="item-sub" style="margin:2px 0 0;">Kisi ko bhi jodo. Mahine me 5 log jodoge to ${rupee(lo*5)} se ${rupee(hi*5)} tak kamai.</div></div><button class="mini-btn primary" data-v9="refer" style="flex:none;">Dekho</button></div>`; }
+function referHtml(){
+  const c=refCfg(), me=STATE.session.staffId, admin=STATE.session.role==='admin', all=(STATE.refs||[]), mine=all.filter(r=>r.by===me);
+  const calc=STATE.refCalc||{}, tot=REF_ROLES.reduce((t,r)=>t+(Number(calc[r[0]])||0)*Number(c.rates[r[0]]||0),0), cnt=REF_ROLES.reduce((t,r)=>t+(Number(calc[r[0]])||0),0);
+  const head=`<div class="row-between sticky-back"><button class="ghost-btn" style="width:auto;padding:8px 14px;margin-top:0;" data-v9="referback">‹ Wapas</button><button class="mini-btn" data-v9="help">❓ Help</button></div><div class="section-title">💰 Refer karo, kamao</div>`;
+  const rule=`<div class="card"><div class="item-name">Kaise kaam karta hai?</div><div class="item-sub" style="margin:6px 0;line-height:1.6;">1. Kisi ko bhi refer karein: dost, rishtedar ya jaan-pehchaan wala.<br>2. Niche uska naam, mobile number aur kaam (role) bharkar bhejein.<br>3. Wo join kare aur <b>${c.days} din</b> kaam kare, tab aapka reward pakka hota hai.<br>4. Admin UPI se reward bhejta hai aur "Reward diya" likh deta hai.</div></div>`;
+  const rates=`<div class="card"><div class="item-name">Reward kitna milega?</div>${REF_ROLES.map(r=>`<div class="row-between" style="padding:6px 0;border-top:1px solid #e3ecef;"><div>${r[1]} ${r[2]}</div><div class="item-name" style="margin:0;color:var(--green);">${rupee(c.rates[r[0]])}</div></div>`).join('')}
+    <div class="item-sub" style="margin-top:8px;"><b>Mahine me kitne log jodoge to kitni kamai?</b></div>
+    <div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:13px;margin-top:4px;"><tr style="text-align:left;"><th style="padding:4px 2px;">Kaam</th>${[1,3,5,10].map(n=>`<th style="padding:4px 2px;text-align:right;">${n} log</th>`).join('')}</tr>${REF_ROLES.map(r=>`<tr style="border-top:1px solid #e3ecef;"><td style="padding:5px 2px;">${r[1]} ${r[2]}</td>${[1,3,5,10].map(n=>`<td style="padding:5px 2px;text-align:right;"><b>${rupee(n*c.rates[r[0]])}</b></td>`).join('')}</tr>`).join('')}</table></div></div>`;
+  const calcH=`<div class="card"><div class="item-name">🧮 Apni kamai ka hisaab lagao</div><div class="item-sub" style="margin:4px 0 6px;">Har kaam ke aage + dabakar batao kitne log jodoge.</div>${REF_ROLES.map(r=>`<div class="row-between" style="padding:6px 0;"><div>${r[1]} ${r[2]}</div><div style="display:flex;align-items:center;gap:10px;"><button class="mini-btn" data-v9="refcalc" data-id="${r[0]}" data-d="-1" style="padding:4px 12px;">−</button><b style="min-width:20px;text-align:center;">${Number(calc[r[0]])||0}</b><button class="mini-btn" data-v9="refcalc" data-id="${r[0]}" data-d="1" style="padding:4px 12px;">+</button></div></div>`).join('')}<div class="row-between" style="border-top:2px solid var(--teal);padding-top:8px;margin-top:4px;"><div class="item-name" style="margin:0;">${cnt} log = mahine ki kamai</div><div class="item-name" style="margin:0;font-size:22px;color:var(--green);">${rupee(tot)}</div></div></div>`;
+  const form=`<div class="card"><div class="item-name">➕ Naya refer bhejein</div>
+    <div class="field"><label>Jise refer kar rahe ho uska naam</label><input id="rf_name" placeholder="Naam"></div>
+    <div class="field"><label>Mobile number</label><input id="rf_ph" inputmode="numeric" maxlength="12" placeholder="10-digit number"></div>
+    <div class="field"><label>Wo kis kaam ke liye aayega?</label><select id="rf_role">${REF_ROLES.map(r=>`<option value="${r[0]}">${r[2]} — ${rupee(c.rates[r[0]])}</option>`).join('')}</select></div>
+    <div class="field"><label>Kuch batana ho to (optional)</label><input id="rf_note" placeholder="Jaise: 2 saal ka experience"></div>
+    <button class="primary-btn" data-v9="refadd">Refer bhejein</button></div>`;
+  const stCard=(r,showBy)=>{ const st=refSt(r), t=REF_ST_TXT[st], need=Number(r.days!=null?r.days:c.days); const left=st==='wait'?Math.max(0,need-refDaysDone(r)):0;
+    return `<div class="card"><div class="row-between"><div class="item-name" style="margin:0;">${esc(r.name)}</div><span class="pill ${t[1]}">${t[0]}</span></div>
+      <div class="item-sub" style="margin:4px 0;">${esc(refRoleName(r.role))} · <b>${rupee(r.amount)}</b> · ${esc(r.phone)}${showBy?' · Refer: <b>'+esc(r.byName||'')+'</b>':''}</div>
+      <div class="item-sub" style="margin:0;">Refer: ${fmtDate(new Date(r.createdAt))}${r.joinedAt?' · Join: '+fmtDate(r.joinedAt):''}${st==='wait'?' · '+left+' din baaki':''}${r.paidAt?' · Diya: '+fmtDate(new Date(r.paidAt)):''}${r.note?'<br>📝 '+esc(r.note):''}</div>
+      <div class="card-actions" style="margin-top:8px;">${admin?(st==='new'?`<button class="mini-btn primary" data-v9="refjoin" data-id="${r.id}">✅ Join hua</button><button class="mini-btn" data-v9="refrej" data-id="${r.id}">❌ Reject</button>`:(st==='wait'||st==='due')?`<button class="mini-btn primary" data-v9="refpay" data-id="${r.id}">💰 Reward diya (${rupee(r.amount)})</button><button class="mini-btn" data-v9="refundo" data-id="${r.id}">↩ Wapas</button>`:(st==='paid'?`<button class="mini-btn" data-v9="refundo" data-id="${r.id}">↩ Wapas</button>`:`<button class="mini-btn" data-v9="refundo" data-id="${r.id}">↩ Wapas</button>`)):(st==='new'?`<button class="mini-btn" data-v9="refdel" data-id="${r.id}">🗑 Hatao</button>`:'')}</div></div>`; };
+  const S=refSummary(mine);
+  const myH=`<div class="section-title">Mere refer (${mine.length})</div><div class="stat-grid"><div class="stat-card"><div class="stat-num" style="color:var(--green);">${rupee(S.paid)}</div><div class="stat-label">Reward mil chuka</div></div><div class="stat-card"><div class="stat-num" style="color:var(--amber);">${rupee(S.pend)}</div><div class="stat-label">Aane wala (baaki)</div></div></div>${mine.length?mine.slice().sort((a,b)=>b.createdAt-a.createdAt).map(r=>stCard(r,false)).join(''):`<div class="empty-state"><span class="ic">🎁</span><p>Abhi aapne kisi ko refer nahi kiya.</p></div>`}`;
+  let adm='';
+  if(admin){ const f=STATE.refFilter||'', order={due:0,wait:1,new:2,paid:3,rejected:4}, AS=refSummary(all);
+    const rows=all.map(r=>({r,st:refSt(r)})); const n=k=>rows.filter(x=>x.st===k).length;
+    const list=rows.filter(x=>!f||x.st===f).sort((a,b)=>order[a.st]-order[b.st]||b.r.createdAt-a.r.createdAt);
+    const chip=(k,l)=>`<button class="mini-btn ${f===k?'primary':''}" data-v9="reffil" data-id="${k}" style="margin:2px;">${l}</button>`;
+    adm=`<div class="section-title">👑 Sab ke refer (Admin)</div><div class="stat-grid"><div class="stat-card"><div class="stat-num" style="color:var(--green);">${rupee(AS.due)}</div><div class="stat-label">Abhi dena hai (${AS.nDue})</div></div><div class="stat-card"><div class="stat-num">${rupee(AS.paid)}</div><div class="stat-label">Ab tak diya</div></div></div>
+      <div style="margin:6px 0;">${chip('','Sab ('+rows.length+')')}${chip('due','💰 Dena baaki ('+n('due')+')')}${chip('new','🆕 Join baaki ('+n('new')+')')}${chip('wait','⏳ Kaam kar rahe ('+n('wait')+')')}${chip('paid','✅ Diya ('+n('paid')+')')}${chip('rejected','❌ Reject ('+n('rejected')+')')}</div>
+      ${list.length?list.map(x=>stCard(x.r,true)).join(''):`<div class="empty-state"><span class="ic">🎁</span><p>Is filter me koi refer nahi.</p></div>`}
+      <div class="card"><div class="item-name">⚙️ Reward ke rate aur din (sirf Admin)</div>${REF_ROLES.map(r=>`<div class="field"><label>${r[2]} (₹)</label><input id="rc_${r[0]}" inputmode="numeric" value="${Number(c.rates[r[0]])||0}"></div>`).join('')}<div class="field"><label>Join ke kitne din baad reward pakka</label><input id="rc_days" inputmode="numeric" value="${c.days}"></div><div class="item-sub">Rate badalne se purane refer ka amount nahi badalta; sirf naye refer par lagta hai.</div><button class="primary-btn" data-v9="refcfg">Rate save karein</button></div>`; }
+  return head+rule+rates+calcH+form+myH+adm;
+}
+const HELP_VID_KEYS=[['technician','🔧 Technician'],['helper','🧰 Helper'],['telecaller','📞 Telecaller'],['subadmin','🧑‍💼 Office'],['admin','👑 Admin']];
+function helpVideos(){ return (STATE.businessInfo&&STATE.businessInfo.helpVideos)||{}; }
+function helpExtra(li){
+  const c=refCfg(), R=c.rates, Rt=k=>rupee(R[k]);
+  const T=(a,b,h)=>[a,b,h];
+  const tech={t:['🚀 Technician: roz ka kaam, step by step','🚀 Technician: daily work, step by step','🚀 टेक्नीशियन: रोज़ का काम, स्टेप बाय स्टेप'],roles:'technician',i:[
+    T('Step 1 — Subah office me app kholein aur office ka QR scan karke IN lagayein.','Step 1 — In the morning open the app at the office and scan the office QR to mark IN.','स्टेप 1 — सुबह ऑफिस में ऐप खोलें और ऑफिस का QR स्कैन करके IN लगाएँ।'),
+    T('Step 2 — Home par "Aaj ki jobs" dekhein. Job dabakar customer ka naam, pata aur number dekhein.','Step 2 — See "Today\'s jobs" on Home. Tap a job to see the customer name, address and number.','स्टेप 2 — होम पर "आज की जॉब" देखें। जॉब दबाकर ग्राहक का नाम, पता और नंबर देखें।'),
+    T('Step 3 — Customer ke ghar pahunchkar job kholein aur "Start" dabayein.','Step 3 — At the customer\'s place open the job and tap "Start".','स्टेप 3 — ग्राहक के घर पहुँचकर जॉब खोलें और "Start" दबाएँ।'),
+    T('Step 4 — Kaam hone par "Complete" dabayein. Rakam, payment ka tareeka (Cash ya Online), customer ka signature aur photo daalein.','Step 4 — When the work is done tap "Complete". Enter the amount, payment mode (Cash or Online), customer signature and photo.','स्टेप 4 — काम होने पर "Complete" दबाएँ। रकम, भुगतान का तरीका (Cash या Online), ग्राहक का हस्ताक्षर और फोटो डालें।'),
+    T('Step 5 — Bill banayein aur "Bill Download Karein" dabakar customer ko WhatsApp par bhej dein.','Step 5 — Make the Bill, tap "Download Bill" and send it to the customer on WhatsApp.','स्टेप 5 — बिल बनाएँ और "बिल डाउनलोड करें" दबाकर ग्राहक को WhatsApp पर भेज दें।'),
+    T('Step 6 — Shaam ko office chhodte samay QR scan karke OUT lagayein.','Step 6 — In the evening scan the QR to mark OUT when you leave.','स्टेप 6 — शाम को ऑफिस छोड़ते समय QR स्कैन करके OUT लगाएँ।')]};
+  const tele={t:['🚀 Telecaller: roz ka kaam, step by step','🚀 Telecaller: daily work, step by step','🚀 टेलीकॉलर: रोज़ का काम, स्टेप बाय स्टेप'],roles:'telecaller',i:[
+    T('Step 1 — Subah office ka QR scan karke IN lagayein (Attendance tab).','Step 1 — In the morning scan the office QR to mark IN (Attendance tab).','स्टेप 1 — सुबह ऑफिस का QR स्कैन करके IN लगाएँ (Attendance टैब)।'),
+    T('Step 2 — Leads tab kholein. Aapko di gayi leads wahin dikhengi.','Step 2 — Open the Leads tab. The leads given to you appear there.','स्टेप 2 — Leads टैब खोलें। आपको दी गई लीड्स वहीं दिखेंगी।'),
+    T('Step 3 — Customer ko call karein.','Step 3 — Call the customer.','स्टेप 3 — ग्राहक को कॉल करें।'),
+    T('Step 4 — Call ke baad "Call Ho Gayi" ya "Baad mein call" dabayein aur chhota sa remark likhein.','Step 4 — After the call tap "Call Done" or "Call later" and write a short remark.','स्टेप 4 — कॉल के बाद "Call हो गई" या "बाद में कॉल" दबाएँ और छोटा सा रिमार्क लिखें।'),
+    T('Step 5 — Customer AMC le le to AMC bana dein. Mahine ka ₹1 lakh target pura hote hi poori rakam par 4% incentive milta hai.','Step 5 — If the customer takes an AMC, create it. Once the monthly ₹1 lakh target is met you get 4% incentive on the full amount.','स्टेप 5 — ग्राहक AMC ले ले तो AMC बना दें। महीने का ₹1 लाख टारगेट पूरा होते ही पूरी रकम पर 4% इंसेंटिव मिलता है।'),
+    T('Step 6 — Shaam ko QR scan karke OUT lagayein.','Step 6 — In the evening scan the QR to mark OUT.','स्टेप 6 — शाम को QR स्कैन करके OUT लगाएँ।')]};
+  const ref={t:['💰 Refer karo aur paise kamao','💰 Refer and earn money','💰 रेफ़र करो और पैसे कमाओ'],roles:'all',i:[
+    T('Staff ka koi bhi member kisi ko bhi refer kar sakta hai: dost, rishtedar ya jaan-pehchaan wala.','Any staff member can refer anyone: a friend, relative or acquaintance.','स्टाफ़ का कोई भी सदस्य किसी को भी रेफ़र कर सकता है: दोस्त, रिश्तेदार या जान-पहचान वाला।'),
+    T('Home ke "💰 Refer karo, kamao" card se Refer screen kholein. Naam, mobile number aur kaam (Helper, Technician ya Telecaller) bharkar "Refer bhejein" dabayein.','Open the Refer screen from the "💰 Refer and earn" card on Home. Enter the name, mobile number and role (Helper, Technician or Telecaller) and tap "Send refer".','होम के "💰 रेफ़र करो, कमाओ" कार्ड से Refer स्क्रीन खोलें। नाम, मोबाइल नंबर और काम (Helper, Technician या Telecaller) भरकर "Refer भेजें" दबाएँ।'),
+    T('Reward: Helper '+Rt('helper')+' · Technician '+Rt('technician')+' · Telecaller Fresher '+Rt('tele_fresher')+' · Telecaller Experience '+Rt('tele_exp')+'.','Reward: Helper '+Rt('helper')+' · Technician '+Rt('technician')+' · Telecaller Fresher '+Rt('tele_fresher')+' · Telecaller Experience '+Rt('tele_exp')+'.','इनाम: Helper '+Rt('helper')+' · Technician '+Rt('technician')+' · Telecaller Fresher '+Rt('tele_fresher')+' · Telecaller Experience '+Rt('tele_exp')+'।'),
+    T('Reward tab pakka hota hai jab wo banda join kare aur '+c.days+' din kaam kare. Phir Admin UPI se paise bhejta hai aur "Reward diya" likh deta hai.','The reward is confirmed when the person joins and works for '+c.days+' days. Then Admin sends the money by UPI and marks "Reward given".','इनाम तब पक्का होता है जब वह व्यक्ति जॉइन करे और '+c.days+' दिन काम करे। फिर एडमिन UPI से पैसे भेजता है और "इनाम दिया" लिख देता है।'),
+    T('Mahine me 5 Technician jodoge to '+rupee(5*R.technician)+', 5 Helper jodoge to '+rupee(5*R.helper)+'. Refer screen ke calculator me apna hisaab dekh sakte hain.','Refer 5 Technicians in a month and earn '+rupee(5*R.technician)+'; 5 Helpers earn '+rupee(5*R.helper)+'. Use the calculator on the Refer screen to see your total.','महीने में 5 टेक्नीशियन जोड़ोगे तो '+rupee(5*R.technician)+', 5 हेल्पर जोड़ोगे तो '+rupee(5*R.helper)+'। Refer स्क्रीन के कैलकुलेटर में अपना हिसाब देख सकते हैं।')]};
+  return {tech,tele,ref};
+}
+function helpVideoBox(li,role,sel){
+  const V=helpVideos(), admin=role==='admin', mk=(k,l)=>V[k]&&/^https?:\/\//i.test(V[k])?`<a class="mini-btn primary" href="${esc(V[k])}" target="_blank" rel="noopener" style="text-decoration:none;display:inline-block;margin:3px 6px 3px 0;">▶ ${l} video dekhein</a>`:'';
+  let h='';
+  if(!admin){ const keys=role==='technician'?['technician','helper']:role==='telecaller'?['telecaller']:['subadmin']; h=keys.map(k=>mk(k,(HELP_VID_KEYS.find(x=>x[0]===k)||['',''])[1])).join(''); return h?`<div class="card"><div class="item-name">🎬 Video se seekhein</div><div style="margin-top:6px;">${h}</div></div>`:''; }
+  if(!sel) return `<div class="card"><div class="item-name">🎬 Help video (Admin)</div><div class="item-sub" style="margin:4px 0;">Upar se role chunein (Technician, Helper, Telecaller, Office, Admin), phir uske video ka link lagayein. Staff ko apne role ka video button dikhega.</div></div>`;
+  const nm=(HELP_VID_KEYS.find(x=>x[0]===sel)||['',sel])[1], cur=V[sel]||'';
+  return `<div class="card"><div class="item-name">🎬 ${nm} ka help video</div>${mk(sel,nm)||'<div class="item-sub" style="margin:4px 0;">Abhi video ka link nahi lagaya.</div>'}
+   <div class="field" style="margin-top:8px;"><label>Video ka link (YouTube / Google Drive)</label><input id="hv_url" value="${esc(cur)}" placeholder="https://youtu.be/..."></div>
+   <button class="primary-btn" data-v9="hvsave" data-id="${sel}">Video link save karein</button>
+   <div class="item-sub" style="margin-top:6px;">Tip: YouTube par "Unlisted" video daalein, ya Google Drive me "Anyone with the link" karke link copy karein. Link khali karke save karne se video hat jata hai.</div></div>`;
+}
 function helpHtml(){
-  const li=LANG==='en'?1:LANG==='hi'?2:0, role=STATE.session.role;
-  const show=s=>s.roles==='all'||s.roles.split(',').indexOf(role)>-1;
+  const li=LANG==='en'?1:LANG==='hi'?2:0, role=STATE.session.role, admin=role==='admin';
+  const sel=admin?(STATE.helpRole||''):'', mapR=sel==='helper'?'technician':sel;
+  const show=s=>sel?(s.roles==='all'||s.roles.split(',').indexOf(mapR)>-1):(s.roles==='all'||s.roles.split(',').indexOf(role)>-1);
+  const X=helpExtra(li), list=[X.tech,X.tele,X.ref].concat(HELP).filter(show);
+  const chips=admin?`<div style="margin:6px 0 10px;overflow-x:auto;white-space:nowrap;">${[['','🌐 Sab']].concat(HELP_VID_KEYS).map(([k,l])=>`<button class="mini-btn ${sel===k?'primary':''}" data-v9="helprole" data-id="${k}" style="margin-right:6px;">${l}</button>`).join('')}</div>`:'';
   return `<div class="row-between sticky-back"><button class="ghost-btn" style="width:auto;padding:8px 14px;margin-top:0;" data-v9="helpback">‹ ${li===1?'Back':li===2?'वापस':'Wapas'}</button><button class="mini-btn" data-v9="lang" data-id="${LANGS[(LANGS.indexOf(LANG)+1)%3]}">🌐 ${LANG_LABEL[LANG]}</button></div>
   <div class="section-title">❓ ${li===1?'Help':li===2?'मदद':'Help / Madad'}</div>
-  ${HELP.filter(show).map((s,k)=>`<details class="card" ${k===0?'open':''}><summary class="item-name" style="cursor:pointer;">${s.t[li]}</summary>${s.i.map(x=>`<div class="item-sub" style="margin:8px 0;line-height:1.5;">• ${esc(x[li])}</div>`).join('')}</details>`).join('')}`;
+  ${chips}${helpVideoBox(li,role,sel)}
+  <div class="card" style="border:1px solid var(--teal);"><div class="row-between"><div><div class="item-name">💰 ${li===1?'Refer and earn':li===2?'रेफ़र करो, कमाओ':'Refer karo, kamao'}</div><div class="item-sub" style="margin:2px 0 0;">${li===1?'Refer anyone and earn a reward.':li===2?'किसी को भी रेफ़र करो और इनाम पाओ।':'Kisi ko bhi refer karo aur reward kamao.'}</div></div><button class="mini-btn primary" data-v9="refer">${li===1?'Open':li===2?'खोलें':'Kholein'}</button></div></div>
+  ${list.map((s,k)=>`<details class="card" ${k===0?'open':''}><summary class="item-name" style="cursor:pointer;">${s.t[li]}</summary>${s.i.map(x=>`<div class="item-sub" style="margin:8px 0;line-height:1.6;">${/^Step \d|^स्टेप \d/.test(x[li])?'':'• '}${esc(x[li])}</div>`).join('')}</details>`).join('')}`;
 }
 
 if(document.body) trStart(); else document.addEventListener('DOMContentLoaded',trStart);
