@@ -4212,6 +4212,82 @@ function renderStaff(){ if(STATE.session.role!=='admin') return '<div class="emp
     <button class="fab" id="addStaffBtn">+</button>
   `;
 }
+/* ===== v9.x: Import kaam (bill/AMC file) ko staff profile se jodna ===== */
+const _TN_STOP=/^(mr|mrs|ms|miss|shri|shree|sri|smt|shrimati|dr|madam|mam|sir|ji|saheb|sahab)$/;
+function _ntok(n){ return String(n||'').toLowerCase().split(/[^a-z0-9ऀ-ॿ]+/).filter(t=>t&&!_TN_STOP.test(t)); }
+let _TM={sig:'',map:new Map()};
+function techMatchId(name){
+  const key=nameKey(name); if(!key) return '';
+  const staff=STATE.staff||[], al=((STATE.businessInfo||{}).techAlias)||{};
+  const sig=staff.map(s=>s.id+s.name).join('|')+'#'+JSON.stringify(al);
+  if(_TM.sig!==sig) _TM={sig,map:new Map()};
+  if(_TM.map.has(key)) return _TM.map.get(key);
+  let res='';
+  if(al[key]!==undefined){ res=staff.some(s=>s.id===al[key])?al[key]:''; if(al[key]==='-') res=''; }
+  if(!res&&al[key]===undefined){
+    const cand=staff.filter(s=>s.role!=='admin'||true);
+    const ex=cand.filter(s=>nameKey(s.name)===key);
+    if(ex.length===1) res=ex[0].id;
+    else if(!ex.length){
+      const tk=_ntok(name);
+      const sub=cand.filter(s=>{ const st=_ntok(s.name); if(!st.length||!tk.length) return false; const same=(x,y)=>x===y||(x.length>=4&&y.length>=4&&_lev(x,y,1)<=1); const a=tk.every(t=>st.some(u=>same(t,u))), b=st.every(u=>tk.some(t=>same(t,u))); return a||b; });
+      if(sub.length===1) res=sub[0].id;
+      else if(!sub.length&&key.length>=5){ const lv=cand.filter(s=>{ const k2=nameKey(s.name); return k2.length>=5&&_lev(key,k2,1)<=1; }); if(lv.length===1) res=lv[0].id; }
+    }
+  }
+  _TM.map.set(key,res); return res;
+}
+function impKind(b){
+  const c=b.cat||classifyWork(b.work), w=String(b.work||'').toLowerCase();
+  if(c==='renewal'||/^amc/.test(c)||/\bamc\b/.test(w)) return 'amc';
+  if(/install|uninstall|shift|dismantle|fitting/.test(w)) return 'inst';
+  if(c==='repair') return 'rep';
+  return 'oth';
+}
+const IMP_LBL={rep:'Repairing',inst:'Installation',amc:'AMC',oth:'Service / Anya'};
+function importWorkOf(staffId){
+  const bills=(STATE.bills||[]).filter(b=>b&&b.techName&&techMatchId(b.techName)===staffId).sort((a,b)=>String(b.date||'').localeCompare(String(a.date||'')));
+  const amcs=[]; (STATE.customers||[]).forEach(c=>{ (c.amcHistory||[]).forEach((h,i)=>{ if(h&&h.tech&&techMatchId(h.tech)===staffId) amcs.push({c,h,i}); }); });
+  amcs.sort((a,b)=>String(b.h.start||'').localeCompare(String(a.h.start||'')));
+  return {bills,amcs};
+}
+function impAgg(list){
+  const o={n:0,amt:0,due:0,cash:0,online:0,cheque:0,rep:0,inst:0,amc:0,oth:0};
+  list.forEach(b=>{ const a=Number(b.amount)||0; o.n++; o.amt+=a; o.due+=Number(b.due)||0; const m=normMode(b.mode); if(m&&o[m]!==undefined) o[m]+=a; o[impKind(b)]++; });
+  return o;
+}
+function unmatchedTechNames(){
+  const m=new Map(), add=(nm,src)=>{ nm=String(nm||'').trim(); if(!nm) return; const k=nameKey(nm); if(!k||techMatchId(nm)) return; const al=((STATE.businessInfo||{}).techAlias)||{}; if(al[k]==='-') return; const o=m.get(k)||{name:nm,n:0,key:k}; o.n++; m.set(k,o); };
+  (STATE.bills||[]).forEach(b=>add(b.techName)); (STATE.customers||[]).forEach(c=>(c.amcHistory||[]).forEach(h=>add(h&&h.tech)));
+  return [...m.values()].sort((a,b)=>b.n-a.n);
+}
+function importWorkHtml(staffId){
+  const money=isMoneyRole(), W=importWorkOf(staffId), un=money?unmatchedTechNames():[];
+  const unBtn=un.length?`<button class="mini-btn" style="background:#fff4d6;border-color:#e0b100;" data-v9="tmopen">🔗 Naam jodo (${un.length} naam match nahi hue)</button>`:'';
+  if(!W.bills.length&&!W.amcs.length) return unBtn?`<div class="card"><div class="section-title" style="margin:0 0 6px;">Purana kaam (import se)</div><div class="item-sub">Is staff ke naam se koi import kaam nahi mila.</div><div class="card-actions" style="margin-top:8px;">${unBtn}</div></div>`:'';
+  const mk=todayStr().slice(0,7), mon=W.bills.filter(b=>String(b.date||'').startsWith(mk)), A=impAgg(W.bills), M=impAgg(mon);
+  const st=(n,l)=>`<div class="stat-card"><div class="stat-num">${n}</div><div class="stat-label">${l}</div></div>`;
+  const split=o=>`Cash ${rupee(o.cash)} · Online ${rupee(o.online)} · Cheque ${rupee(o.cheque)}`;
+  const brk=o=>['rep','inst','amc','oth'].map(k=>`${IMP_LBL[k]}: <b>${o[k]}</b>`).join(' · ');
+  const showAll=(STATE.impAll||{})[staffId], L=showAll?W.bills:W.bills.slice(0,15);
+  const rows=L.map(b=>`<div style="padding:7px 0;border-top:1px solid var(--border);"><div class="row-between"><div style="min-width:0;">${b.customerId?`<span data-viewcust="${esc(b.customerId)}" class="item-name" style="cursor:pointer;text-decoration:underline;color:var(--teal);font-size:13.5px;">${esc(b.name||'Customer')} ›</span>`:`<span class="item-name" style="font-size:13.5px;">${esc(b.name||'Customer')}</span>`}<div class="item-sub">${fmtDate(b.date)} · ${esc(IMP_LBL[impKind(b)])}${b.work?' · '+esc(b.work):''}</div></div>${money?`<div style="text-align:right;flex:none;"><div class="item-name" style="font-size:13.5px;">${rupee(b.amount)}</div>${Number(b.due)>0?`<div class="item-sub" style="color:#c0392b;">Baaki ${rupee(b.due)}</div>`:''}</div>`:''}</div></div>`).join('');
+  const amcRows=W.amcs.slice(0,showAll?999:10).map(x=>`<div style="padding:7px 0;border-top:1px solid var(--border);"><div class="row-between"><div style="min-width:0;"><span data-viewcust="${esc(x.c.id)}" class="item-name" style="cursor:pointer;text-decoration:underline;color:var(--teal);font-size:13.5px;">${esc(x.c.name||'Customer')} ›</span><div class="item-sub">AMC ${x.h.start?fmtDate(x.h.start):''}${x.h.end?' → '+fmtDate(x.h.end):''}${x.h.units?' · '+x.h.units+' unit':''}</div></div>${money&&Number(x.h.amount)>0?`<div class="item-name" style="font-size:13.5px;flex:none;">${rupee(x.h.amount)}</div>`:''}</div></div>`).join('');
+  const more=(W.bills.length>15||W.amcs.length>10)?`<button class="mini-btn" data-v9="impall" data-id="${esc(staffId)}" style="margin-top:6px;">${showAll?'▲ Kam dikhayein':'▼ Poori list ('+W.bills.length+' bill)'}</button>`:'';
+  return `<div class="card"><div class="section-title" style="margin:0 0 4px;">Purana kaam (import se)</div><div class="item-sub" style="margin-bottom:8px;">Bill / AMC file se aaya kaam — app ke jobs se alag hai.</div>
+    <div class="item-sub" style="font-weight:700;">Is mahine</div><div class="stat-grid">${st(M.n,'Bill / kaam')}${money?st(rupee(M.amt),'Amount'):''}</div>${money?`<div class="item-sub">${split(M)}${M.due?' · Baaki '+rupee(M.due):''}</div>`:''}<div class="item-sub">${brk(M)}</div>
+    <div class="item-sub" style="font-weight:700;margin-top:10px;">Total (sab import)</div><div class="stat-grid">${st(A.n,'Bill / kaam')}${money?st(rupee(A.amt),'Amount'):''}${W.amcs.length?st(W.amcs.length,'AMC contract'):''}</div>${money?`<div class="item-sub">${split(A)}${A.due?' · Baaki '+rupee(A.due):''}</div>`:''}<div class="item-sub">${brk(A)}</div>
+    ${rows?`<div class="item-sub" style="font-weight:700;margin-top:10px;">Kaam ki list</div>${rows}`:''}${amcRows?`<div class="item-sub" style="font-weight:700;margin-top:10px;">AMC contracts</div>${amcRows}`:''}${more}${unBtn?`<div class="card-actions" style="margin-top:8px;">${unBtn}</div>`:''}</div>`;
+}
+function techMapHtml(){
+  const un=unmatchedTechNames(), opts=(STATE.staff||[]).filter(s=>s.role!=='admin'||true).map(s=>`<option value="${esc(s.id)}">${esc(s.name)}</option>`).join('');
+  return `<div class="modal-head"><h3>🔗 Naam jodo</h3><button class="close-x" id="modalClose">×</button></div><div class="item-sub" style="margin-bottom:8px;">Import file ke ye technician naam kisi staff se match nahi hue. Sahi staff chuniye — yaad rakha jayega.</div>
+    ${un.length?un.slice(0,60).map((u,i)=>`<div class="card"><div class="item-name" style="font-size:14px;">${esc(u.name)} <span class="pill pill-grey">${u.n} entry</span></div><div class="field" style="margin-top:6px;"><select id="tm_${i}"><option value="">— staff chuniye —</option>${opts}</select></div><div class="card-actions"><button class="mini-btn primary" data-v9="tmsave" data-i="${i}">Jodo</button><button class="mini-btn" data-v9="tmskip" data-i="${i}">Ignore karo</button></div></div>`).join(''):`<div class="empty-state"><p>Sab naam match ho gaye ✅</p></div>`}`;
+}
+async function techAliasSet(key,val){
+  STATE.businessInfo=STATE.businessInfo||{}; const al=Object.assign({},STATE.businessInfo.techAlias||{}); al[key]=val; STATE.businessInfo.techAlias=al;
+  _TM={sig:'',map:new Map()}; await saveKey(SKEY.BUSINESS,STATE.businessInfo);
+}
+
 function renderStaffProfile(){
   const s=STATE.staff.find(x=>x.id===STATE.staffDetailId);
   if(!s) return `<div class="empty-state"><span class="ic">👤</span><p>Staff member nahi mila.</p></div>`;
@@ -4248,6 +4324,7 @@ function renderStaffProfile(){
     </div>
     <div class="card" data-act="attdetail" data-id="${s.id}" style="cursor:pointer;"><div class="row-between"><div class="item-sub">📅 Is mahine attendance (din-wise dekhein ›)</div><div class="item-name">${thisMonthCount} din</div></div></div>
     ${s.role==='technician'?techMonthHtml(s.id):''}
+    ${s.role!=='admin'?importWorkHtml(s.id):''}
     ${(STATE.session.role==='admin'&&s.role!=='admin')?kycCardHtml(s.id):''}
     ${(STATE.session.role==='admin'&&s.role!=='admin')?auditHtml(s.id):''}
     ${(()=>{ const open=staffJobs.filter(j=>j.status!=='done'&&j.status!=='rejected'); if(!open.length) return ''; return `<div class="section-title">Pending / Ongoing kaam (${open.length})</div>`+open.map(j=>{ const cu=STATE.customers.find(c=>c.id===j.customerId); return `<div class="card"><div class="row-between"><div><div class="item-name">${esc(j.title)}${j.tag?' <span class="pill pill-sky">'+esc(j.tag)+'</span>':''}</div>${cu?`<div class="item-sub" data-viewcust="${cu.id}" style="cursor:pointer;text-decoration:underline;color:var(--teal);font-weight:600;">${esc(cu.name)} ›</div><div class="item-sub">📞 ${esc(cu.phone||'')}</div><div class="item-sub">📍 ${esc(cu.address||'')}</div>`:''}</div><span class="pill ${statusPill(j.status)}">${statusLabel(j.status)}</span></div><div class="item-sub" style="margin-top:6px;">📅 ${fmtDate(j.date)}${j.amount?' · '+rupee(j.amount):''}${j.status==='onhold'&&j.holdReason?' · ⏸ '+esc(j.holdReason):''}</div>${j.notes?`<div class="item-sub">📝 ${esc(j.notes)}</div>`:''}${(j.checklist||[]).length?`<div class="item-sub">☑ ${j.checklist.filter(x=>x.done).length}/${j.checklist.length} checklist</div>`:''}${mediaHtml(j.id)}</div>`; }).join(''); })()}
@@ -6242,6 +6319,9 @@ document.addEventListener('click',async ev=>{
   const el=ev.target.closest&&ev.target.closest('[data-v9]'); if(!el) return; const a=el.dataset.v9, id=el.dataset.id; const val=i=>((document.getElementById(i)||{}).value||'').trim();
   try{
   if(a==='scan'){ if(el.disabled) return; scanOpen(el.dataset.k); }
+  else if(a==='tmopen'){ activeModal={type:'techMap',data:{}}; render(); }
+  else if(a==='tmsave'||a==='tmskip'){ const u=unmatchedTechNames()[Number(el.dataset.i)]; if(!u) return; if(a==='tmsave'){ const v=val('tm_'+el.dataset.i); if(!v){ showToast('Pehle staff chuniye'); return; } await techAliasSet(u.key,v); showToast('✅ Jud gaya: '+u.name); } else { await techAliasSet(u.key,'-'); showToast('Ignore kiya'); } render(); }
+  else if(a==='impall'){ STATE.impAll=STATE.impAll||{}; STATE.impAll[id]=!STATE.impAll[id]; render(); }
   else if(a==='attgo'){ const to=el.dataset.to, f=el.dataset.focus||'';
     if(to==='adv'){ await advLoad(true); activeModal={type:'advList',data:{id:''}}; render(); return; }
     if(el.dataset.tab) MONEY.tab=el.dataset.tab; STATE.focus=f?{k:f}:null; STATE.view=to; STATE.jobStatusFilter=''; STATE.jobPeriod=''; STATE.jobTech=''; STATE.remFilter='all'; STATE.remShown=50; STATE.stQ=''; STATE.leadTc=''; render(); window.scrollTo(0,0); }
@@ -6348,6 +6428,7 @@ document.addEventListener('click',ev=>{ if(ev.target&&(ev.target.id==='modalClos
 function v9ModalHtml(){
   const t=activeModal&&activeModal.type, d=(activeModal&&activeModal.data)||{};
   if(t==='qrScan') return qrScanModalHtml(d);
+  if(t==='techMap') return techMapHtml();
   if(t==='qrBusy') return `<div class="modal-head"><h3>📍 Location check…</h3></div><div class="item-sub" style="padding:24px;text-align:center;">Attendance lag rahi hai, ruk jayein…</div>`;
   if(t==='profSetup') return profSetupHtml(d);
   if(t==='qrShow') return qrShowHtml();
