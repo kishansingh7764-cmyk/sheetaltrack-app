@@ -4238,6 +4238,8 @@ function techMatchId(name){
   }
   _TM.map.set(key,res); return res;
 }
+function techParts(name){ return String(name||'').split(/\s*(?:,|\/|&|\+|;|\band\b|\baur\b|\bwith\b)\s*/i).map(x=>x.trim()).filter(Boolean); }
+function techIdsOf(name){ const ps=techParts(name); if(ps.length<2){ const w=techMatchId(name); return w?[w]:[]; } const ids=[]; ps.forEach(p=>{ const i=techMatchId(p); if(i&&ids.indexOf(i)<0) ids.push(i); }); return ids; }
 function impKind(b){
   const c=b.cat||classifyWork(b.work), w=String(b.work||'').toLowerCase();
   if(c==='renewal'||/^amc/.test(c)||/\bamc\b/.test(w)) return 'amc';
@@ -4247,8 +4249,8 @@ function impKind(b){
 }
 const IMP_LBL={rep:'Repairing',inst:'Installation',amc:'AMC',oth:'Service / Anya'};
 function importWorkOf(staffId){
-  const bills=(STATE.bills||[]).filter(b=>b&&b.techName&&techMatchId(b.techName)===staffId).sort((a,b)=>String(b.date||'').localeCompare(String(a.date||'')));
-  const amcs=[]; (STATE.customers||[]).forEach(c=>{ (c.amcHistory||[]).forEach((h,i)=>{ if(h&&h.tech&&techMatchId(h.tech)===staffId) amcs.push({c,h,i}); }); });
+  const bills=(STATE.bills||[]).filter(b=>b&&b.techName&&techIdsOf(b.techName).indexOf(staffId)>-1).sort((a,b)=>String(b.date||'').localeCompare(String(a.date||'')));
+  const amcs=[]; (STATE.customers||[]).forEach(c=>{ (c.amcHistory||[]).forEach((h,i)=>{ if(h&&h.tech&&techIdsOf(h.tech).indexOf(staffId)>-1) amcs.push({c,h,i}); }); });
   amcs.sort((a,b)=>String(b.h.start||'').localeCompare(String(a.h.start||'')));
   return {bills,amcs};
 }
@@ -4258,7 +4260,8 @@ function impAgg(list){
   return o;
 }
 function unmatchedTechNames(){
-  const m=new Map(), add=(nm,src)=>{ nm=String(nm||'').trim(); if(!nm) return; const k=nameKey(nm); if(!k||techMatchId(nm)) return; const al=((STATE.businessInfo||{}).techAlias)||{}; if(al[k]==='-') return; const o=m.get(k)||{name:nm,n:0,key:k}; o.n++; m.set(k,o); };
+  const m=new Map(), al=((STATE.businessInfo||{}).techAlias)||{}, addOne=nm=>{ nm=String(nm||'').trim(); if(!nm) return; const k=nameKey(nm); if(!k||techMatchId(nm)||al[k]==='-') return; const o=m.get(k)||{name:nm,n:0,key:k}; o.n++; m.set(k,o); };
+  const add=nm=>{ nm=String(nm||'').trim(); if(!nm) return; const ps=techParts(nm); if(ps.length>1) ps.forEach(addOne); else addOne(nm); };
   (STATE.bills||[]).forEach(b=>add(b.techName)); (STATE.customers||[]).forEach(c=>(c.amcHistory||[]).forEach(h=>add(h&&h.tech)));
   return [...m.values()].sort((a,b)=>b.n-a.n);
 }
@@ -4298,20 +4301,36 @@ function trRange(p){
   if(p==='m') return [t.slice(0,7)+'-01',t];
   return [t.slice(0,4)+'-01-01',t];
 }
-function trRows(staffId){
-  const rows=[];
-  (STATE.jobs||[]).forEach(j=>{ if(j.assignedTo!==staffId||j.status!=='done') return;
-    const dt=j.completedAt?ymd(new Date(j.completedAt)):(j.date||''); if(!dt) return;
-    rows.push({date:dt,amount:Number(j.amount)||0,due:Number(j.due)||0,mode:normMode(j.payMode),src:'app'}); });
-  (STATE.bills||[]).forEach(b=>{ if(!b||!b.date||!b.techName||techMatchId(b.techName)!==staffId) return;
-    rows.push({date:String(b.date).slice(0,10),amount:Number(b.amount)||0,due:Number(b.due)||0,mode:normMode(b.mode),src:'imp'}); });
+function trJobDate(j){ return j.completedAt?ymd(new Date(j.completedAt)):(j.closedAt?ymd(new Date(j.closedAt)):(j.date||'')); }
+function trJobOwner(j){ if(j.assignedTo) return j.assignedTo; const h=(j.history||[]).filter(x=>x&&x.s==='done'&&x.by); const nm=h.length?h[h.length-1].by:''; const ids=nm?techIdsOf(nm):[]; return ids.length===1?ids[0]:''; }
+function trAll(){
+  const rows=[], cmap=new Map((STATE.customers||[]).map(c=>[c.id,c]));
+  (STATE.jobs||[]).forEach(j=>{ if(!j||(j.status!=='done'&&j.status!=='rejected')) return; const own=trJobOwner(j); if(!own) return; const dt=trJobDate(j); if(!dt) return;
+    if(j.status==='rejected'){ rows.push({ids:[own],date:dt,canc:1,amount:0,due:0,mode:'',src:'app'}); return; }
+    let amt=Number(j.amount)||0; if(j.tag==='AMC'&&j.amcVisit===false){ const c=cmap.get(j.customerId); if(c&&Number(c.amcAmount)>0) amt=0; }
+    rows.push({ids:[own],date:dt,amount:amt,due:Number(j.due)||0,mode:normMode(j.payMode),src:'app'}); });
+  (STATE.bills||[]).forEach(b=>{ if(!b||!b.date) return; const nm=String(b.techName||'').trim(); const ids=nm?techIdsOf(nm):[];
+    rows.push({ids,blank:!nm,date:String(b.date).slice(0,10),amount:Number(b.amount)||0,due:Number(b.due)||0,mode:normMode(b.mode),src:'imp'}); });
+  (STATE.customers||[]).forEach(c=>{ (c.amcHistory||[]).forEach(h=>{ if(!h||!h.start) return; const nm=String(h.tech||'').trim(); if(!nm) return; const a=Number(h.amount)||0;
+    rows.push({ids:techIdsOf(nm),date:String(h.start).slice(0,10),amount:a,due:0,mode:normMode(h.mode||c.amcMode),src:'amc'}); }); });
   return rows;
 }
+function trRows(staffId){
+  const out=[]; trAll().forEach(r=>{ if(r.ids.indexOf(staffId)<0) return; const k=r.ids.length; out.push(Object.assign({},r,{amount:r.amount/k,due:r.due/k,shared:k>1})); }); return out;
+}
 function trAgg(rows,p){
-  const [f,t]=trRange(p), o={n:0,amt:0,due:0,cash:0,online:0,cheque:0,nomode:0,app:0,imp:0};
-  rows.forEach(r=>{ if(r.date<f||r.date>t) return; o.n++; o[r.src]++; o.amt+=r.amount; o.due+=r.due;
+  const [f,t]=trRange(p), o={n:0,amt:0,due:0,cash:0,online:0,cheque:0,nomode:0,app:0,imp:0,amc:0,canc:0,shared:0};
+  rows.forEach(r=>{ if(r.date<f||r.date>t) return; if(r.canc){ o.canc++; return; } o.n++; o[r.src]++; if(r.shared) o.shared++; o.amt+=r.amount; o.due+=r.due;
     const got=Math.max(0,r.amount-r.due); if(r.mode) o[r.mode]+=got; else o.nomode+=got; });
-  return o;
+  Object.keys(o).forEach(k=>o[k]=Math.round(o[k]*100)/100); return o;
+}
+function trLost(p){
+  const [f,t]=trRange(p), o={n:0,amt:0,blank:0,blankAmt:0};
+  trAll().forEach(r=>{ if(r.src==='app'||r.ids.length||r.date<f||r.date>t) return; if(r.blank){ o.blank++; o.blankAmt+=r.amount; } else { o.n++; o.amt+=r.amount; } }); return o;
+}
+function trLostHtml(p){
+  const L=trLost(p); if(!L.n&&!L.blank) return '';
+  return `<div class="item-sub" style="margin-top:8px;padding:8px;border-radius:8px;background:#fff4d6;">${L.n?`⚠️ ${L.n} entry (${rupee(L.amt)}) ka technician naam kisi staff se match nahi hua — ye kisi ke record me nahi gini gayi. <button class="mini-btn" data-v9="tmopen">🔗 Naam jodo</button><br>`:''}${L.blank?`ℹ️ ${L.blank} entry (${rupee(L.blankAmt)}) me file me technician ka naam hi khaali hai.`:''}</div>`;
 }
 function trPer(){ return (STATE.trPer&&TR_PERIODS.some(x=>x[0]===STATE.trPer))?STATE.trPer:'d'; }
 function trTabs(){ const cur=trPer(); return `<div style="display:flex;gap:6px;margin:6px 0 10px;">${TR_PERIODS.map(x=>`<button class="mini-btn${x[0]===cur?' primary':''}" style="flex:1;" data-v9="trper" data-p="${x[0]}">${x[1]}</button>`).join('')}</div>`; }
@@ -4324,7 +4343,7 @@ function techRecordHtml(staffId){
     <div class="item-sub">${f===t?fmtDate(f):fmtDate(f)+' se '+fmtDate(t)}</div>
     <div class="stat-grid">${st(A.n,'Kaam / Bill')}${st(rupee(A.amt),'Kul Amount')}${st(rupee(A.cash),'💵 Cash (technician ke paas)','#b45309')}${st(rupee(A.online),'Online')}${st(rupee(A.cheque),'Cheque')}${st(rupee(A.due),'Baaki (due)','#c0392b')}</div>
     ${A.nomode?`<div class="item-sub">⚠️ ${rupee(A.nomode)} ka payment mode likha nahi hai (cash/online ginti me nahi).</div>`:''}
-    <div class="item-sub">App ke jobs: <b>${A.app}</b> · Import (bill file): <b>${A.imp}</b></div>
+    <div class="item-sub">App ke jobs: <b>${A.app}</b> · Bill file: <b>${A.imp}</b> · AMC file: <b>${A.amc}</b>${A.canc?' · ❌ Cancel: <b>'+A.canc+'</b>':''}</div>${A.shared?`<div class="item-sub">👥 ${A.shared} kaam me ek se zyada technician ka naam tha — amount barabar baant diya gaya.</div>`:''}${trLostHtml(cur)}
     <table style="width:100%;font-size:12.5px;margin-top:10px;border-collapse:collapse;"><tr style="opacity:.7;"><td></td><td style="text-align:right;">Kaam</td><td style="text-align:right;">Amount</td><td style="text-align:right;">Cash</td></tr>${all}</table>
     <div class="item-sub" style="margin-top:6px;opacity:.75;">Cash = jo paisa technician ne customer se haath me liya (Amount − Baaki). Hafta Somvar se shuru.</div></div>`;
 }
@@ -4335,7 +4354,7 @@ function techRecordAllHtml(){
   return `<div class="card"><div class="section-title" style="margin:0;">📊 Sab technician ka record</div>${trTabs()}<div class="item-sub">${f===t?fmtDate(f):fmtDate(f)+' se '+fmtDate(t)}</div>
     <div style="overflow-x:auto;"><table style="width:100%;font-size:12.5px;margin-top:8px;border-collapse:collapse;white-space:nowrap;"><tr style="opacity:.7;"><td>Naam</td><td style="text-align:right;">Kaam</td><td style="text-align:right;">Amount</td><td style="text-align:right;">💵 Cash</td><td style="text-align:right;">Online</td><td style="text-align:right;">Baaki</td></tr>
     ${data.map(x=>`<tr style="border-top:1px solid var(--border);"><td style="padding:6px 8px 6px 0;"><span data-viewstaff="${esc(x.s.id)}" style="color:var(--teal);text-decoration:underline;cursor:pointer;font-weight:600;">${esc(x.s.name)}</span></td><td style="text-align:right;">${x.a.n}</td><td style="text-align:right;">${rupee(x.a.amt)}</td><td style="text-align:right;font-weight:700;color:#b45309;">${rupee(x.a.cash)}</td><td style="text-align:right;">${rupee(x.a.online)}</td><td style="text-align:right;color:#c0392b;">${rupee(x.a.due)}</td></tr>`).join('')}
-    <tr style="border-top:2px solid var(--border);font-weight:700;"><td>Total</td><td style="text-align:right;">${T.n}</td><td style="text-align:right;">${rupee(T.amt)}</td><td style="text-align:right;">${rupee(T.cash)}</td><td style="text-align:right;">${rupee(T.online)}</td><td style="text-align:right;">${rupee(T.due)}</td></tr></table></div></div>`;
+    <tr style="border-top:2px solid var(--border);font-weight:700;"><td>Total</td><td style="text-align:right;">${T.n}</td><td style="text-align:right;">${rupee(T.amt)}</td><td style="text-align:right;">${rupee(T.cash)}</td><td style="text-align:right;">${rupee(T.online)}</td><td style="text-align:right;">${rupee(T.due)}</td></tr></table></div>${trLostHtml(cur)}</div>`;
 }
 
 function renderStaffProfile(){
