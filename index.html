@@ -1316,7 +1316,20 @@ const areaKey=a=>{ a=String(a||''); let r=_akc.get(a); if(r!==undefined) return 
 const _areaKey0=a=>{ const c=areaCanon(a); if(!c) return ''; const t=c.split(' '); const last=t[t.length-1]; let dir=''; if(t.length>1&&/^(east|west|north|south)$/.test(last)){ dir=last; t.pop(); } return areaFuzzyBase(t.join(' '))+(dir?' '+dir:''); };
 const areaTitle=k=>String(k||'').replace(/(^|\s)([a-z])/g,(m,p,c)=>p+c.toUpperCase());
 function areaOpts(custs){ const m=new Map(); (custs||[]).forEach(c=>{ const a=custAreaOf(c); if(!a) return; const k=areaKey(a); if(!k) return; const o=m.get(k)||{n:areaTitle(k),c:0}; o.c++; m.set(k,o); }); return [...m.values()].sort((x,y)=>x.n.localeCompare(y.n)); }
-function areaSelectHtml(id,cur,custs){ const o=areaOpts(custs); if(!o.length) return ''; const none=(custs||[]).filter(c=>!custAreaOf(c)).length; return `<div class="field" style="margin:0 0 10px;"><select id="${id}"><option value="">📍 Sab area</option>${o.map(x=>`<option value="${esc(areaKey(x.n))}" ${cur===areaKey(x.n)?'selected':''}>${esc(x.n)}${(AREA_DIR_LOC.indexOf(areaKey(x.n))>-1&&areaKey(x.n)!=='mira road')?' ⚠️ East/West?':''} (${x.c})</option>`).join('')}${none?`<option value="__none" ${cur==='__none'?'selected':''}>Area nahi likha (${none})</option>`:''}</select><input id="${id}Txt" list="${id}Dl" value="${esc(String(cur||'').charAt(0)==='~'?String(cur).slice(1):'')}" placeholder="✍️ Area likh ke dhundein (Enter)" autocomplete="off" style="margin-top:6px;"><datalist id="${id}Dl">${o.map(x=>`<option value="${esc(x.n)}">`).join('')}</datalist></div>`; }
+function areaSelectHtml(id,cur,custs){
+  const o=areaOpts(custs); if(!o.length) return ''; const none=(custs||[]).filter(c=>!custAreaOf(c)).length, map={};
+  const lab=x=>x.n+((AREA_DIR_LOC.indexOf(areaKey(x.n))>-1&&areaKey(x.n)!=='mira road')?' ⚠️ East/West?':'');
+  o.forEach(x=>{ map[String(x.n).toLowerCase()]=areaKey(x.n); map[lab(x).toLowerCase()]=areaKey(x.n); });
+  if(none) map['area nahi likha']='__none';
+  let shown=''; const cs=String(cur||''); if(cs==='__none') shown='Area nahi likha'; else if(cs.charAt(0)==='~') shown=cs.slice(1); else if(cs){ const f=o.find(x=>areaKey(x.n)===cs); shown=f?f.n:cs; }
+  return `<div class="field" style="margin:0 0 10px;"><input id="${id}" list="${id}Dl" value="${esc(shown)}" data-amap="${esc(JSON.stringify(map))}" placeholder="📍 Area — likhein ya list se chunein (khaali = Sab area)" autocomplete="off"><datalist id="${id}Dl">${o.map(x=>`<option value="${esc(x.n)}" label="${esc(lab(x))} (${x.c})"></option>`).join('')}${none?`<option value="Area nahi likha" label="(${none})"></option>`:''}</datalist></div>`;
+}
+const RS_KEY='st_recent_cust_search';
+function recentGet(){ try{ const v=JSON.parse(localStorage.getItem(RS_KEY)||'[]'); return Array.isArray(v)?v.filter(x=>typeof x==='string'&&x).slice(0,8):[]; }catch(e){ return []; } }
+function recentAdd(t){ t=String(t||'').trim(); if(t.length<2) return; try{ const l=recentGet().filter(x=>x.toLowerCase()!==t.toLowerCase()); l.unshift(t); localStorage.setItem(RS_KEY,JSON.stringify(l.slice(0,8))); }catch(e){} }
+function recentClear(){ try{ localStorage.removeItem(RS_KEY); }catch(e){} }
+function recentSearchHtml(){ const l=recentGet(); if(!l.length) return ''; return `<div id="recentSearch" style="${STATE.custSearch?'display:none;':''}margin:-4px 0 10px;"><div class="item-sub" style="margin:0 0 4px;">🕘 Pichli search <span data-rsclear="1" style="color:var(--teal);cursor:pointer;margin-left:8px;">saaf karein</span></div><div style="display:flex;flex-wrap:wrap;gap:6px;">${l.map(x=>`<button class="mini-btn" data-rs="${esc(x)}" style="flex:none;">🔍 ${esc(x)}</button>`).join('')}</div></div>`; }
+function areaPickKey(inp){ const v=String(inp.value||'').trim(); if(!v) return ''; let m={}; try{ m=JSON.parse(inp.dataset.amap||'{}'); }catch(e){} const k=m[v.toLowerCase()]; if(k!==undefined) return k; const c=areaCanon(v); return c?'~'+c:''; }
 const areaMatch=(c,cur)=>!cur||(cur==='__none'?!custAreaOf(c):cur.charAt(0)==='~'?(areaKey(custAreaOf(c))||areaCanon(c.address)).includes(cur.slice(1)):areaKey(custAreaOf(c))===cur);
 function amcNameIdx(){ if(STATE._nmIdx) return STATE._nmIdx; const m=new Map(); STATE._nmIdx=m; m.ph=new Map(); (STATE.customers||[]).forEach(o=>{ if(o.deleted||(o.type||'amc')!=='amc') return; [ph10(o.phone),ph10(o.phone2)].forEach(p=>{ if(p.length===10){ if(!m.ph.has(p)) m.ph.set(p,[]); m.ph.get(p).push(o); } }); const k=nameKey(o.name); if(k.length<3) return; if(!m.has(k)) m.set(k,[]); m.get(k).push(o); }); return m; }
 function twinInfo(c,idx){
@@ -3921,7 +3934,7 @@ function renderCustomers(){
   return `
     <div class="tabbar"><button class="tabbtn active" data-navto="customers">List</button><button class="tabbtn" data-navto="amccal">AMC Calendar</button></div>
     <div class="row-between" style="margin-bottom:12px;"><div class="section-title" style="margin:0;" id="custCount">Customers (${list.length})</div>${STATE.session.role==='admin'?`<button class="mini-btn primary" data-act="amcimport">📥 AMC Import</button>`:''}</div>
-    <div class="searchbar"><input id="custSearchInput" placeholder="Naam ya number type karein…" value="${STATE.custSearch}"></div>
+    <div class="searchbar"><input id="custSearchInput" placeholder="Naam ya number type karein…" value="${esc(STATE.custSearch)}" autocomplete="off"></div>${recentSearchHtml()}
     <div class="tabbar">
       <button class="tabbtn ${filterType==='all'?'active':''}" data-typefilter="all">Sab (${typeCounts.all})</button>
       <button class="tabbtn ${filterType==='amc'?'active':''}" data-typefilter="amc">AMC (${typeCounts.amc})</button>
@@ -5655,10 +5668,8 @@ function bindShellEvents(){
   document.querySelectorAll('[data-proftab]').forEach(el=>el.onclick=()=>{ STATE.profTab=el.dataset.proftab; render(); });
   document.querySelectorAll('[data-jexp]').forEach(el=>el.onclick=e=>{ if(hasTextSel()) return; if(e.target.closest('select,button,a,input,textarea,label,[data-viewstaff],[data-viewcust],[data-lightbox],[data-video],details,.photo-thumb')) return; if(e.detail>1){ clearTimeout(el._jt); return; } const id=el.dataset.jexp; clearTimeout(el._jt); el._jt=setTimeout(()=>{ if(hasTextSel()) return; STATE.jobOpenMap=STATE.jobOpenMap||{}; STATE.jobOpenMap[id]=!STATE.jobOpenMap[id]; render(); },170); });
   const ltcs=document.getElementById('leadTcSel'); if(ltcs) ltcs.onchange=()=>{ STATE.leadTc=ltcs.value; STATE.leadsShown=40; STATE.leadMonth=''; render(); };
-  [['custAreaSel','custArea','custShown',60],['remAreaSel','remArea','remShown',50],['jobAreaSel','jobArea','jobsShown',60]].forEach(([id,k,sh,n])=>{ const t=document.getElementById(id+'Txt'); if(t) t.onchange=()=>{ const v=areaCanon(t.value); STATE[k]=v?'~'+v:''; STATE[sh]=n; render(); }; });
-  { const a=document.getElementById('custAreaSel'); if(a) a.onchange=()=>{ STATE.custArea=a.value; STATE.custShown=60; render(); };
-    const b=document.getElementById('remAreaSel'); if(b) b.onchange=()=>{ STATE.remArea=b.value; STATE.remShown=50; render(); };
-    const c=document.getElementById('jobAreaSel'); if(c) c.onchange=()=>{ STATE.jobArea=c.value; STATE.jobsShown=60; render(); };
+  [['custAreaSel','custArea','custShown',60],['remAreaSel','remArea','remShown',50],['jobAreaSel','jobArea','jobsShown',60]].forEach(([id,k,sh,n])=>{ const t=document.getElementById(id); if(t) t.onchange=()=>{ const nk=areaPickKey(t); if(nk===(STATE[k]||'')) return; STATE[k]=nk; STATE[sh]=n; render(); }; });
+  {
     document.querySelectorAll('[data-afd]').forEach(el=>el.onchange=()=>{ STATE.afDir=STATE.afDir||{}; STATE.afDirOn=STATE.afDirOn||{}; STATE.afDir[el.dataset.afd]=el.value; STATE.afDirOn[el.dataset.afd]=true; render(); });
     document.querySelectorAll('[data-afdt]').forEach(el=>el.onchange=()=>{ STATE.afDirOn=STATE.afDirOn||{}; STATE.afDirOn[el.dataset.afdt]=el.checked; render(); });
     document.querySelectorAll('[data-afk]').forEach(el=>el.onchange=()=>{ STATE.afOff=STATE.afOff||{}; STATE.afOff[el.dataset.afk]=!el.checked; render(); });
@@ -5729,7 +5740,9 @@ function bindShellEvents(){
   const addStaffBtn=document.getElementById('addStaffBtn'); if(addStaffBtn) addStaffBtn.onclick=()=>{ activeModal={type:'addStaff'}; render(); };
   const addJobBtn=document.getElementById('addJobBtn'); if(addJobBtn) addJobBtn.onclick=()=>{ if(isMoneyRole()){ activeModal={type:'newChoice'}; render(); return; } jobCustQuery=''; jobCustSelectedId=''; activeModal={type:'addJob'}; render(); };
   const custSearchInput=document.getElementById('custSearchInput');
-  if(custSearchInput){ custSearchInput.oninput=(e)=>{ STATE.custSearch=e.target.value; STATE.custShown=60; const tmp=document.createElement('div'); tmp.innerHTML=renderCustomers(); const nw=tmp.querySelector('#custListWrap'), ow=document.getElementById('custListWrap'), nc=tmp.querySelector('#custCount'), oc=document.getElementById('custCount'); if(nw&&ow){ ow.innerHTML=nw.innerHTML; if(nc&&oc) oc.textContent=nc.textContent; bindShellEvents(); } else render(); }; }
+  document.querySelectorAll('[data-rs]').forEach(el=>el.onclick=()=>{ STATE.custSearch=el.dataset.rs; STATE.custShown=60; recentAdd(el.dataset.rs); render(); });
+  document.querySelectorAll('[data-rsclear]').forEach(el=>el.onclick=()=>{ recentClear(); render(); });
+  if(custSearchInput){ custSearchInput.onchange=()=>recentAdd(custSearchInput.value); custSearchInput.oninput=(e)=>{ { const rs=document.getElementById('recentSearch'); if(rs) rs.style.display=e.target.value?'none':''; } STATE.custSearch=e.target.value; STATE.custShown=60; const tmp=document.createElement('div'); tmp.innerHTML=renderCustomers(); const nw=tmp.querySelector('#custListWrap'), ow=document.getElementById('custListWrap'), nc=tmp.querySelector('#custCount'), oc=document.getElementById('custCount'); if(nw&&ow){ ow.innerHTML=nw.innerHTML; if(nc&&oc) oc.textContent=nc.textContent; bindShellEvents(); } else render(); }; }
   const shareToggle=document.getElementById('shareToggle'); if(shareToggle) shareToggle.onclick=()=>{ if(STATE.sharingLocation) stopSharingLocation(); else startSharingLocation(); render(); };
 
   document.querySelectorAll('[data-act]').forEach(el=>el.onclick=async ()=>{
