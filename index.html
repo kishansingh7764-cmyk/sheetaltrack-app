@@ -4296,14 +4296,27 @@ async function techAliasSet(key,val){
 }
 
 /* ===== Technician record: aaj / hafta / mahina / saal — paisa kis mode me mila ===== */
-const TR_PERIODS=[['d','Aaj'],['w','Hafta'],['m','Mahina'],['y','Saal']];
+const TR_PERIODS=[['d','Aaj'],['w','Hafta'],['m','Mahina'],['y','Saal'],['c','Tarikh']];
 function trRange(p){
   const t=todayStr(), d=new Date(t+'T12:00:00');
   if(p==='d') return [t,t];
   if(p==='w'){ const off=(d.getDay()+6)%7, s=new Date(d); s.setDate(d.getDate()-off); return [ymd(s),t]; }
-  if(p==='m') return [t.slice(0,7)+'-01',t];
-  return [t.slice(0,4)+'-01-01',t];
+  if(p==='m'){ const mk=/^\d{4}-\d{2}$/.test(STATE.trMonth||'')?STATE.trMonth:t.slice(0,7); return [mk+'-01',mk===t.slice(0,7)?t:mk+'-31']; }
+  if(p==='c'){ let a=STATE.trFrom||t, b=STATE.trTo||a; if(a>b){ const x=a; a=b; b=x; } return [a,b]; }
+  const y=/^\d{4}$/.test(STATE.trYear||'')?STATE.trYear:t.slice(0,4); return [y+'-01-01',y===t.slice(0,4)?t:y+'-12-31'];
 }
+/* filter bar: tab + (mahina / saal / tarikh) chunne ka option */
+function trFilterBar(act){
+  const cur=(STATE.trPer&&TR_PERIODS.some(x=>x[0]===STATE.trPer))?STATE.trPer:(act==='crper'?'m':'d'), t=todayStr();
+  let sel='';
+  if(cur==='m'){ const sm=/^\d{4}-\d{2}$/.test(STATE.trMonth||'')?STATE.trMonth:t.slice(0,7), now=new Date(t+'T12:00:00'); let o=''; for(let i=0;i<24;i++){ const x=new Date(now.getFullYear(),now.getMonth()-i,1), v=ymd(x).slice(0,7); o+=`<option value="${v}" ${v===sm?'selected':''}>${x.toLocaleString('en-IN',{month:'long',year:'numeric'})}</option>`; } sel=`<div class="field" style="margin:0 0 8px;"><select id="trMonthSel">${o}</select></div>`; }
+  else if(cur==='y'){ const sy=/^\d{4}$/.test(STATE.trYear||'')?STATE.trYear:t.slice(0,4), y0=+t.slice(0,4); let o=''; for(let i=0;i<6;i++) o+=`<option value="${y0-i}" ${String(y0-i)===sy?'selected':''}>${y0-i}</option>`; sel=`<div class="field" style="margin:0 0 8px;"><select id="trYearSel">${o}</select></div>`; }
+  else if(cur==='c'){ sel=`<div style="display:flex;gap:8px;margin:0 0 8px;"><div class="field" style="margin:0;flex:1;"><label>Se</label><input type="date" id="trFromIn" value="${esc(STATE.trFrom||t)}" max="${t}"></div><div class="field" style="margin:0;flex:1;"><label>Tak</label><input type="date" id="trToIn" value="${esc(STATE.trTo||STATE.trFrom||t)}" max="${t}"></div></div>`; }
+  return `<div style="display:flex;gap:6px;margin:6px 0 10px;">${TR_PERIODS.map(x=>`<button class="mini-btn${x[0]===cur?' primary':''}" style="flex:1;padding-left:4px;padding-right:4px;" data-v9="${act}" data-p="${x[0]}">${x[1]}</button>`).join('')}</div>${sel}`;
+}
+document.addEventListener('change',ev=>{ const e=ev.target; if(!e||!e.id) return; let hit=true;
+  if(e.id==='trMonthSel') STATE.trMonth=e.value; else if(e.id==='trYearSel') STATE.trYear=e.value; else if(e.id==='trFromIn'){ STATE.trFrom=e.value||todayStr(); if(!STATE.trTo||STATE.trTo<STATE.trFrom) STATE.trTo=STATE.trFrom; } else if(e.id==='trToIn'){ STATE.trTo=e.value||todayStr(); if(!STATE.trFrom||STATE.trFrom>STATE.trTo) STATE.trFrom=STATE.trTo; } else hit=false;
+  if(hit) render(); });
 function trJobDate(j){ return j.completedAt?ymd(new Date(j.completedAt)):(j.closedAt?ymd(new Date(j.closedAt)):(j.date||'')); }
 function trJobOwner(j){ if(j.assignedTo) return j.assignedTo; const h=(j.history||[]).filter(x=>x&&x.s==='done'&&x.by); const nm=h.length?h[h.length-1].by:''; const ids=nm?techIdsOf(nm):[]; return ids.length===1?ids[0]:''; }
 function trAll(){
@@ -4336,7 +4349,7 @@ function trLostHtml(p){
   return `<div class="item-sub" style="margin-top:8px;padding:8px;border-radius:8px;background:#fff4d6;">${(L.n||UN.length)?`⚠️ ${UN.length} technician naam kisi staff se match nahi hue${L.n?' (is period me '+L.n+' entry, '+rupee(L.amt)+')':''} — ye kisi ke record me nahi gini gayi. <button class="mini-btn" data-v9="tmopen">🔗 Naam jodo</button><br>`:''}${L.blank?`ℹ️ ${L.blank} entry (${rupee(L.blankAmt)}) me file me technician ka naam hi khaali hai.`:''}</div>`;
 }
 function trPer(){ return (STATE.trPer&&TR_PERIODS.some(x=>x[0]===STATE.trPer))?STATE.trPer:'d'; }
-function trTabs(){ const cur=trPer(); return `<div style="display:flex;gap:6px;margin:6px 0 10px;">${TR_PERIODS.map(x=>`<button class="mini-btn${x[0]===cur?' primary':''}" style="flex:1;" data-v9="trper" data-p="${x[0]}">${x[1]}</button>`).join('')}</div>`; }
+function trTabs(){ return trFilterBar('trper'); }
 /* ===== Cash jama (technician ne office me kitna cash diya) ===== */
 const JAMA_KEY='st_cashjama';
 function jamaDoc(){ const d=STATE.jamaDoc; return (d&&Array.isArray(d.e))?d:{e:[],from:{}}; }
@@ -4375,13 +4388,11 @@ function techRecordHtml(staffId){
   if(!isMoneyRole()) return '';
   const rows=trRows(staffId), cur=trPer(), A=trAgg(rows,cur), [f,t]=trRange(cur);
   const st=(n,l,c)=>`<div class="stat-card"><div class="stat-num"${c?' style="color:'+c+'"':''}>${n}</div><div class="stat-label">${l}</div></div>`;
-  const all=TR_PERIODS.map(x=>{ const a=trAgg(rows,x[0]); return `<tr><td>${x[1]}</td><td style="text-align:right;">${a.n}</td><td style="text-align:right;">${rupee(a.amt)}</td><td style="text-align:right;">${rupee(a.cash)}</td></tr>`; }).join('');
   return `<div class="card"><div class="section-title" style="margin:0;">📊 Kaam ka record</div>${trTabs()}
     <div class="item-sub">${f===t?fmtDate(f):fmtDate(f)+' se '+fmtDate(t)}</div>
     <div class="stat-grid">${st(A.n,'Kaam / Bill')}${st(rupee(A.amt),'Kul Amount')}${st(rupee(A.cash),'💵 Cash (technician ke paas)','#b45309')}${st(rupee(A.online),'Online')}${st(rupee(A.cheque),'Cheque')}${st(rupee(A.due),'Baaki (due)','#c0392b')}</div>
     ${A.nomode?`<div class="item-sub">⚠️ ${rupee(A.nomode)} ka payment mode likha nahi hai (cash/online ginti me nahi).</div>`:''}
     <div class="item-sub">App ke jobs: <b>${A.app}</b> · Bill file: <b>${A.imp}</b> · AMC file: <b>${A.amc}</b>${A.svc?' · AMC service visit: <b>'+A.svc+'</b>':''}${A.canc?' · ❌ Cancel: <b>'+A.canc+'</b>':''}</div>${A.shared?`<div class="item-sub">👥 ${A.shared} kaam me ek se zyada technician ka naam tha — amount barabar baant diya gaya.</div>`:''}${trLostHtml(cur)}
-    <table style="width:100%;font-size:12.5px;margin-top:10px;border-collapse:collapse;"><tr style="opacity:.7;"><td></td><td style="text-align:right;">Kaam</td><td style="text-align:right;">Amount</td><td style="text-align:right;">Cash</td></tr>${all}</table>
     <div class="item-sub" style="margin-top:6px;opacity:.75;">Cash = jo paisa technician ne customer se haath me liya (Amount − Baaki). Hafta Somvar se shuru.</div>${jamaCardHtml(staffId)}</div>`;
 }
 function techRecordAllHtml(){
@@ -4488,7 +4499,7 @@ function cancelRepData(p){
 }
 function cancelRepHtml(){
   const cur=crPer(), D=cancelRepData(cur), srt=o=>Object.keys(o).sort((a,b)=>o[b]-o[a]), cn=id=>((STATE.customers||[]).find(c=>c.id===id)||{}).name||'Customer';
-  const tabs=`<div style="display:flex;gap:6px;margin:6px 0 10px;">${TR_PERIODS.map(x=>`<button class="mini-btn${x[0]===cur?' primary':''}" style="flex:1;" data-v9="crper" data-p="${x[0]}">${x[1]}</button>`).join('')}</div>`;
+  const tabs=trFilterBar('crper');
   const li=(o)=>srt(o).map(k=>`<div class="row-between" style="padding:4px 0;border-top:1px solid var(--border);"><div class="item-sub" style="margin:0;">${esc(k)}</div><b>${o[k]}</b></div>`).join('')||'<div class="item-sub">Koi record nahi.</div>';
   const tr=Object.keys(D.by).map(k=>D.by[k]).sort((a,b)=>(b.cancel+b.nogo)-(a.cancel+a.nogo));
   const rep=srt(D.cust).filter(k=>D.cust[k]>1);
