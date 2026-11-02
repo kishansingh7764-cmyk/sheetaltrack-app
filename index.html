@@ -143,7 +143,7 @@ html{scroll-padding-top:120px;}
 .section-sub{font-family:var(--font-display);font-size:12.5px;font-weight:600;color:var(--teal-deep);margin:16px 0 8px 0;padding-top:12px;border-top:1px solid var(--border);}
 
 /* ===== v9.2b Compact size (phone) ===== */
-@media (max-width:1023px){
+@media (max-width:899px), (pointer:coarse){
  button,input,select,textarea{font-size:13.5px;}
  input,select,textarea{padding:9px 10px;}
  label{font-size:11.5px;margin-bottom:4px;}
@@ -166,7 +166,7 @@ html{scroll-padding-top:120px;}
 }
 
 /* ===== v9.1 Desktop (laptop) design — sirf badi screen par; phone par kuch nahi badalta ===== */
-@media (min-width:1024px){
+@media (min-width:900px) and (pointer:fine){
   :root{--sbw:244px;--tbh:60px;}
   body.desk{background:radial-gradient(1200px 500px at 70% -10%,#DDF1F5 0%,transparent 60%),#EAF2F4;}
   body.desk #app{max-width:none;margin:0;background:transparent;}
@@ -237,11 +237,23 @@ html{scroll-padding-top:120px;}
   body:not(.desk){background:radial-gradient(900px 520px at 50% -5%,#CDEAF0 0%,transparent 65%),#E6F0F2;}
   .loading-screen{min-height:70vh;}
 }
+@media (min-width:900px) and (pointer:fine){
+  body.desk .dash2{display:grid!important;grid-template-columns:minmax(0,1.45fr) minmax(0,1fr);gap:0 26px;align-items:start;grid-column:1/-1;}
+  body.desk .dash2>.dcol{display:block!important;min-width:0;}
+  body.desk .dash2>.dcol>.card,body.desk .dash2>.dcol>.row-between{margin-bottom:14px;}
+  body.desk .daycard .stat-grid{grid-template-columns:repeat(4,1fr)!important;}
+  body.desk .dcol .stat-grid{grid-template-columns:repeat(auto-fit,minmax(150px,1fr));}
+  body.desk .content>.field,body.desk .content>select,body.desk .content>.searchbar{max-width:none;grid-column:auto;}
+  body.desk .content>.tabbar{max-width:none;}
+}
+@media (max-width:1279px){ body.desk .dash2{grid-template-columns:minmax(0,1fr);} }
+@media (min-width:900px) and (max-width:1180px) and (pointer:fine){ body.desk .content{padding:22px 18px 70px;} :root{--sbw:210px;} }
+body.desk .dash2>.dcol>.row-between{margin-top:18px;}
 @media (min-width:1700px){ body.desk .content,body.desk .content :is(div,section):has(>.card~.card){grid-template-columns:repeat(auto-fill,minmax(480px,1fr));} }
 /* iPhone: 16px se chhote input par Safari page zoom kar deta hai */
-@supports (-webkit-touch-callout:none){ @media (max-width:1023px){ input,select,textarea{font-size:16px!important;} } }
+@supports (-webkit-touch-callout:none){ @media (max-width:899px), (pointer:coarse){ input,select,textarea{font-size:16px!important;} } }
 /* ===== v9.2c Laptop compact (thoda chhota) ===== */
-@media (min-width:1024px){
+@media (min-width:900px) and (pointer:fine){
   :root{--sbw:214px;--tbh:52px;}
   body.desk button,body.desk input,body.desk select,body.desk textarea{font-size:13px;}
   body.desk input,body.desk select,body.desk textarea{padding:9px 12px;}
@@ -3402,7 +3414,7 @@ function applyStickyBars(){
   });
 }
 let scrollUxReady=false, lastScrollY=0;
-const IS_DESK=()=>{ try{ return window.matchMedia('(min-width:1024px)').matches&&document.body.classList.contains('desk'); }catch(e){ return false; } };
+const IS_DESK=()=>{ try{ return window.matchMedia('(min-width:900px) and (pointer:fine)').matches&&document.body.classList.contains('desk'); }catch(e){ return false; } };
 function scrollUxInit(){
   if(scrollUxReady) return; scrollUxReady=true;
   const fab=document.createElement('div'); fab.id='scrollFab'; fab.innerHTML='<button id="sfUp" title="Upar" aria-label="Sabse upar">▲</button><button id="sfDn" title="Neeche" aria-label="Sabse neeche">▼</button>'; document.body.appendChild(fab);
@@ -3707,6 +3719,7 @@ function renderDashboard(){
   return `
     ${STATE.session.role==='subadmin'?incCardHtml():''}
     ${attentionHtml(dueSoon)}
+    <div class="dash2"><div class="dcol">
     <div class="section-title">Aaj ka overview</div>${dayBalanceHtml()}${STATE.session.role==='admin'?`<div class="card" data-navto="daylog" style="cursor:pointer;background:var(--sky-pale);"><div class="row-between"><div><div class="item-name">📋 Aaj ka Hisaab</div><div class="item-sub">Kisne kya kiya, kya badla, kya delete hua — time ke saath, wapas karne ke option ke saath ›</div></div></div></div>`:''}${(STATE.session.role==='admin'&&(!(STATE.businessInfo||{}).lastBackupAt||Date.now()-STATE.businessInfo.lastBackupAt>7*864e5))?`<div class="card" data-act="gobackup" style="cursor:pointer;background:#fff4e0;"><div class="item-name" style="color:#8a5a0f;">💾 ${(STATE.businessInfo||{}).lastBackupAt?'Pichla backup '+Math.floor((Date.now()-STATE.businessInfo.lastBackupAt)/864e5)+' din pehle liya tha':'Abhi tak koi backup nahi liya'} — abhi lein ›</div></div>`:''}${(STATE.session.role!=='technician'&&STATE.jobs.some(j=>j.cancelReq&&j.cancelReq.status==='pending'))?`<div class="card" data-navto="jobs" style="cursor:pointer;background:#fdecea;"><div class="item-name" style="color:#a12a20;">❗ ${STATE.jobs.filter(j=>j.cancelReq&&j.cancelReq.status==='pending').length} cancel request office ke intezaar mein ›</div></div>`:''}
     <div class="stat-grid">
       <div class="stat-card" data-navto="customers" style="cursor:pointer;"><div class="stat-num">${STATE.customers.length}</div><div class="stat-label">Total Customers ›</div></div>
@@ -3751,6 +3764,7 @@ function renderDashboard(){
         </div>`; })():''}
     </div>
 
+    </div><div class="dcol">
     <div class="row-between" data-navto="attendance" style="cursor:pointer;margin-bottom:12px;"><div class="section-title" style="margin:0;">Today's Attendance</div><span style="color:var(--ink-faint);font-size:18px;">›</span></div>
     <div class="card">
       <div class="row-between">
@@ -3771,6 +3785,7 @@ function renderDashboard(){
     ${(dueSoon.length+oneTimeDue.length)===0?`<div class="empty-state"><span class="ic">✅</span><p>Koi service due nahi hai agle kuch dinon mein</p></div>`:
       [...dueSoon,...oneTimeDue].slice(0,3).map(c=>{ const due=c.dueDate||(c.type==='amc'?c.expiryDate:addMonths(c.lastService,c.intervalMonths)); const d=daysUntil(due); return `<div class="card" data-viewcust="${c.id}" style="cursor:pointer;"><div class="row-between"><div><div class="item-name">${esc(c.name)} ›</div><div class="item-sub">${esc(c.phone||'')}${c.address?' · '+esc(c.address):''}</div><div class="item-sub">${c.dueLabel||'Service Due'}</div></div><span class="pill ${d<0?'pill-red':'pill-amber'}">${d<0?Math.abs(d)+'d overdue':'in '+d+'d'}</span></div></div>`; }).join('')}
     ${(dueSoon.length+oneTimeDue.length)>3?`<div class="item-sub" data-navto="reminders" style="text-align:center;cursor:pointer;color:var(--teal);font-weight:600;padding:6px 0;">+${dueSoon.length+oneTimeDue.length-3} aur — sab dekhein ›</div>`:''}
+    </div></div>
   `;
 }
 
@@ -4315,7 +4330,7 @@ function trFilterBar(act){
   return `<div style="display:flex;gap:6px;margin:6px 0 10px;">${TR_PERIODS.map(x=>`<button class="mini-btn${x[0]===cur?' primary':''}" style="flex:1;padding-left:4px;padding-right:4px;" data-v9="${act}" data-p="${x[0]}">${x[1]}</button>`).join('')}</div>${sel}`;
 }
 document.addEventListener('change',ev=>{ const e=ev.target; if(!e||!e.id) return; let hit=true;
-  if(e.id==='trMonthSel') STATE.trMonth=e.value; else if(e.id==='trYearSel') STATE.trYear=e.value; else if(e.id==='trFromIn'){ STATE.trFrom=e.value||todayStr(); if(!STATE.trTo||STATE.trTo<STATE.trFrom) STATE.trTo=STATE.trFrom; } else if(e.id==='trToIn'){ STATE.trTo=e.value||todayStr(); if(!STATE.trFrom||STATE.trFrom>STATE.trTo) STATE.trFrom=STATE.trTo; } else hit=false;
+  if(e.id==='trTechSel') STATE.trTech=e.value; else if(e.id==='trMonthSel') STATE.trMonth=e.value; else if(e.id==='trYearSel') STATE.trYear=e.value; else if(e.id==='trFromIn'){ STATE.trFrom=e.value||todayStr(); if(!STATE.trTo||STATE.trTo<STATE.trFrom) STATE.trTo=STATE.trFrom; } else if(e.id==='trToIn'){ STATE.trTo=e.value||todayStr(); if(!STATE.trFrom||STATE.trFrom>STATE.trTo) STATE.trFrom=STATE.trTo; } else hit=false;
   if(hit) render(); });
 function trJobDate(j){ return j.completedAt?ymd(new Date(j.completedAt)):(j.closedAt?ymd(new Date(j.closedAt)):(j.date||'')); }
 function trJobOwner(j){ if(j.assignedTo) return j.assignedTo; const h=(j.history||[]).filter(x=>x&&x.s==='done'&&x.by); const nm=h.length?h[h.length-1].by:''; const ids=nm?techIdsOf(nm):[]; return ids.length===1?ids[0]:''; }
@@ -4384,25 +4399,34 @@ function jamaModalHtml(d){
     <button class="primary-btn" data-v9="jamasave" data-id="${esc(d.id)}">Jama darj karo</button>`;
 }
 
-function techRecordHtml(staffId){
+function techRecordHtml(staffId,pick){
   if(!isMoneyRole()) return '';
   const rows=trRows(staffId), cur=trPer(), A=trAgg(rows,cur), [f,t]=trRange(cur);
   const st=(n,l,c)=>`<div class="stat-card"><div class="stat-num"${c?' style="color:'+c+'"':''}>${n}</div><div class="stat-label">${l}</div></div>`;
-  return `<div class="card"><div class="section-title" style="margin:0;">📊 Kaam ka record</div>${trTabs()}
+  return `<div class="card"><div class="section-title" style="margin:0;">📊 Kaam ka record</div>${pick||''}${trTabs()}
     <div class="item-sub">${f===t?fmtDate(f):fmtDate(f)+' se '+fmtDate(t)}</div>
     <div class="stat-grid">${st(A.n,'Kaam / Bill')}${st(rupee(A.amt),'Kul Amount')}${st(rupee(A.cash),'💵 Cash (technician ke paas)','#b45309')}${st(rupee(A.online),'Online')}${st(rupee(A.cheque),'Cheque')}${st(rupee(A.due),'Baaki (due)','#c0392b')}</div>
     ${A.nomode?`<div class="item-sub">⚠️ ${rupee(A.nomode)} ka payment mode likha nahi hai (cash/online ginti me nahi).</div>`:''}
     <div class="item-sub">App ke jobs: <b>${A.app}</b> · Bill file: <b>${A.imp}</b> · AMC file: <b>${A.amc}</b>${A.svc?' · AMC service visit: <b>'+A.svc+'</b>':''}${A.canc?' · ❌ Cancel: <b>'+A.canc+'</b>':''}</div>${A.shared?`<div class="item-sub">👥 ${A.shared} kaam me ek se zyada technician ka naam tha — amount barabar baant diya gaya.</div>`:''}${trLostHtml(cur)}
     <div class="item-sub" style="margin-top:6px;opacity:.75;">Cash = jo paisa technician ne customer se haath me liya (Amount − Baaki). Hafta Somvar se shuru.</div>${jamaCardHtml(staffId)}</div>`;
 }
-function techRecordAllHtml(){
+function techRecordTableHtml(pick){
   jamaEnsure(); const techs=(STATE.staff||[]).filter(s=>s.role==='technician'); if(!techs.length||!isMoneyRole()) return '';
   const cur=trPer(), data=techs.map(s=>({s,a:trAgg(trRows(s.id),cur)})).sort((x,y)=>y.a.cash-x.a.cash), T=data.reduce((o,x)=>{ ['n','amt','cash','online','cheque','due'].forEach(k=>o[k]+=x.a[k]); return o; },{n:0,amt:0,cash:0,online:0,cheque:0,due:0});
   const [f,t]=trRange(cur);
-  return `<div class="card"><div class="section-title" style="margin:0;">📊 Sab technician ka record</div>${trTabs()}<div class="item-sub">${f===t?fmtDate(f):fmtDate(f)+' se '+fmtDate(t)}</div>
+  return `<div class="card"><div class="section-title" style="margin:0;">📊 Sab technician ka record</div>${pick||''}${trTabs()}<div class="item-sub">${f===t?fmtDate(f):fmtDate(f)+' se '+fmtDate(t)}</div>
     <div style="overflow-x:auto;"><table style="width:100%;font-size:12.5px;margin-top:8px;border-collapse:collapse;white-space:nowrap;"><tr style="opacity:.7;"><td>Naam</td><td style="text-align:right;">Kaam</td><td style="text-align:right;">Amount</td><td style="text-align:right;">💵 Cash</td><td style="text-align:right;">Online</td><td style="text-align:right;">Baaki</td><td style="text-align:right;">Paas me</td></tr>
     ${data.map(x=>`<tr style="border-top:1px solid var(--border);"><td style="padding:6px 8px 6px 0;"><span data-viewstaff="${esc(x.s.id)}" style="color:var(--teal);text-decoration:underline;cursor:pointer;font-weight:600;">${esc(x.s.name)}</span></td><td style="text-align:right;">${x.a.n}</td><td style="text-align:right;">${rupee(x.a.amt)}</td><td style="text-align:right;font-weight:700;color:#b45309;">${rupee(x.a.cash)}</td><td style="text-align:right;">${rupee(x.a.online)}</td><td style="text-align:right;color:#c0392b;">${rupee(x.a.due)}</td><td style="text-align:right;font-weight:700;">${STATE.jamaLoaded?rupee(jamaBal(x.s.id).bal):'…'}</td></tr>`).join('')}
     <tr style="border-top:2px solid var(--border);font-weight:700;"><td>Total</td><td style="text-align:right;">${T.n}</td><td style="text-align:right;">${rupee(T.amt)}</td><td style="text-align:right;">${rupee(T.cash)}</td><td style="text-align:right;">${rupee(T.online)}</td><td style="text-align:right;">${rupee(T.due)}</td><td style="text-align:right;">${STATE.jamaLoaded?rupee(data.reduce((q,x)=>q+jamaBal(x.s.id).bal,0)):'…'}</td></tr></table></div>${trLostHtml(cur)}</div>`;
+}
+
+function techPickHtml(sel,techs){
+  return `<div class="field" style="margin:8px 0 0;"><select id="trTechSel">${techs.map(t=>`<option value="${esc(t.id)}" ${t.id===sel?'selected':''}>👷 ${esc(t.name)}</option>`).join('')}<option value="__all" ${sel==='__all'?'selected':''}>👥 Sab technician (total)</option></select></div>`;
+}
+function techRecordAllHtml(){
+  jamaEnsure(); const techs=(STATE.staff||[]).filter(s=>s.role==='technician').slice().sort((a,b)=>String(a.name).localeCompare(String(b.name))); if(!techs.length||!isMoneyRole()) return '';
+  const sel=(STATE.trTech==='__all'||techs.some(t=>t.id===STATE.trTech))?STATE.trTech:techs[0].id, pick=techPickHtml(sel,techs);
+  return sel==='__all'?techRecordTableHtml(pick):techRecordHtml(sel,pick);
 }
 
 /* ===== Complaint register + Mana/Nahi gaya karan + Din ka hisaab ===== */
@@ -4477,7 +4501,7 @@ function dayBalanceHtml(){
   const techs=(STATE.staff||[]).filter(s=>s.role==='technician'), mk=t.slice(0,7);
   const rows=techs.map(s=>{ const my=open.filter(j=>j.assignedTo===s.id), ov=my.filter(j=>j.date&&j.date<t).length, dn=J.filter(j=>j.assignedTo===s.id&&j.status==='done'&&inDay(j.completedAt)).length; let ng=0; J.forEach(j=>(j.noShow||[]).forEach(x=>{ if(x.tech===s.id&&x.byTech&&String(x.date||ymd(new Date(x.t))).slice(0,7)===mk) ng++; }));
     return `<tr style="border-top:1px solid var(--border);"><td style="padding:5px 6px 5px 0;"><span data-viewstaff="${esc(s.id)}" style="color:var(--teal);text-decoration:underline;cursor:pointer;">${esc(s.name)}</span></td><td style="text-align:right;">${dn}</td><td style="text-align:right;">${my.length}</td><td style="text-align:right;color:${ov?'#c0392b':'inherit'};">${ov}</td><td style="text-align:right;color:${ng?'#c0392b':'inherit'};">${ng}</td></tr>`; }).join('');
-  return `<div class="card"><div class="section-title" style="margin:0 0 6px;">📅 Din ka Kaam — Call, Job, Pending</div>
+  return `<div class="card daycard"><div class="section-title" style="margin:0 0 6px;">📅 Din ka Kaam — Call, Job, Pending</div>
     <div class="stat-grid">${st(calls,'📞 Aaj call hui')}${st(leadsOpen,'📇 Call baaki (lead)',leadsOpen?'#b45309':'')}${st(made,'🆕 Job bani')}${st(done,'✅ Aaj complete','var(--green)')}${st(todayOpen,'🛠 Aaj ki baaki')}${st(over.length,'⏳ Purani pending',over.length?'#c0392b':'')}${st(unas,'🔴 Assign nahi')}${st(canc+nogo,'✖ Cancel / Nahi gaya')}</div>
     ${over.length?`<div class="item-sub" style="margin-top:6px;">⏳ ${over.length} job kal ya usse pehle ki baaki hain (sabse purani ${oldest} din). Ye apne aap <b>Jobs → Aaj</b> me upar dikhti rahengi jab tak complete ya cancel na ho.</div><div class="card-actions" style="margin-top:6px;"><button class="mini-btn primary" data-v9="carry" data-id="all">🔁 Sab pending ko aaj ki date me badlo (${over.length})</button></div>`:`<div class="item-sub" style="margin-top:6px;">✅ Koi purani pending job nahi.</div>`}
     <div class="item-sub" style="margin-top:8px;">📢 Complaint: Khuli <b>${cOpen}</b> · Chal rahi <b>${cRun}</b> · Aaj band <b>${cDone}</b></div>
