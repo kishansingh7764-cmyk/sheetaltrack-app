@@ -143,7 +143,7 @@ html{scroll-padding-top:120px;}
 .section-sub{font-family:var(--font-display);font-size:12.5px;font-weight:600;color:var(--teal-deep);margin:16px 0 8px 0;padding-top:12px;border-top:1px solid var(--border);}
 
 /* ===== v9.2b Compact size (phone) ===== */
-@media (max-width:899px), (pointer:coarse){
+@media (max-width:699px), (hover:none){
  button,input,select,textarea{font-size:13.5px;}
  input,select,textarea{padding:9px 10px;}
  label{font-size:11.5px;margin-bottom:4px;}
@@ -166,7 +166,7 @@ html{scroll-padding-top:120px;}
 }
 
 /* ===== v9.1 Desktop (laptop) design — sirf badi screen par; phone par kuch nahi badalta ===== */
-@media (min-width:900px) and (pointer:fine){
+@media (min-width:700px) and (hover:hover){
   :root{--sbw:244px;--tbh:60px;}
   body.desk{background:radial-gradient(1200px 500px at 70% -10%,#DDF1F5 0%,transparent 60%),#EAF2F4;}
   body.desk #app{max-width:none;margin:0;background:transparent;}
@@ -237,7 +237,7 @@ html{scroll-padding-top:120px;}
   body:not(.desk){background:radial-gradient(900px 520px at 50% -5%,#CDEAF0 0%,transparent 65%),#E6F0F2;}
   .loading-screen{min-height:70vh;}
 }
-@media (min-width:900px) and (pointer:fine){
+@media (min-width:700px) and (hover:hover){
   body.desk .dash2{display:grid!important;grid-template-columns:minmax(0,1.45fr) minmax(0,1fr);gap:0 26px;align-items:start;grid-column:1/-1;}
   body.desk .dash2>.dcol{display:block!important;min-width:0;}
   body.desk .dash2>.dcol>.card,body.desk .dash2>.dcol>.row-between{margin-bottom:14px;}
@@ -247,13 +247,23 @@ html{scroll-padding-top:120px;}
   body.desk .content>.tabbar{max-width:none;}
 }
 @media (max-width:1279px){ body.desk .dash2{grid-template-columns:minmax(0,1fr);} }
-@media (min-width:900px) and (max-width:1180px) and (pointer:fine){ body.desk .content{padding:22px 18px 70px;} :root{--sbw:210px;} }
+@media (min-width:1001px) and (max-width:1180px) and (hover:hover){ body.desk .content{padding:22px 18px 70px;} body.desk{--sbw:200px;} }
+@media (min-width:700px) and (max-width:1000px) and (hover:hover){
+  body.desk{--sbw:76px;}
+  body.desk .content{padding:18px 14px 70px;}
+  body.desk .bottomnav{padding:14px 6px;}
+  body.desk .bottomnav::before{content:'';padding:0;}
+  body.desk .navbtn,body.desk .bottomnav.dense .navbtn{flex-direction:column;justify-content:center;gap:3px;padding:10px 2px;text-align:center;}
+  body.desk .navbtn .ic,body.desk .bottomnav.dense .navbtn .ic{width:auto;font-size:21px;}
+  body.desk .bottomnav .navbtn .nl,body.desk .bottomnav.dense .navbtn .nl{font-size:10px;max-width:none;}
+  body.desk .topbar{padding:0 12px;}
+}
 body.desk .dash2>.dcol>.row-between{margin-top:18px;}
 @media (min-width:1700px){ body.desk .content,body.desk .content :is(div,section):has(>.card~.card){grid-template-columns:repeat(auto-fill,minmax(480px,1fr));} }
 /* iPhone: 16px se chhote input par Safari page zoom kar deta hai */
-@supports (-webkit-touch-callout:none){ @media (max-width:899px), (pointer:coarse){ input,select,textarea{font-size:16px!important;} } }
+@supports (-webkit-touch-callout:none){ @media (max-width:699px), (hover:none){ input,select,textarea{font-size:16px!important;} } }
 /* ===== v9.2c Laptop compact (thoda chhota) ===== */
-@media (min-width:900px) and (pointer:fine){
+@media (min-width:700px) and (hover:hover){
   :root{--sbw:214px;--tbh:52px;}
   body.desk button,body.desk input,body.desk select,body.desk textarea{font-size:13px;}
   body.desk input,body.desk select,body.desk textarea{padding:9px 12px;}
@@ -3414,7 +3424,7 @@ function applyStickyBars(){
   });
 }
 let scrollUxReady=false, lastScrollY=0;
-const IS_DESK=()=>{ try{ return window.matchMedia('(min-width:900px) and (pointer:fine)').matches&&document.body.classList.contains('desk'); }catch(e){ return false; } };
+const IS_DESK=()=>{ try{ return window.matchMedia('(min-width:700px) and (hover:hover)').matches&&document.body.classList.contains('desk'); }catch(e){ return false; } };
 function scrollUxInit(){
   if(scrollUxReady) return; scrollUxReady=true;
   const fab=document.createElement('div'); fab.id='scrollFab'; fab.innerHTML='<button id="sfUp" title="Upar" aria-label="Sabse upar">▲</button><button id="sfDn" title="Neeche" aria-label="Sabse neeche">▼</button>'; document.body.appendChild(fab);
@@ -4327,10 +4337,10 @@ function trFilterBar(act){
   if(cur==='m'){ const sm=/^\d{4}-\d{2}$/.test(STATE.trMonth||'')?STATE.trMonth:t.slice(0,7), now=new Date(t+'T12:00:00'); let o=''; for(let i=0;i<24;i++){ const x=new Date(now.getFullYear(),now.getMonth()-i,1), v=ymd(x).slice(0,7); o+=`<option value="${v}" ${v===sm?'selected':''}>${x.toLocaleString('en-IN',{month:'long',year:'numeric'})}</option>`; } sel=`<div class="field" style="margin:0 0 8px;"><select id="trMonthSel">${o}</select></div>`; }
   else if(cur==='y'){ const sy=/^\d{4}$/.test(STATE.trYear||'')?STATE.trYear:t.slice(0,4), y0=+t.slice(0,4); let o=''; for(let i=0;i<6;i++) o+=`<option value="${y0-i}" ${String(y0-i)===sy?'selected':''}>${y0-i}</option>`; sel=`<div class="field" style="margin:0 0 8px;"><select id="trYearSel">${o}</select></div>`; }
   else if(cur==='c'){ sel=`<div style="display:flex;gap:8px;margin:0 0 8px;"><div class="field" style="margin:0;flex:1;"><label>Se</label><input type="date" id="trFromIn" value="${esc(STATE.trFrom||t)}" max="${t}"></div><div class="field" style="margin:0;flex:1;"><label>Tak</label><input type="date" id="trToIn" value="${esc(STATE.trTo||STATE.trFrom||t)}" max="${t}"></div></div>`; }
-  return `<div style="display:flex;gap:6px;margin:6px 0 10px;">${TR_PERIODS.map(x=>`<button class="mini-btn${x[0]===cur?' primary':''}" style="flex:1;padding-left:4px;padding-right:4px;" data-v9="${act}" data-p="${x[0]}">${x[1]}</button>`).join('')}</div>${sel}`;
+  return `<div class="field" style="margin:8px 0;"><select id="trPerSel">${TR_PERIODS.map(x=>`<option value="${x[0]}" ${x[0]===cur?'selected':''}>${x[0]==='d'?'📅 Aaj':x[0]==='w'?'📅 Is Hafta':x[0]==='m'?'📅 Mahina chuniye':x[0]==='y'?'📅 Saal chuniye':'📅 Tarikh se tarikh'}</option>`).join('')}</select></div>${sel}`;
 }
 document.addEventListener('change',ev=>{ const e=ev.target; if(!e||!e.id) return; let hit=true;
-  if(e.id==='trTechSel') STATE.trTech=e.value; else if(e.id==='trMonthSel') STATE.trMonth=e.value; else if(e.id==='trYearSel') STATE.trYear=e.value; else if(e.id==='trFromIn'){ STATE.trFrom=e.value||todayStr(); if(!STATE.trTo||STATE.trTo<STATE.trFrom) STATE.trTo=STATE.trFrom; } else if(e.id==='trToIn'){ STATE.trTo=e.value||todayStr(); if(!STATE.trFrom||STATE.trFrom>STATE.trTo) STATE.trFrom=STATE.trTo; } else hit=false;
+  if(e.id==='trPerSel'){ if(TR_PERIODS.some(x=>x[0]===e.value)) STATE.trPer=e.value; } else if(e.id==='trTechSel') STATE.trTech=e.value; else if(e.id==='trMonthSel') STATE.trMonth=e.value; else if(e.id==='trYearSel') STATE.trYear=e.value; else if(e.id==='trFromIn'){ STATE.trFrom=e.value||todayStr(); if(!STATE.trTo||STATE.trTo<STATE.trFrom) STATE.trTo=STATE.trFrom; } else if(e.id==='trToIn'){ STATE.trTo=e.value||todayStr(); if(!STATE.trFrom||STATE.trFrom>STATE.trTo) STATE.trFrom=STATE.trTo; } else hit=false;
   if(hit) render(); });
 function trJobDate(j){ return j.completedAt?ymd(new Date(j.completedAt)):(j.closedAt?ymd(new Date(j.closedAt)):(j.date||'')); }
 function trJobOwner(j){ if(j.assignedTo) return j.assignedTo; const h=(j.history||[]).filter(x=>x&&x.s==='done'&&x.by); const nm=h.length?h[h.length-1].by:''; const ids=nm?techIdsOf(nm):[]; return ids.length===1?ids[0]:''; }
