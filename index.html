@@ -4178,6 +4178,7 @@ function jobCardCompact(j){
         ${isOpen&&j.status!=='onhold'?`<button class="mini-btn" data-act="jobstatus" data-status="onhold" data-id="${j.id}">Hold</button>`:''}
         ${isOpen?`<button class="mini-btn" data-v9="jobreason" data-k="mana" data-id="${j.id}">🚫 Customer ne mana kiya</button><button class="mini-btn" data-v9="jobreason" data-k="nogo" data-id="${j.id}">⚠️ Technician nahi gaya</button>`:''}
         ${isOpen&&late?`<button class="mini-btn" data-v9="carry" data-id="${j.id}">🔁 Aaj me lao</button>`:''}
+        <button class="mini-btn" data-v9="matuse" data-id="${j.id}">🧰 Material</button>
         ${isOpen?`<button class="mini-btn danger" data-act="jobstatus" data-status="rejected" data-id="${j.id}">Cancel</button>`:''}
         ${isOpen?`<button class="mini-btn" data-act="jobresched" data-id="${j.id}">📅 Date Badlein</button>`:''}
         ${j.status==='ongoing'?`<button class="mini-btn primary" data-act="completejob" data-id="${j.id}">Mark Done</button>`:''}
@@ -5107,9 +5108,14 @@ function initTravelAdd(){ document.getElementById('travelBtn').onclick=async()=>
   if(!d||d>todayStr()){ showToast('Sahi tarikh chuniye'); return; } if(!(km>0&&km<=500)){ showToast('Km 0.1 se 500 ke beech likhein'); return; } if(note.length<4){ showToast('Kahan se kahan — likhna zaroori hai'); return; }
   STATE.travelLogs=(STATE.travelLogs||[]).concat({id:uid(),staffId:STATE.session.staffId,name:STATE.session.name,date:d,km,amount,note,createdAt:Date.now()});
   activeModal=null; await saveKey('st_travel',STATE.travelLogs); showToast('Travel save ho gaya'); render(); }; }
+const RG_KEY='st_recent_global_search';
+function rgGet(){ try{ const v=JSON.parse(localStorage.getItem(RG_KEY)||'[]'); return Array.isArray(v)?v.filter(x=>typeof x==='string'&&x).slice(0,8):[]; }catch(e){ return []; } }
+function rgAdd(t){ t=String(t||'').trim(); if(t.length<2) return; try{ const l=rgGet().filter(x=>x.toLowerCase()!==t.toLowerCase()); l.unshift(t); localStorage.setItem(RG_KEY,JSON.stringify(l.slice(0,8))); }catch(e){} }
+function rgClear(){ try{ localStorage.removeItem(RG_KEY); }catch(e){} }
+function globalRecentHtml(){ const l=rgGet(); const hint=`<div class="item-sub">Kam se kam 2 letter/ank type karein</div>`; if(!l.length) return hint; return hint+`<div style="margin-top:10px;"><div class="item-sub" style="margin:0 0 4px;">🕘 Pichli search <span data-grsclear="1" style="color:var(--teal);cursor:pointer;margin-left:8px;">saaf karein</span></div><div style="display:flex;flex-wrap:wrap;gap:6px;">${l.map(x=>`<button class="mini-btn" data-grs="${esc(x)}" style="flex:none;">🔍 ${esc(x)}</button>`).join('')}</div></div>`; }
 function globalSearchResultsHtml(qRaw){
   const q=(qRaw||'').trim().toLowerCase();
-  if(q.length<2) return `<div class="item-sub">Kam se kam 2 letter/ank type karein</div>`;
+  if(q.length<2) return globalRecentHtml();
   let results=[];
   STATE.customers.forEach(c=>{ if((c.name||'').toLowerCase().includes(q)||(c.phone||'').includes(q)) results.push({type:customerTypeLabel(c.type),label:c.name,sub:c.phone||c.address||'',attr:`data-viewcust="${c.id}"`}); });
   STATE.staff.forEach(s=>{ if((s.name||'').toLowerCase().includes(q)||(s.phone||'').includes(q)) results.push({type:roleLabel(s.role),label:s.name,sub:s.phone||'',attr:`data-viewstaff="${s.id}"`}); });
@@ -5117,8 +5123,10 @@ function globalSearchResultsHtml(qRaw){
   return results.slice(0,30).map(r=>`<div class="row-between" ${r.attr} style="cursor:pointer;padding:9px 0;border-bottom:1px solid var(--border);"><div><div class="item-name" style="font-size:13.5px;">${esc(r.label)}</div><div class="item-sub">${esc(r.type)}${r.sub?' · '+esc(r.sub):''}</div></div><span style="color:var(--ink-faint);">›</span></div>`).join('');
 }
 function wireGlobalSearchResultClicks(container){
-  container.querySelectorAll('[data-viewcust]').forEach(el=>el.onclick=()=>{ activeModal=null; openCustomerProfile(el.dataset.viewcust); });
-  container.querySelectorAll('[data-viewstaff]').forEach(el=>el.onclick=()=>{ activeModal=null; STATE.staffDetailId=el.dataset.viewstaff; STATE.view='staffProfile'; render(); });
+  container.querySelectorAll('[data-viewcust]').forEach(el=>el.onclick=()=>{ const c=STATE.customers.find(x=>x.id===el.dataset.viewcust); rgAdd(c?c.name:STATE.globalSearchQuery); activeModal=null; openCustomerProfile(el.dataset.viewcust); });
+  container.querySelectorAll('[data-viewstaff]').forEach(el=>el.onclick=()=>{ const c=STATE.staff.find(x=>x.id===el.dataset.viewstaff); rgAdd(c?c.name:STATE.globalSearchQuery); activeModal=null; STATE.staffDetailId=el.dataset.viewstaff; STATE.view='staffProfile'; render(); });
+  container.querySelectorAll('[data-grs]').forEach(el=>el.onclick=()=>{ const v=el.dataset.grs, inp=document.getElementById('f_globalSearch'); STATE.globalSearchQuery=v; if(inp){ inp.value=v; inp.focus(); } container.innerHTML=globalSearchResultsHtml(v); wireGlobalSearchResultClicks(container); });
+  container.querySelectorAll('[data-grsclear]').forEach(el=>el.onclick=()=>{ rgClear(); container.innerHTML=globalSearchResultsHtml(STATE.globalSearchQuery||''); wireGlobalSearchResultClicks(container); });
 }
 function jobKind(j){ const t=((j.title||'')+' '+(j.tag||'')).toLowerCase(); return /install/.test(t)?'inst':/amc/.test(t)?'amc':/repair/.test(t)?'rep':'oth'; }
 function techMonthHtml(staffId){
@@ -5687,6 +5695,7 @@ function bindShellEvents(){
   if(gsInput){
     setTimeout(()=>{ gsInput.focus(); gsInput.selectionStart=gsInput.selectionEnd=gsInput.value.length; },50);
     const gsBox=document.getElementById('globalSearchResults'); if(gsBox) wireGlobalSearchResultClicks(gsBox);
+    gsInput.onchange=(e)=>{ rgAdd(e.target.value); };
     gsInput.oninput=(e)=>{ STATE.globalSearchQuery=e.target.value; const box=document.getElementById('globalSearchResults'); if(box){ box.innerHTML=globalSearchResultsHtml(STATE.globalSearchQuery); wireGlobalSearchResultClicks(box); } };
   }
   document.querySelectorAll('.navbtn').forEach(b=>b.onclick=()=>{ if(b.dataset.more){ activeModal={type:'navMore',data:{}}; render(); return; } STATE.focus=null; STATE.view=b.dataset.view; STATE.jobStatusFilter=''; STATE.jobPeriod=''; render(); });
@@ -6726,7 +6735,7 @@ document.addEventListener('click',async ev=>{
   else if(a==='cpin'){ const c=STATE.customers.find(x=>x.id===id); if(!c) return; if(c.pin&&!confirm('Is customer ka purana pin badal dein? Aap abhi customer ki jagah par hone chahiye.')) return; if(!c.pin&&!confirm('Kya aap abhi customer ke ghar/site par hain? Isi jagah ko customer ka pin bana diya jayega.')) return; showToast('Location le raha hu…'); try{ const p=await getPos(); const ac=Math.round(p.coords.accuracy||0); if(ac>150&&!confirm('Location sahi nahi hai (±'+ac+' m). Phir bhi save karein?')) return; c.pin={lat:+p.coords.latitude.toFixed(6),lng:+p.coords.longitude.toFixed(6),ac,by:(STATE.session&&STATE.session.name)||'',at:Date.now()}; await saveKey(SKEY.CUSTOMERS,STATE.customers); showToast('📍 Pin save ho gaya (±'+ac+' m) — ab Navigate seedha yahin le jayega'); render(); }catch(e){ showToast('Location nahi mili — GPS/permission on karein'); } }
   else if(a==='locallow'){ showToast('Location maang raha hu…'); try{ const p=await getPos(); STATE.locDenied=false; STATE.locGot=true; STATE.perm=STATE.perm||{}; STATE.perm.loc='granted'; writeMyLoc(p,'app'); showToast('✅ Location chalu ho gayi'); render(); }catch(e){ if(e&&e.code===1){ STATE.locDenied=true; render(); } else showToast('Location nahi mili — GPS on karein'); } }
   else if(/^csh/.test(a)){ await custShareAct(a,el,val); }
-  else if(/^st(item|move|hist|saveitem|savemove|delmove|delitem)$/.test(a)){ await stockAct(a,el,val); }
+  else if(/^st(item|move|hist|saveitem|savemove|delmove|delitem)$/.test(a)||/^mat(use|add|del|rep)$/.test(a)){ await stockAct(a,el,val); }
   else if(/^adv(list|open|add|save|settle|del)$/.test(a)){ await advAct(a,el,val); }
   else if(a==='idprint'){ const s=STATE.staff.find(x=>x.id===id); if(s) idPrint(s); }
   else if(a==='idwa'){ const s=STATE.staff.find(x=>x.id===id), n=val('v9_idwa').replace(/\D/g,''); if(!s) return; if(n.length!==10){ showToast('Customer ka 10 digit number likhein'); return; } const txt='Namaste, '+(bizCfg().name||'Super Air Cool')+' ki taraf se '+s.name+' ('+ID_ROLE[s.role]+', ID '+s.idNo+') aapke yahan aa rahe hain. Pehchan verify karein: '+verifyUrl(s); window.open('https://wa.me/91'+n+'?text='+encodeURIComponent(txt),'_blank'); }
@@ -6747,6 +6756,7 @@ function v9ModalHtml(){
   if(t==='qrShow') return qrShowHtml();
   if(t==='idCard') return idCardInner(d);
   if(t==='stItem'||t==='stMove'||t==='stHist') return stockModalHtml(t,d);
+  if(t==='matUse'||t==='matRep') return matModalHtml(t,d);
   if(t==='custShare') return custShareHtml(d);
   if(t==='advAdd'||t==='advList') return advModalHtml(t,d);
   return null;
@@ -6808,6 +6818,7 @@ function renderStock(){
   const inv=STATE.inv, lowN=(inv.items||[]).filter(it=>Number(it.low)>0&&invStock(inv,it.id)<=Number(it.low)).length;
   return `<div class="section-title">📦 Stock</div>
     <div class="card"><div class="row-between"><div><div class="item-name">${(inv.items||[]).length} item</div><div class="item-sub" id="stLowTxt" style="${lowN?'color:#c0392b;font-weight:700;':''}">${lowN?'⚠️ Kam stock: '+lowN+' item':'✅ Sab item ka stock theek hai'}</div></div><button class="primary-btn" data-v9="stitem" style="width:auto;padding:10px 14px;">+ Naya item</button></div>
+    <button class="ghost-btn" data-v9="matrep" style="margin-top:10px;">📊 Material hisab (complaint / job / technician)</button>
     <div class="field" style="margin:10px 0 0;"><input id="stSearch" placeholder="🔍 Item / category dhundein" value="${esc(STATE.stQ||'')}"></div></div>
     <div id="stList">${stockListHtml()}</div>`;
 }
@@ -6834,7 +6845,7 @@ function stockModalHtml(t,d){
   if(t==='stHist'){ const it=inv.items.find(x=>x.id===d.id)||{}, mv=(inv.moves||[]).filter(m=>m.item===d.id).sort((a,b)=>(b.date||'').localeCompare(a.date||'')||(b.at||0)-(a.at||0)), adm=STATE.session.role==='admin';
     return `<div class="modal-head"><h3>📜 ${esc(it.name||'History')}</h3><button class="close-x" id="modalClose">×</button></div>
     <div class="item-sub" style="margin-bottom:8px;">Abhi stock: <b>${invFmt(invStock(inv,d.id))} ${esc(it.unit||'')}</b>${Number(it.open)>0?' · shuruaati '+invFmt(it.open):''}</div>
-    ${mv.length?mv.map(m=>`<div class="row-between" style="padding:7px 0;border-top:1px solid var(--border);gap:8px;"><div style="min-width:0;"><div class="item-name" style="font-size:14px;color:${m.t==='in'?'#1e8e5a':'#c0392b'};">${m.t==='in'?'➕':'➖'} ${invFmt(m.q)} ${esc(it.unit||'')}</div><div class="item-sub" style="margin:0;">${fmtDate(m.date)}${m.note?' · '+esc(m.note):''} · ${esc(m.by||'')}</div></div>${adm?`<button class="mini-btn danger" data-v9="stdelmove" data-id="${esc(m.id)}" data-it="${esc(d.id)}">🗑</button>`:''}</div>`).join(''):'<div class="item-sub">Abhi koi entry nahi.</div>'}`; }
+    ${mv.length?mv.map(m=>`<div class="row-between" style="padding:7px 0;border-top:1px solid var(--border);gap:8px;"><div style="min-width:0;"><div class="item-name" style="font-size:14px;color:${m.t==='in'?'#1e8e5a':'#c0392b'};">${m.t==='in'?'➕':'➖'} ${invFmt(m.q)} ${esc(it.unit||'')}</div><div class="item-sub" style="margin:0;">${fmtDate(m.date)}${m.note?' · '+esc(m.note):''}${(matJobLbl(m)&&!String(m.note||'').includes(matJobLbl(m)))?' · 🔗 '+esc(matJobLbl(m)):''} · ${esc(m.by||'')}</div></div>${adm?`<button class="mini-btn danger" data-v9="stdelmove" data-id="${esc(m.id)}" data-it="${esc(d.id)}">🗑</button>`:''}</div>`).join(''):'<div class="item-sub">Abhi koi entry nahi.</div>'}`; }
   return null;
 }
 async function stockAct(a,el,val){
@@ -6857,8 +6868,56 @@ async function stockAct(a,el,val){
     if(ok){ activeModal=null; showToast(k==='in'?'Maal aaya — save':'Maal gaya — save'); render(); }
   }
   else if(a==='stdelmove'){ if(STATE.session.role!=='admin') return; if(!confirm('Ye entry hata dein?')) return; const ok=await invMutate(inv=>{ inv.moves=inv.moves.filter(m=>m.id!==id); }); if(ok){ activeModal={type:'stHist',data:{id:el.dataset.it}}; render(); } }
+  else if(a==='matuse'){ if(!STATE.inv){ await invLoad(true); } if(!STATE.inv) STATE.inv={items:[],moves:[]}; activeModal={type:'matUse',data:{id}}; render(); }
+  else if(a==='matrep'){ if(!STATE.inv){ await invLoad(true); } activeModal={type:'matRep',data:{}}; render(); }
+  else if(a==='matadd'){
+    const j=STATE.jobs.find(x=>x.id===id), iid=val('v9_mui'), q=Number(val('v9_muq'))||0; if(!j||!iid){ return; } if(q<=0){ showToast('Quantity daalein'); return; }
+    const cur=invStock(STATE.inv||{items:[],moves:[]},iid); if(q>cur&&!confirm('Stock sirf '+invFmt(cur)+' hai, '+invFmt(q)+' nikal rahe hain. Phir bhi save karein?')) return;
+    const ok=await invMutate(inv=>{ const it=inv.items.find(x=>x.id===iid); if(!it) return false; inv.moves.push({id:uid(),item:iid,t:'out',q,date:todayStr(),note:('Job: '+matJobName(j.id)).slice(0,80),by:STATE.session.name,at:Date.now(),job:j.id,cust:j.customerId||'',tech:j.assignedTo||STATE.session.staffId||'',rate:Number(it.rate)||0}); });
+    if(ok){ activeModal={type:'matUse',data:{id:j.id}}; showToast('Material likh liya — stock se ghata'); render(); }
+  }
+  else if(a==='matdel'){ if(!isMoneyRole()) return; if(!confirm('Ye material entry hata dein? Stock wapas jud jayega.')) return; const ok=await invMutate(inv=>{ inv.moves=inv.moves.filter(m=>m.id!==id); }); if(ok){ activeModal={type:'matUse',data:{id:el.dataset.job}}; render(); } }
   else if(a==='stdelitem'){ if(STATE.session.role!=='admin') return; if(!confirm('Ye item aur uski saari history hata dein?')) return; const ok=await invMutate(inv=>{ inv.items=inv.items.filter(x=>x.id!==id); inv.moves=inv.moves.filter(m=>m.item!==id); }); if(ok){ activeModal=null; render(); } }
 }
+
+/* ===== Material use: job / complaint se jodkar hisab ===== */
+const matJobOf=m=>m&&(m.job||m.bill)||'';
+function matJobName(jid){ const j=STATE.jobs.find(x=>x.id===jid); if(!j) return 'Job'; const c=STATE.customers.find(x=>x.id===j.customerId); return (c?c.name:'Customer')+(isComp(j)?' (Complaint)':''); }
+function matJobLbl(m){ const jid=matJobOf(m); if(!jid) return ''; return matJobName(jid); }
+function matCost(inv,m){ const it=(inv.items||[]).find(x=>x.id===m.item)||{}; const r=Number(m.rate)>0?Number(m.rate):(Number(it.rate)||0); return (Number(m.q)||0)*r; }
+function matMovesOf(inv,jid){ return (inv.moves||[]).filter(m=>m.t==='out'&&matJobOf(m)===jid); }
+const MAT_PER=[['d','Aaj'],['w','Is hafte'],['m','Is mahine'],['y','Is saal'],['a','Sab']];
+const MAT_BY=[['item','Item ke hisab se'],['tech','Technician ke hisab se'],['cust','Customer ke hisab se'],['job','Job / Complaint ke hisab se']];
+function matModalHtml(t,d){
+  const inv=STATE.inv||{items:[],moves:[]};
+  if(t==='matUse'){
+    const j=STATE.jobs.find(x=>x.id===d.id); if(!j) return `<div class="modal-head"><h3>🧰 Material</h3><button class="close-x" id="modalClose">×</button></div><div class="empty">Job nahi mila</div>`;
+    const mv=matMovesOf(inv,j.id).sort((a,b)=>(a.at||0)-(b.at||0)), canDel=isMoneyRole(), tot=mv.reduce((a,m)=>a+matCost(inv,m),0);
+    const c=STATE.customers.find(x=>x.id===j.customerId);
+    const opts=(inv.items||[]).slice().sort((a,b)=>a.name.localeCompare(b.name)).map(it=>`<option value="${esc(it.id)}">${esc(it.name)} — ${invFmt(invStock(inv,it.id))} ${esc(it.unit)} bacha</option>`).join('');
+    return `<div class="modal-head"><h3>🧰 Material lagaya</h3><button class="close-x" id="modalClose">×</button></div>
+    <div class="item-sub" style="margin-bottom:8px;"><b>${esc(c?c.name:'Customer')}</b>${isComp(j)?' · 📢 Complaint':''} · ${fmtDate(j.date)}</div>
+    ${mv.length?mv.map(m=>{ const it=(inv.items||[]).find(x=>x.id===m.item)||{}, cost=matCost(inv,m); return `<div class="row-between" style="padding:7px 0;border-top:1px solid var(--border);gap:8px;"><div style="min-width:0;"><div class="item-name" style="font-size:14px;">${esc(it.name||'(hata hua item)')} — ${invFmt(m.q)} ${esc(it.unit||'')}${m.bill?' <span class="pill pill-grey">Bill se</span>':''}</div><div class="item-sub" style="margin:0;">${fmtDate(m.date)}${cost>0?' · ₹'+invFmt(cost):''} · ${esc(m.by||'')}</div></div>${canDel&&!m.bill?`<button class="mini-btn danger" data-v9="matdel" data-id="${esc(m.id)}" data-job="${esc(j.id)}">🗑</button>`:''}</div>`; }).join('')+(tot>0?`<div class="item-name" style="margin-top:8px;text-align:right;">Total material: ₹${invFmt(tot)}</div>`:''):'<div class="item-sub">Abhi koi material nahi likha</div>'}
+    ${(inv.items||[]).length?`<div style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px;"><div class="field"><label>Item (company stock se)</label><select id="v9_mui">${opts}</select></div>
+    <div class="field"><label>Kitna</label><input id="v9_muq" type="number" min="0" step="any" inputmode="decimal" placeholder="0"></div>
+    <button class="primary-btn" data-v9="matadd" data-id="${esc(j.id)}">+ Material jodein (stock se ghatega)</button></div>`:'<div class="item-sub" style="margin-top:10px;">Stock me abhi koi item nahi — pehle Stock page me item jodein.</div>'}`;
+  }
+  /* matRep */
+  const per=STATE.matPer||'m', by=STATE.matBy||'item', t0=todayStr(), d0=new Date(t0+'T12:00:00');
+  let lo='0000-00-00'; if(per==='d') lo=t0; else if(per==='w'){ const s=new Date(d0); s.setDate(d0.getDate()-((d0.getDay()+6)%7)); lo=ymd(s); } else if(per==='m') lo=t0.slice(0,7)+'-01'; else if(per==='y') lo=t0.slice(0,4)+'-01-01';
+  const mv=(inv.moves||[]).filter(m=>m.t==='out'&&matJobOf(m)&&(m.date||'')>=lo);
+  const G=new Map();
+  mv.forEach(m=>{ const jid=matJobOf(m), j=STATE.jobs.find(x=>x.id===jid)||{}, it=(inv.items||[]).find(x=>x.id===m.item)||{};
+    let key,label; if(by==='item'){ key=m.item; label=it.name||'(hata hua item)'; } else if(by==='tech'){ key=m.tech||j.assignedTo||''; label=key?((STATE.staff.find(x=>x.id===key)||{}).name||'—'):'Technician pata nahi'; } else if(by==='cust'){ key=m.cust||j.customerId||''; label=key?((STATE.customers.find(x=>x.id===key)||{}).name||'—'):'Customer pata nahi'; } else { key=jid; label=matJobName(jid)+(j.date?' · '+fmtDate(j.date):''); }
+    const g=G.get(key)||{label,cost:0,n:0,parts:new Map(),unit:it.unit||'',qty:0}; g.cost+=matCost(inv,m); g.n++; g.qty+=Number(m.q)||0; const pk=(it.name||'?')+'|'+(it.unit||''); g.parts.set(pk,(g.parts.get(pk)||0)+(Number(m.q)||0)); G.set(key,g); });
+  const rows=[...G.values()].sort((a,b)=>b.cost-a.cost||b.n-a.n), total=rows.reduce((a,g)=>a+g.cost,0);
+  const sel=(id,arr,cur)=>`<select id="${id}" style="flex:1;">${arr.map(x=>`<option value="${x[0]}" ${x[0]===cur?'selected':''}>${x[1]}</option>`).join('')}</select>`;
+  return `<div class="modal-head"><h3>📊 Material hisab</h3><button class="close-x" id="modalClose">×</button></div>
+    <div style="display:flex;gap:8px;margin-bottom:10px;">${sel('matRepPer',MAT_PER,per)}${sel('matRepBy',MAT_BY,by)}</div>
+    <div class="item-sub" style="margin-bottom:6px;">Sirf wahi material jo kisi job / complaint / bill se juda hai.${total>0?' Total keemat: <b>₹'+invFmt(total)+'</b>':''}</div>
+    ${rows.length?rows.map(g=>`<div style="padding:8px 0;border-top:1px solid var(--border);"><div class="row-between"><div class="item-name" style="font-size:14px;">${esc(g.label)}</div><div class="item-name" style="font-size:14px;">${by==='item'?invFmt(g.qty)+' '+esc(g.unit):(g.cost>0?'₹'+invFmt(g.cost):'')}</div></div><div class="item-sub" style="margin:2px 0 0;">${by==='item'?(g.cost>0?'₹'+invFmt(g.cost)+' · ':'')+g.n+' entry':[...g.parts.entries()].map(([k,q])=>{ const [n,u]=k.split('|'); return esc(n)+' '+invFmt(q)+' '+esc(u); }).join(', ')}</div></div>`).join(''):'<div class="empty">Is samay me koi material nahi likha gaya</div>'}`;
+}
+document.addEventListener('change',ev=>{ const e=ev.target; if(!e) return; if(e.id==='matRepPer'){ STATE.matPer=e.value; render(); } else if(e.id==='matRepBy'){ STATE.matBy=e.value; render(); } });
 document.addEventListener('input',ev=>{ const e=ev.target; if(e&&e.id==='stSearch'&&STATE.inv){ STATE.stQ=e.value; const l=document.getElementById('stList'); if(l) l.innerHTML=stockListHtml(); } });
 
 /* ---- bill banne par stock apne aap ghate (sirf Invoice, sirf ek baar, naam exact match) ---- */
@@ -6867,7 +6926,7 @@ async function billStockDeduct(j){
   let hit=0;
   const ok=await invMutate(st=>{
     const map=new Map(st.items.map(x=>[x.name.trim().toLowerCase(),x]));
-    (inv.items||[]).forEach(it=>{ const m=map.get(String(it.name||'').trim().toLowerCase()); const q=Number(it.qty)||0; if(m&&q>0){ st.moves.push({id:uid(),item:m.id,t:'out',q,date:inv.date||todayStr(),note:('Bill #'+(inv.no||'')).slice(0,80),by:(STATE.session&&STATE.session.name)||'',at:Date.now(),bill:j.id}); hit++; } });
+    (inv.items||[]).forEach(it=>{ const m=map.get(String(it.name||'').trim().toLowerCase()); let q=Number(it.qty)||0; if(m){ const used=st.moves.filter(x=>x.job===j.id&&x.item===m.id&&x.t==='out'&&!x.bill).reduce((a,x)=>a+(Number(x.q)||0),0); q=Math.max(0,q-used); } if(m&&q>0){ st.moves.push({id:uid(),item:m.id,t:'out',q,date:inv.date||todayStr(),note:('Bill #'+(inv.no||'')).slice(0,80),by:(STATE.session&&STATE.session.name)||'',at:Date.now(),bill:j.id}); hit++; } });
     if(!hit) return false;
   });
   if(ok&&hit){ inv.stockDone=true; await saveKey(SKEY.JOBS,STATE.jobs); STATE.invNames=null; showToast('📦 Stock se '+hit+' item ghat gaya'); }
