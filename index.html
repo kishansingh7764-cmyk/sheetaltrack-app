@@ -4218,7 +4218,8 @@ function renderJobs(){
   const FJ=focusIs('unassigned','todayjobs')?STATE.focus.k:'';
   if(FJ==='unassigned') base=base.filter(j=>jobIsOpen(j)&&!j.assignedTo);
   if(FJ==='todayjobs') base=base.filter(j=>j.assignedTo&&j.date===todayStr()&&(j.status==='pending'||j.status==='ongoing'||j.status==='onhold'));
-  const tab=(filt||FJ)?'all':(STATE.jobTab||'today');
+  const DJ=DAYJ_LBL[STATE.dayJobs]?STATE.dayJobs:''; if(DJ) base=base.filter(j=>dayJobPass(j,DJ));
+  const tab=(filt||FJ||DJ)?'all':(STATE.jobTab||'today');
   let list=jobsForTab(base,tab);
   const dk=j=>String(j.date||'');
   if(tab==='today') list.sort((a,b)=>(jobIsOpen(b)-jobIsOpen(a))||jobSortFn(a,b));
@@ -4233,7 +4234,7 @@ function renderJobs(){
   } else body=shown.map(jobCardCompact).join('');
   if(list.length>lim) body+=`<button class="ghost-btn" data-act="jobsmore" style="margin-top:10px;">Aur dikhayein (${list.length-lim} baaki)</button>`;
   const cnt=t=>jobsForTab(base,t).length;
-  const tabs=(filt||FJ)?focusBannerHtml('unassigned','todayjobs'):`<div class="tabbar">${JT_TABS.map(t=>`<button class="tabbtn ${t[0]===tab?'active':''}" data-act="jobtab" data-tab="${t[0]}">${t[1]} (${cnt(t[0])})</button>`).join('')}</div>`;
+  const tabs=DJ?`<div class="row-between" style="margin-bottom:10px;"><div class="pill pill-sky">${DAYJ_LBL[DJ]} (${list.length})</div><button class="mini-btn" style="flex:none;padding:6px 12px;" data-v9="dayclear">Clear ✕</button></div>`:(filt||FJ)?focusBannerHtml('unassigned','todayjobs'):`<div class="tabbar">${JT_TABS.map(t=>`<button class="tabbtn ${t[0]===tab?'active':''}" data-act="jobtab" data-tab="${t[0]}">${t[1]} (${cnt(t[0])})</button>`).join('')}</div>`;
   const tsel=`<div class="field" style="margin:0 0 10px;"><select id="jobTechFilter"><option value="">👷 Sab technician</option>${techs.map(t=>`<option value="${t.id}" ${tf===t.id?'selected':''}>${esc(t.name)} (${STATE.jobs.filter(j=>j.assignedTo===t.id&&jobIsOpen(j)).length} baaki)</option>`).join('')}<option value="__none" ${tf==='__none'?'selected':''}>🔴 Jo kisi ko assign nahi</option></select></div>`;
   return `
     ${filt?`<div class="row-between" style="margin-bottom:12px;"><div class="pill pill-sky">Filter: ${statusLabel(filt)}${per&&perL[per]?' · '+perL[per]:''}</div><button class="mini-btn" style="flex:none;padding:6px 12px;" id="clearJobFilterBtn">Clear ✕</button></div>`:''}
@@ -4523,6 +4524,10 @@ async function carryJobs(ids){
   if(n) await saveKey(SKEY.JOBS,STATE.jobs); return n;
 }
 function overdueDays(j){ return Math.max(0,Math.round((new Date(todayStr()+'T12:00:00')-new Date(String(j.date)+'T12:00:00'))/864e5)); }
+const DAYJ_LBL={made:'🆕 Aaj bani jobs',done:'✅ Aaj complete hui jobs',todayopen:'🛠 Aaj ki baaki jobs',over:'⏳ Purani pending jobs',unas:'🔴 Bina technician wali jobs'};
+function dayJobPass(j,k){ const t=todayStr(), t0=new Date(t+'T00:00:00').getTime(), t1=t0+864e5, inDay=x=>Number(x)>=t0&&Number(x)<t1;
+  if(k==='made') return inDay(j.createdAt); if(k==='done') return j.status==='done'&&inDay(j.completedAt);
+  if(k==='todayopen') return jobIsOpen(j)&&j.date===t; if(k==='over') return jobIsOpen(j)&&j.date&&j.date<t; if(k==='unas') return jobIsOpen(j)&&!j.assignedTo; return true; }
 function dayBalanceHtml(){
   if(!STATE.session||STATE.session.role==='technician') return '';
   const t=todayStr(), t0=new Date(t+'T00:00:00').getTime(), t1=t0+864e5, inDay=x=>Number(x)>=t0&&Number(x)<t1;
@@ -4533,12 +4538,12 @@ function dayBalanceHtml(){
   const todayOpen=open.filter(j=>j.date===t).length, over=open.filter(j=>j.date&&j.date<t), unas=open.filter(j=>!j.assignedTo).length;
   const canc=J.filter(j=>j.status==='rejected'&&inDay(j.closedAt)).length; let nogo=0; J.forEach(j=>(j.noShow||[]).forEach(x=>{ if(inDay(x.t)) nogo++; }));
   const C=J.filter(isComp), cOpen=C.filter(j=>j.status==='pending').length, cRun=C.filter(j=>j.status==='ongoing'||j.status==='onhold').length, cDone=C.filter(j=>j.status==='done'&&inDay(j.completedAt)).length;
-  const oldest=over.reduce((m,j)=>Math.max(m,overdueDays(j)),0), st=(n,l,c)=>`<div class="stat-card"><div class="stat-num"${c?' style="color:'+c+'"':''}>${n}</div><div class="stat-label">${l}</div></div>`;
+  const oldest=over.reduce((m,j)=>Math.max(m,overdueDays(j)),0), st=(n,l,c,k)=>`<div class="stat-card"${k?` data-v9="dayopen" data-k="${k}" style="cursor:pointer;"`:''}><div class="stat-num"${c?' style="color:'+c+'"':''}>${n}</div><div class="stat-label">${l}${k?' ›':''}</div></div>`;
   const techs=(STATE.staff||[]).filter(s=>s.role==='technician'), mk=t.slice(0,7);
   const rows=techs.map(s=>{ const my=open.filter(j=>j.assignedTo===s.id), ov=my.filter(j=>j.date&&j.date<t).length, dn=J.filter(j=>j.assignedTo===s.id&&j.status==='done'&&inDay(j.completedAt)).length; let ng=0; J.forEach(j=>(j.noShow||[]).forEach(x=>{ if(x.tech===s.id&&x.byTech&&String(x.date||ymd(new Date(x.t))).slice(0,7)===mk) ng++; }));
     return `<tr style="border-top:1px solid var(--border);"><td style="padding:5px 6px 5px 0;"><span data-viewstaff="${esc(s.id)}" style="color:var(--teal);text-decoration:underline;cursor:pointer;">${esc(s.name)}</span></td><td style="text-align:right;">${dn}</td><td style="text-align:right;">${my.length}</td><td style="text-align:right;color:${ov?'#c0392b':'inherit'};">${ov}</td><td style="text-align:right;color:${ng?'#c0392b':'inherit'};">${ng}</td></tr>`; }).join('');
   return `<div class="card daycard"><div class="section-title" style="margin:0 0 6px;">📅 Din ka Kaam — Call, Job, Pending</div>
-    <div class="stat-grid">${st(calls,'📞 Aaj call hui')}${st(leadsOpen,'📇 Call baaki (lead)',leadsOpen?'#b45309':'')}${st(made,'🆕 Job bani')}${st(done,'✅ Aaj complete','var(--green)')}${st(todayOpen,'🛠 Aaj ki baaki')}${st(over.length,'⏳ Purani pending',over.length?'#c0392b':'')}${st(unas,'🔴 Assign nahi')}${st(canc+nogo,'✖ Cancel / Nahi gaya')}</div>
+    <div class="stat-grid">${st(calls,'📞 Aaj call hui','','calls')}${st(leadsOpen,'📇 Call baaki (lead)',leadsOpen?'#b45309':'','leads')}${st(made,'🆕 Job bani','','made')}${st(done,'✅ Aaj complete','var(--green)','done')}${st(todayOpen,'🛠 Aaj ki baaki','','todayopen')}${st(over.length,'⏳ Purani pending',over.length?'#c0392b':'','over')}${st(unas,'🔴 Assign nahi','','unas')}${st(canc+nogo,'✖ Cancel / Nahi gaya','','canc')}</div>
     ${over.length?`<div class="item-sub" style="margin-top:6px;">⏳ ${over.length} job kal ya usse pehle ki baaki hain (sabse purani ${oldest} din). Ye apne aap <b>Jobs → Aaj</b> me upar dikhti rahengi jab tak complete ya cancel na ho.</div><div class="card-actions" style="margin-top:6px;"><button class="mini-btn primary" data-v9="carry" data-id="all">🔁 Sab pending ko aaj ki date me badlo (${over.length})</button></div>`:`<div class="item-sub" style="margin-top:6px;">✅ Koi purani pending job nahi.</div>`}
     <div class="item-sub" style="margin-top:8px;">📢 Complaint: Khuli <b>${cOpen}</b> · Chal rahi <b>${cRun}</b> · Aaj band <b>${cDone}</b></div>
     <div class="card-actions" style="margin-top:6px;"><button class="mini-btn" data-v9="gocomp">📢 Complaint list ›</button><button class="mini-btn" data-v9="cancelrep">✖ Cancel / Nahi gaya report ›</button></div>
@@ -5711,7 +5716,7 @@ function bindShellEvents(){
     gsInput.onchange=(e)=>{ rgAdd(e.target.value); };
     gsInput.oninput=(e)=>{ STATE.globalSearchQuery=e.target.value; const box=document.getElementById('globalSearchResults'); if(box){ box.innerHTML=globalSearchResultsHtml(STATE.globalSearchQuery); wireGlobalSearchResultClicks(box); } };
   }
-  document.querySelectorAll('.navbtn').forEach(b=>b.onclick=()=>{ if(b.dataset.more){ activeModal={type:'navMore',data:{}}; render(); return; } STATE.focus=null; STATE.view=b.dataset.view; STATE.jobStatusFilter=''; STATE.jobPeriod=''; render(); });
+  document.querySelectorAll('.navbtn').forEach(b=>b.onclick=()=>{ if(b.dataset.more){ activeModal={type:'navMore',data:{}}; render(); return; } STATE.focus=null; STATE.dayJobs=''; STATE.view=b.dataset.view; STATE.jobStatusFilter=''; STATE.jobPeriod=''; render(); });
   document.querySelectorAll('[data-typefilter]').forEach(el=>el.onclick=()=>{ STATE.custTypeFilter=el.dataset.typefilter; STATE.custShown=60; render(); });
   document.querySelectorAll('[data-custstatus]').forEach(el=>el.onclick=()=>{ STATE.custStatus=el.dataset.custstatus; STATE.custShown=60; render(); });
   if(document.getElementById('liveMapBox')){ setTimeout(initLiveMap, 0); }
@@ -6633,7 +6638,7 @@ function renderVerify(){
 }
 
 /* ---------- click handler (delegated) ---------- */
-document.addEventListener('click',ev=>{ const el=ev.target&&ev.target.closest&&ev.target.closest('[data-navto]'); if(!el||ev.defaultPrevented) return; if(ev.target.closest('a[href],input,select,textarea')) return; STATE.focus=null; STATE.view=el.dataset.navto; render(); });
+document.addEventListener('click',ev=>{ const el=ev.target&&ev.target.closest&&ev.target.closest('[data-navto]'); if(!el||ev.defaultPrevented) return; if(ev.target.closest('a[href],input,select,textarea')) return; STATE.focus=null; STATE.dayJobs=''; STATE.view=el.dataset.navto; render(); });
 document.addEventListener('click',async ev=>{ const el=ev.target.closest&&ev.target.closest('[data-v9]'); if(!el) return; const a=el.dataset.v9, id=el.dataset.id; const val=i=>((document.getElementById(i)||{}).value||'').trim();
   try{
   if(a==='scan'){ if(el.disabled) return; scanOpen(el.dataset.k); }
@@ -6645,6 +6650,13 @@ document.addEventListener('click',async ev=>{ const el=ev.target.closest&&ev.tar
   else if(a==='jamadel'){ if(STATE.session.role!=='admin') return; if(!confirm('Ye jama entry hata dein?')) return; const ok=await jamaMutate(c=>{ const n=c.e.length; c.e=c.e.filter(x=>x.id!==id); return c.e.length!==n; }); if(ok) showToast('Entry hata di'); render(); }
   else if(a==='jamafrom'){ if(STATE.session.role!=='admin') return; await jamaLoad(); const cur=jamaBal(id).from, v=prompt('Cash ka hisaab kis tarikh se ginein? (YYYY-MM-DD)\nIs tarikh se pehle ka cash aur jama nahi ginega.',cur); if(v===null) return; if(!/^\d{4}-\d{2}-\d{2}$/.test(v.trim())){ showToast('Tarikh aise likhein: 2026-11-01'); return; } const ok=await jamaMutate(c=>{ c.from=c.from||{}; c.from[id]=v.trim(); }); if(ok) showToast('Hisaab '+fmtDate(v.trim())+' se'); render(); }
   else if(a==='compnew'){ if(STATE.session.role==='technician') return; jobCustQuery=''; jobCustSelectedId=id||''; activeModal={type:'addJob',complaint:true}; render(); }
+  else if(a==='dayopen'){ const k=el.dataset.k; STATE.focus=null;
+    if(k==='calls'){ STATE.view='leads'; STATE.leadTab='called'; STATE.leadsShown=40; }
+    else if(k==='leads'){ STATE.view='leads'; STATE.leadTab=''; STATE.leadsShown=40; }
+    else if(k==='canc'){ activeModal={type:'cancelRep',data:{}}; }
+    else { STATE.dayJobs=k; STATE.jobStatusFilter=''; STATE.jobPeriod=''; STATE.jobTech=''; STATE.jobArea=''; STATE.jobsShown=60; STATE.view='jobs'; }
+    render(); window.scrollTo(0,0); }
+  else if(a==='dayclear'){ STATE.dayJobs=''; render(); }
   else if(a==='gocomp'){ STATE.jobTab='comp'; STATE.view='jobs'; activeModal=null; render(); }
   else if(a==='cancelrep'){ activeModal={type:'cancelRep',data:{}}; render(); }
   else if(a==='crper'){ STATE.trPer=el.dataset.p; render(); }
