@@ -5712,7 +5712,6 @@ function bindShellEvents(){
     gsInput.oninput=(e)=>{ STATE.globalSearchQuery=e.target.value; const box=document.getElementById('globalSearchResults'); if(box){ box.innerHTML=globalSearchResultsHtml(STATE.globalSearchQuery); wireGlobalSearchResultClicks(box); } };
   }
   document.querySelectorAll('.navbtn').forEach(b=>b.onclick=()=>{ if(b.dataset.more){ activeModal={type:'navMore',data:{}}; render(); return; } STATE.focus=null; STATE.view=b.dataset.view; STATE.jobStatusFilter=''; STATE.jobPeriod=''; render(); });
-  document.querySelectorAll('[data-navto]').forEach(el=>el.onclick=()=>{ STATE.focus=null; STATE.view=el.dataset.navto; render(); });
   document.querySelectorAll('[data-typefilter]').forEach(el=>el.onclick=()=>{ STATE.custTypeFilter=el.dataset.typefilter; STATE.custShown=60; render(); });
   document.querySelectorAll('[data-custstatus]').forEach(el=>el.onclick=()=>{ STATE.custStatus=el.dataset.custstatus; STATE.custShown=60; render(); });
   if(document.getElementById('liveMapBox')){ setTimeout(initLiveMap, 0); }
@@ -6634,8 +6633,8 @@ function renderVerify(){
 }
 
 /* ---------- click handler (delegated) ---------- */
-document.addEventListener('click',async ev=>{
-  const el=ev.target.closest&&ev.target.closest('[data-v9]'); if(!el) return; const a=el.dataset.v9, id=el.dataset.id; const val=i=>((document.getElementById(i)||{}).value||'').trim();
+document.addEventListener('click',ev=>{ const el=ev.target&&ev.target.closest&&ev.target.closest('[data-navto]'); if(!el||ev.defaultPrevented) return; if(ev.target.closest('a[href],input,select,textarea')) return; STATE.focus=null; STATE.view=el.dataset.navto; render(); });
+document.addEventListener('click',async ev=>{ const el=ev.target.closest&&ev.target.closest('[data-v9]'); if(!el) return; const a=el.dataset.v9, id=el.dataset.id; const val=i=>((document.getElementById(i)||{}).value||'').trim();
   try{
   if(a==='scan'){ if(el.disabled) return; scanOpen(el.dataset.k); }
   else if(a==='tmopen'){ activeModal={type:'techMap',data:{}}; render(); }
