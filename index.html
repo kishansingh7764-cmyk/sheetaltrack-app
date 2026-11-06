@@ -4369,8 +4369,10 @@ function trJobDate(j){ return j.completedAt?ymd(new Date(j.completedAt)):(j.clos
 function trJobOwner(j){ if(j.assignedTo) return j.assignedTo; const h=(j.history||[]).filter(x=>x&&x.s==='done'&&x.by); const nm=h.length?h[h.length-1].by:''; const ids=nm?techIdsOf(nm):[]; return ids.length===1?ids[0]:''; }
 function trAll(){
   const rows=[], cmap=new Map((STATE.customers||[]).map(c=>[c.id,c]));
-  (STATE.jobs||[]).forEach(j=>{ if(!j||(j.status!=='done'&&j.status!=='rejected')) return; const own=trJobOwner(j); if(!own) return; const dt=trJobDate(j); if(!dt) return;
-    if(j.status==='rejected'){ rows.push({ids:[own],date:dt,canc:1,amount:0,due:0,mode:'',src:'app'}); return; }
+  (STATE.jobs||[]).forEach(j=>{ if(!j) return;
+    if(j.status!=='done'&&j.status!=='rejected'){ if(j.assignedTo&&j.date) rows.push({ids:[j.assignedTo],date:j.date,pend:1,amount:Number(j.amount)||0,due:0,mode:'',src:'app'}); return; }
+    const own=trJobOwner(j); if(!own) return; const dt=trJobDate(j); if(!dt) return;
+    if(j.status==='rejected'){ rows.push({ids:[own],date:dt,canc:1,amount:Number(j.amount)||0,due:0,mode:'',src:'app'}); return; }
     let amt=Number(j.amount)||0; if(j.tag==='AMC'&&j.amcVisit===false){ const c=cmap.get(j.customerId); if(c&&Number(c.amcAmount)>0) amt=0; }
     rows.push({ids:[own],date:dt,amount:amt,due:Number(j.due)||0,mode:normMode(j.payMode),src:'app'}); });
   (STATE.bills||[]).forEach(b=>{ if(!b||!b.date) return; const nm=String(b.techName||'').trim(); const ids=nm?techIdsOf(nm):[];
@@ -4383,8 +4385,8 @@ function trRows(staffId){
   const out=[]; trAll().forEach(r=>{ if(r.ids.indexOf(staffId)<0) return; const k=r.ids.length; out.push(Object.assign({},r,{amount:r.amount/k,due:r.due/k,shared:k>1})); }); return out;
 }
 function trAgg(rows,p){
-  const [f,t]=trRange(p), o={n:0,amt:0,due:0,cash:0,online:0,cheque:0,nomode:0,app:0,imp:0,amc:0,svc:0,canc:0,shared:0};
-  rows.forEach(r=>{ if(r.date<f||r.date>t) return; if(r.canc){ o.canc++; return; } o.n++; o[r.src]++; if(r.shared) o.shared++; o.amt+=r.amount; o.due+=r.due;
+  const [f,t]=trRange(p), o={n:0,amt:0,due:0,cash:0,online:0,cheque:0,nomode:0,app:0,imp:0,amc:0,svc:0,canc:0,cancAmt:0,pend:0,pendAmt:0,shared:0}, today=todayStr();
+  rows.forEach(r=>{ if(r.pend){ if((r.date>=f&&r.date<=t)||(t>=today&&r.date<f)){ o.pend++; o.pendAmt+=r.amount; } return; } if(r.date<f||r.date>t) return; if(r.canc){ o.canc++; o.cancAmt+=r.amount; return; } o.n++; o[r.src]++; if(r.shared) o.shared++; o.amt+=r.amount; o.due+=r.due;
     const got=Math.max(0,r.amount-r.due); if(r.mode) o[r.mode]+=got; else o.nomode+=got; });
   Object.keys(o).forEach(k=>o[k]=Math.round(o[k]*100)/100); return o;
 }
@@ -4439,18 +4441,19 @@ function techRecordHtml(staffId,pick){
   return `<div class="card"><div class="section-title" style="margin:0;">📊 Kaam ka record</div>${pick||''}${trTabs()}
     <div class="item-sub">${f===t?fmtDate(f):fmtDate(f)+' se '+fmtDate(t)}</div>
     <div class="stat-grid">${st(A.n,'Kaam / Bill')}${st(rupee(A.amt),'Kul Amount')}${st(rupee(A.cash),'💵 Cash (technician ke paas)','#b45309')}${st(rupee(A.online),'Online')}${st(rupee(A.cheque),'Cheque')}${st(rupee(A.due),'Baaki (due)','#c0392b')}</div>
+    <div class="stat-grid">${st(A.pend+' · '+rupee(A.pendAmt),'⏳ Pending kaam (abhi baaki)','#b45309')}${st(A.canc+' · '+rupee(A.cancAmt),'❌ Cancel kaam','#c0392b')}</div>
     ${A.nomode?`<div class="item-sub">⚠️ ${rupee(A.nomode)} ka payment mode likha nahi hai (cash/online ginti me nahi).</div>`:''}
-    <div class="item-sub">App ke jobs: <b>${A.app}</b> · Bill file: <b>${A.imp}</b> · AMC file: <b>${A.amc}</b>${A.svc?' · AMC service visit: <b>'+A.svc+'</b>':''}${A.canc?' · ❌ Cancel: <b>'+A.canc+'</b>':''}</div>${A.shared?`<div class="item-sub">👥 ${A.shared} kaam me ek se zyada technician ka naam tha — amount barabar baant diya gaya.</div>`:''}${trLostHtml(cur)}
+    <div class="item-sub">App ke jobs: <b>${A.app}</b> · Bill file: <b>${A.imp}</b> · AMC file: <b>${A.amc}</b>${A.svc?' · AMC service visit: <b>'+A.svc+'</b>':''}</div>${A.shared?`<div class="item-sub">👥 ${A.shared} kaam me ek se zyada technician ka naam tha — amount barabar baant diya gaya.</div>`:''}${trLostHtml(cur)}
     <div class="item-sub" style="margin-top:6px;opacity:.75;">Cash = jo paisa technician ne customer se haath me liya (Amount − Baaki). Hafta Somvar se shuru.</div>${jamaCardHtml(staffId)}</div>`;
 }
 function techRecordTableHtml(pick){
   jamaEnsure(); const techs=(STATE.staff||[]).filter(s=>s.role==='technician'); if(!techs.length||!isMoneyRole()) return '';
-  const cur=trPer(), data=techs.map(s=>({s,a:trAgg(trRows(s.id),cur)})).sort((x,y)=>y.a.cash-x.a.cash), T=data.reduce((o,x)=>{ ['n','amt','cash','online','cheque','due'].forEach(k=>o[k]+=x.a[k]); return o; },{n:0,amt:0,cash:0,online:0,cheque:0,due:0});
+  const cur=trPer(), data=techs.map(s=>({s,a:trAgg(trRows(s.id),cur)})).sort((x,y)=>y.a.cash-x.a.cash), T=data.reduce((o,x)=>{ ['n','amt','cash','online','cheque','due','pend','pendAmt','canc','cancAmt'].forEach(k=>o[k]+=x.a[k]); return o; },{n:0,amt:0,cash:0,online:0,cheque:0,due:0,pend:0,pendAmt:0,canc:0,cancAmt:0});
   const [f,t]=trRange(cur);
   return `<div class="card"><div class="section-title" style="margin:0;">📊 Sab technician ka record</div>${pick||''}${trTabs()}<div class="item-sub">${f===t?fmtDate(f):fmtDate(f)+' se '+fmtDate(t)}</div>
-    <div style="overflow-x:auto;"><table style="width:100%;font-size:12.5px;margin-top:8px;border-collapse:collapse;white-space:nowrap;"><tr style="opacity:.7;"><td>Naam</td><td style="text-align:right;">Kaam</td><td style="text-align:right;">Amount</td><td style="text-align:right;">💵 Cash</td><td style="text-align:right;">Online</td><td style="text-align:right;">Baaki</td><td style="text-align:right;">Paas me</td></tr>
-    ${data.map(x=>`<tr style="border-top:1px solid var(--border);"><td style="padding:6px 8px 6px 0;"><span data-viewstaff="${esc(x.s.id)}" style="color:var(--teal);text-decoration:underline;cursor:pointer;font-weight:600;">${esc(x.s.name)}</span></td><td style="text-align:right;">${x.a.n}</td><td style="text-align:right;">${rupee(x.a.amt)}</td><td style="text-align:right;font-weight:700;color:#b45309;">${rupee(x.a.cash)}</td><td style="text-align:right;">${rupee(x.a.online)}</td><td style="text-align:right;color:#c0392b;">${rupee(x.a.due)}</td><td style="text-align:right;font-weight:700;">${STATE.jamaLoaded?rupee(jamaBal(x.s.id).bal):'…'}</td></tr>`).join('')}
-    <tr style="border-top:2px solid var(--border);font-weight:700;"><td>Total</td><td style="text-align:right;">${T.n}</td><td style="text-align:right;">${rupee(T.amt)}</td><td style="text-align:right;">${rupee(T.cash)}</td><td style="text-align:right;">${rupee(T.online)}</td><td style="text-align:right;">${rupee(T.due)}</td><td style="text-align:right;">${STATE.jamaLoaded?rupee(data.reduce((q,x)=>q+jamaBal(x.s.id).bal,0)):'…'}</td></tr></table></div>${trLostHtml(cur)}</div>`;
+    <div style="overflow-x:auto;"><table style="width:100%;font-size:12.5px;margin-top:8px;border-collapse:collapse;white-space:nowrap;"><tr style="opacity:.7;"><td>Naam</td><td style="text-align:right;">Kaam</td><td style="text-align:right;">Amount</td><td style="text-align:right;">💵 Cash</td><td style="text-align:right;">Online</td><td style="text-align:right;">Baaki</td><td style="text-align:right;">⏳ Pending</td><td style="text-align:right;">❌ Cancel</td><td style="text-align:right;">Paas me</td></tr>
+    ${data.map(x=>`<tr style="border-top:1px solid var(--border);"><td style="padding:6px 8px 6px 0;"><span data-viewstaff="${esc(x.s.id)}" style="color:var(--teal);text-decoration:underline;cursor:pointer;font-weight:600;">${esc(x.s.name)}</span></td><td style="text-align:right;">${x.a.n}</td><td style="text-align:right;">${rupee(x.a.amt)}</td><td style="text-align:right;font-weight:700;color:#b45309;">${rupee(x.a.cash)}</td><td style="text-align:right;">${rupee(x.a.online)}</td><td style="text-align:right;color:#c0392b;">${rupee(x.a.due)}</td><td style="text-align:right;">${x.a.pend} · ${rupee(x.a.pendAmt)}</td><td style="text-align:right;">${x.a.canc} · ${rupee(x.a.cancAmt)}</td><td style="text-align:right;font-weight:700;">${STATE.jamaLoaded?rupee(jamaBal(x.s.id).bal):'…'}</td></tr>`).join('')}
+    <tr style="border-top:2px solid var(--border);font-weight:700;"><td>Total</td><td style="text-align:right;">${T.n}</td><td style="text-align:right;">${rupee(T.amt)}</td><td style="text-align:right;">${rupee(T.cash)}</td><td style="text-align:right;">${rupee(T.online)}</td><td style="text-align:right;">${rupee(T.due)}</td><td style="text-align:right;">${T.pend} · ${rupee(T.pendAmt)}</td><td style="text-align:right;">${T.canc} · ${rupee(T.cancAmt)}</td><td style="text-align:right;">${STATE.jamaLoaded?rupee(data.reduce((q,x)=>q+jamaBal(x.s.id).bal,0)):'…'}</td></tr></table></div>${trLostHtml(cur)}</div>`;
 }
 
 function techPickHtml(sel,techs){
@@ -6848,6 +6851,7 @@ function stockModalHtml(t,d){
     <div class="field"><label>${it.id?'Shuruaati stock':'Abhi stock kitna hai'}</label><input id="v9_sto" type="number" min="0" step="any" inputmode="decimal" value="${it.open!==undefined?esc(String(it.open)):''}" placeholder="0"></div></div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;"><div class="field"><label>Kam stock limit</label><input id="v9_stl" type="number" min="0" step="any" inputmode="decimal" value="${Number(it.low)>0?esc(String(it.low)):''}" placeholder="jaise 5"></div>
     <div class="field"><label>Rate ₹ (optional)</label><input id="v9_str" type="number" min="0" step="any" inputmode="decimal" value="${Number(it.rate)>0?esc(String(it.rate)):''}" placeholder="bill me auto aayega"></div></div>
+    <div class="field"><label>Is stock par company ka kitna paisa laga (₹, total) — optional</label><input id="v9_stoc" type="number" min="0" step="any" inputmode="decimal" value="${Number(it.openCost)>0?esc(String(it.openCost)):''}" placeholder="jaise 4500"></div>
     <button class="primary-btn" data-v9="stsaveitem" data-id="${esc(it.id||'')}">Save</button>
     ${it.id&&STATE.session.role==='admin'?`<button class="ghost-btn" style="margin-top:8px;color:#c0392b;" data-v9="stdelitem" data-id="${esc(it.id)}">🗑 Item hatayein</button>`:''}`; }
   if(t==='stMove'){ const it=inv.items.find(x=>x.id===d.id)||{}, inn=d.k==='in';
@@ -6855,12 +6859,13 @@ function stockModalHtml(t,d){
     <div class="item-sub" style="margin-bottom:8px;"><b>${esc(it.name||'')}</b> · abhi ${invFmt(invStock(inv,d.id))} ${esc(it.unit||'')}</div>
     <div class="field"><label>Kitna (${esc(it.unit||'')})</label><input id="v9_mq" type="number" min="0" step="any" inputmode="decimal" placeholder="0"></div>
     <div class="field"><label>Date</label><input id="v9_md" type="date" max="${todayStr()}" value="${todayStr()}"></div>
+    ${inn?`<div class="field"><label>Kitna paisa laga (₹, total) — optional</label><input id="v9_mc" type="number" min="0" step="any" inputmode="decimal" placeholder="jaise 2500"></div>`:''}
     <div class="field"><label>Note (optional)</label><input id="v9_mn" placeholder="${inn?'jaise supplier / bill no.':'jaise kis technician / site ko'}"></div>
     <button class="primary-btn" data-v9="stsavemove" data-id="${esc(d.id)}" data-k="${inn?'in':'out'}">Save</button>`; }
   if(t==='stHist'){ const it=inv.items.find(x=>x.id===d.id)||{}, mv=(inv.moves||[]).filter(m=>m.item===d.id).sort((a,b)=>(b.date||'').localeCompare(a.date||'')||(b.at||0)-(a.at||0)), adm=STATE.session.role==='admin';
     return `<div class="modal-head"><h3>📜 ${esc(it.name||'History')}</h3><button class="close-x" id="modalClose">×</button></div>
-    <div class="item-sub" style="margin-bottom:8px;">Abhi stock: <b>${invFmt(invStock(inv,d.id))} ${esc(it.unit||'')}</b>${Number(it.open)>0?' · shuruaati '+invFmt(it.open):''}</div>
-    ${mv.length?mv.map(m=>`<div class="row-between" style="padding:7px 0;border-top:1px solid var(--border);gap:8px;"><div style="min-width:0;"><div class="item-name" style="font-size:14px;color:${m.t==='in'?'#1e8e5a':'#c0392b'};">${m.t==='in'?'➕':'➖'} ${invFmt(m.q)} ${esc(it.unit||'')}</div><div class="item-sub" style="margin:0;">${fmtDate(m.date)}${m.note?' · '+esc(m.note):''}${(matJobLbl(m)&&!String(m.note||'').includes(matJobLbl(m)))?' · 🔗 '+esc(matJobLbl(m)):''} · ${esc(m.by||'')}</div></div>${adm?`<button class="mini-btn danger" data-v9="stdelmove" data-id="${esc(m.id)}" data-it="${esc(d.id)}">🗑</button>`:''}</div>`).join(''):'<div class="item-sub">Abhi koi entry nahi.</div>'}`; }
+    <div class="item-sub" style="margin-bottom:8px;">Abhi stock: <b>${invFmt(invStock(inv,d.id))} ${esc(it.unit||'')}</b>${Number(it.open)>0?' · shuruaati '+invFmt(it.open):''}${matBuyOf(it,inv)>0?' · kul kharid ₹'+invFmt(matBuyOf(it,inv)):''}</div>
+    ${mv.length?mv.map(m=>`<div class="row-between" style="padding:7px 0;border-top:1px solid var(--border);gap:8px;"><div style="min-width:0;"><div class="item-name" style="font-size:14px;color:${m.t==='in'?'#1e8e5a':'#c0392b'};">${m.t==='in'?'➕':'➖'} ${invFmt(m.q)} ${esc(it.unit||'')}${m.cost>0?' · ₹'+invFmt(m.cost):''}</div><div class="item-sub" style="margin:0;">${fmtDate(m.date)}${m.note?' · '+esc(m.note):''}${(matJobLbl(m)&&!String(m.note||'').includes(matJobLbl(m)))?' · 🔗 '+esc(matJobLbl(m)):''} · ${esc(m.by||'')}</div></div>${adm?`<button class="mini-btn danger" data-v9="stdelmove" data-id="${esc(m.id)}" data-it="${esc(d.id)}">🗑</button>`:''}</div>`).join(''):'<div class="item-sub">Abhi koi entry nahi.</div>'}`; }
   return null;
 }
 async function stockAct(a,el,val){
@@ -6870,7 +6875,8 @@ async function stockAct(a,el,val){
   else if(a==='sthist'){ activeModal={type:'stHist',data:{id}}; render(); }
   else if(a==='stsaveitem'){
     const name=val('v9_stn'); if(!name){ showToast('Item ka naam likhein'); return; }
-    const o={name,cat:val('v9_stc'),unit:val('v9_stu')||'piece',open:Math.max(0,Number(val('v9_sto'))||0),low:Math.max(0,Number(val('v9_stl'))||0),rate:Math.max(0,Number(val('v9_str'))||0)};
+    const o={name,cat:val('v9_stc'),unit:val('v9_stu')||'piece',open:Math.max(0,Number(val('v9_sto'))||0),low:Math.max(0,Number(val('v9_stl'))||0),rate:Math.max(0,Number(val('v9_str'))||0),openCost:Math.max(0,Number(val('v9_stoc'))||0)};
+    if(!o.rate&&o.openCost>0&&o.open>0) o.rate=Math.round(o.openCost/o.open*100)/100;
     let dup=false;
     const ok=await invMutate(inv=>{ if(inv.items.some(x=>x.id!==id&&x.name.trim().toLowerCase()===name.toLowerCase())){ dup=true; return false; } if(id){ const it=inv.items.find(x=>x.id===id); if(!it) return false; Object.assign(it,o); } else inv.items.push(Object.assign({id:uid(),at:Date.now(),by:STATE.session.name},o)); });
     if(dup){ showToast('Is naam ka item pehle se hai'); return; }
@@ -6879,7 +6885,7 @@ async function stockAct(a,el,val){
   else if(a==='stsavemove'){
     const q=Number(val('v9_mq'))||0, date=val('v9_md')||todayStr(), k=el.dataset.k; if(q<=0){ showToast('Quantity daalein'); return; } if(date>todayStr()){ showToast('Date aage ki nahi ho sakti'); return; }
     const cur=invStock(STATE.inv,id); if(k==='out'&&q>cur&&!confirm('Stock sirf '+invFmt(cur)+' hai, '+invFmt(q)+' nikal rahe hain. Phir bhi save karein?')) return;
-    const ok=await invMutate(inv=>{ if(!inv.items.some(x=>x.id===id)) return false; inv.moves.push({id:uid(),item:id,t:k==='in'?'in':'out',q,date,note:val('v9_mn').slice(0,80),by:STATE.session.name,at:Date.now()}); });
+    const ok=await invMutate(inv=>{ if(!inv.items.some(x=>x.id===id)) return false; const it0=inv.items.find(x=>x.id===id), cost=k==='in'?Math.max(0,Number(val('v9_mc'))||0):0; const mv={id:uid(),item:id,t:k==='in'?'in':'out',q,date,note:val('v9_mn').slice(0,80),by:STATE.session.name,at:Date.now()}; if(cost>0){ mv.cost=cost; if(!Number(it0.rate)) it0.rate=Math.round(cost/q*100)/100; } inv.moves.push(mv); });
     if(ok){ activeModal=null; showToast(k==='in'?'Maal aaya — save':'Maal gaya — save'); render(); }
   }
   else if(a==='stdelmove'){ if(STATE.session.role!=='admin') return; if(!confirm('Ye entry hata dein?')) return; const ok=await invMutate(inv=>{ inv.moves=inv.moves.filter(m=>m.id!==id); }); if(ok){ activeModal={type:'stHist',data:{id:el.dataset.it}}; render(); } }
@@ -6901,6 +6907,7 @@ function matJobName(jid){ const j=STATE.jobs.find(x=>x.id===jid); if(!j) return 
 function matJobLbl(m){ const jid=matJobOf(m); if(!jid) return ''; return matJobName(jid); }
 function matCost(inv,m){ const it=(inv.items||[]).find(x=>x.id===m.item)||{}; const r=Number(m.rate)>0?Number(m.rate):(Number(it.rate)||0); return (Number(m.q)||0)*r; }
 function matMovesOf(inv,jid){ return (inv.moves||[]).filter(m=>m.t==='out'&&matJobOf(m)===jid); }
+function matBuyOf(it,inv,lo){ lo=lo||'0000-00-00'; let t=0; if(Number(it.openCost)>0){ const d=it.at?ymd(new Date(it.at)):'0000-00-00'; if(d>=lo) t+=Number(it.openCost); } (inv.moves||[]).forEach(m=>{ if(m.item===it.id&&m.t==='in'&&m.cost>0&&(m.date||'')>=lo) t+=Number(m.cost); }); return t; }
 const MAT_PER=[['d','Aaj'],['w','Is hafte'],['m','Is mahine'],['y','Is saal'],['a','Sab']];
 const MAT_BY=[['item','Item ke hisab se'],['tech','Technician ke hisab se'],['cust','Customer ke hisab se'],['job','Job / Complaint ke hisab se']];
 function matModalHtml(t,d){
@@ -6926,9 +6933,13 @@ function matModalHtml(t,d){
     let key,label; if(by==='item'){ key=m.item; label=it.name||'(hata hua item)'; } else if(by==='tech'){ key=m.tech||j.assignedTo||''; label=key?((STATE.staff.find(x=>x.id===key)||{}).name||'—'):'Technician pata nahi'; } else if(by==='cust'){ key=m.cust||j.customerId||''; label=key?((STATE.customers.find(x=>x.id===key)||{}).name||'—'):'Customer pata nahi'; } else { key=jid; label=matJobName(jid)+(j.date?' · '+fmtDate(j.date):''); }
     const g=G.get(key)||{label,cost:0,n:0,parts:new Map(),unit:it.unit||'',qty:0}; g.cost+=matCost(inv,m); g.n++; g.qty+=Number(m.q)||0; const pk=(it.name||'?')+'|'+(it.unit||''); g.parts.set(pk,(g.parts.get(pk)||0)+(Number(m.q)||0)); G.set(key,g); });
   const rows=[...G.values()].sort((a,b)=>b.cost-a.cost||b.n-a.n), total=rows.reduce((a,g)=>a+g.cost,0);
+  const buyRows=(inv.items||[]).map(it=>({n:it.name,v:matBuyOf(it,inv,lo)})).filter(x=>x.v>0).sort((a,b)=>b.v-a.v), buyTot=buyRows.reduce((a,x)=>a+x.v,0);
+  const allUse=(inv.moves||[]).filter(m=>m.t==='out'&&(m.date||'')>=lo).reduce((a,m)=>a+matCost(inv,m),0);
+  const buyBox=`<div style="background:var(--sky-pale);border-radius:10px;padding:10px;margin-bottom:10px;"><div class="item-name" style="font-size:14px;">💰 Company ka kharid (raw material)</div><div class="row-between" style="margin-top:4px;"><div class="item-sub" style="margin:0;">Kharida (₹ lage)</div><b>₹${invFmt(buyTot)}</b></div><div class="row-between"><div class="item-sub" style="margin:0;">Kaam / job me laga (keemat)</div><b>₹${invFmt(allUse)}</b></div>${buyRows.length?`<details style="margin-top:6px;"><summary class="item-sub" style="cursor:pointer;">Item-wise kharid</summary>${buyRows.map(x=>`<div class="row-between" style="padding:3px 0;"><div class="item-sub" style="margin:0;">${esc(x.n)}</div><div class="item-sub" style="margin:0;">₹${invFmt(x.v)}</div></div>`).join('')}</details>`:'<div class="item-sub" style="margin-top:4px;">Abhi kisi item me paisa nahi likha — "Maal aaya" ya item me ₹ daalein.</div>'}</div>`;
   const sel=(id,arr,cur)=>`<select id="${id}" style="flex:1;">${arr.map(x=>`<option value="${x[0]}" ${x[0]===cur?'selected':''}>${x[1]}</option>`).join('')}</select>`;
   return `<div class="modal-head"><h3>📊 Material hisab</h3><button class="close-x" id="modalClose">×</button></div>
     <div style="display:flex;gap:8px;margin-bottom:10px;">${sel('matRepPer',MAT_PER,per)}${sel('matRepBy',MAT_BY,by)}</div>
+    ${buyBox}
     <div class="item-sub" style="margin-bottom:6px;">Sirf wahi material jo kisi job / complaint / bill se juda hai.${total>0?' Total keemat: <b>₹'+invFmt(total)+'</b>':''}</div>
     ${rows.length?rows.map(g=>`<div style="padding:8px 0;border-top:1px solid var(--border);"><div class="row-between"><div class="item-name" style="font-size:14px;">${esc(g.label)}</div><div class="item-name" style="font-size:14px;">${by==='item'?invFmt(g.qty)+' '+esc(g.unit):(g.cost>0?'₹'+invFmt(g.cost):'')}</div></div><div class="item-sub" style="margin:2px 0 0;">${by==='item'?(g.cost>0?'₹'+invFmt(g.cost)+' · ':'')+g.n+' entry':[...g.parts.entries()].map(([k,q])=>{ const [n,u]=k.split('|'); return esc(n)+' '+invFmt(q)+' '+esc(u); }).join(', ')}</div></div>`).join(''):'<div class="empty">Is samay me koi material nahi likha gaya</div>'}`;
 }
