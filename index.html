@@ -3707,6 +3707,20 @@ function attentionMobHtml(){
   add('🙋',(STATE.staff||[]).filter(x=>x.role!=='admin'&&x.id!==STATE.session.staffId&&!((STATE.attendance||{})[x.id]||{})[t]).length,FOCUS_L.absent,1,'absent');
   return attTilesHtml(T);
 }
+function ecMonthHtml(d){
+  const k=String(d.k||''), MN=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'], lbl=MN[Number(k.slice(5,7))-1]+' '+k.slice(0,4);
+  const rows=moneyRows().filter(r=>String(r.date||'').slice(0,7)===k&&((Number(r.amount)||0)+(Number(r.travel)||0))>0).sort((a,b)=>String(b.date).localeCompare(String(a.date))||((b.amount||0)-(a.amount||0)));
+  const tot=rows.reduce((a,r)=>a+(Number(r.amount)||0)+(Number(r.travel)||0),0), due=rows.reduce((a,r)=>a+(Number(r.due)||0),0);
+  const tn=r=>{ const t=r.tech; if(!t) return 'Technician nahi'; const st=(STATE.staff||[]).find(x=>x.id===t); return st?st.name:String(t); };
+  const by=new Map(); rows.forEach(r=>{ const n=tn(r), o=by.get(n)||{n:0,v:0}; o.n++; o.v+=(Number(r.amount)||0)+(Number(r.travel)||0); by.set(n,o); });
+  const byRows=[...by.entries()].sort((a,b)=>b[1].v-a[1].v);
+  const KL={job:'App job',bill:'Bill',amc:'AMC',travel:'Travel'};
+  return `<div class="modal-head"><h3>📈 ${esc(lbl)} ki kamai</h3><button class="close-x" id="modalClose">×</button></div>
+  <div class="stat-grid"><div class="stat-card"><div class="stat-num">${rupee(tot)}</div><div class="stat-label">Kul kamai</div></div><div class="stat-card"><div class="stat-num">${rows.length}</div><div class="stat-label">Entry</div></div>${due>0?`<div class="stat-card"><div class="stat-num" style="color:#c0392b;">${rupee(due)}</div><div class="stat-label">Baaki (due)</div></div>`:''}</div>
+  ${byRows.length?`<div class="item-sub" style="font-weight:700;margin:10px 0 4px;">Technician ke hisab se</div>${byRows.map(([n,o])=>`<div class="row-between" style="padding:4px 0;"><div class="item-sub" style="margin:0;">${esc(n)} · ${o.n}</div><b>${rupee(o.v)}</b></div>`).join('')}`:''}
+  <div class="item-sub" style="font-weight:700;margin:12px 0 4px;">Poori list${rows.length>80?' (pehli 80)':''}</div>
+  ${rows.length?rows.slice(0,80).map(r=>`<div style="padding:7px 0;border-top:1px solid var(--border);"><div class="row-between" style="gap:8px;"><div style="min-width:0;"><div class="item-name" style="font-size:14px;">${r.custId?`<span data-viewcust="${esc(r.custId)}" style="cursor:pointer;text-decoration:underline;">${esc(r.name||'Customer')}</span>`:esc(r.name||'—')}</div><div class="item-sub" style="margin:0;">${fmtDate(r.date)} · ${KL[r.k]||''}${r.title?' · '+esc(String(r.title).slice(0,40)):''} · ${esc(tn(r))}</div></div><b>${rupee((Number(r.amount)||0)+(Number(r.travel)||0))}</b></div></div>`).join(''):'<div class="empty">Is mahine koi kamai nahi</div>'}`;
+}
 function earnChartHtml(){
   try{
     const now=new Date(), keys=[]; for(let i=5;i>=0;i--){ const d=new Date(now.getFullYear(),now.getMonth()-i,1); keys.push(d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')); }
@@ -3715,7 +3729,7 @@ function earnChartHtml(){
     const mx=Math.max(1,...keys.map(k=>tot[k])), MN=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
     const sum=keys.reduce((a,k)=>a+tot[k],0); if(!sum) return '';
     const fm=v=>v>=100000?(v/100000).toFixed(1)+'L':v>=1000?(v/1000).toFixed(v>=10000?0:1)+'k':String(v);
-    return `<div class="card earnchart"><div class="row-between"><div class="item-name">📈 Pichhle 6 mahine ki kamai</div><div class="item-sub">₹ ${sum.toLocaleString('en-IN')}</div></div><div class="ec-bars">${keys.map((k,i)=>`<div class="ec-col"><div class="ec-val">${tot[k]?fm(tot[k]):''}</div><div class="ec-bar${i===5?' cur':''}" style="height:${Math.max(3,Math.round(tot[k]/mx*80))}px"></div><div class="ec-lbl">${MN[Number(k.slice(5))-1]}</div></div>`).join('')}</div></div>`;
+    return `<div class="card earnchart"><div class="row-between"><div class="item-name">📈 Pichhle 6 mahine ki kamai <span class="item-sub" style="font-weight:400;">(mahine par dabayein ›)</span></div><div class="item-sub">₹ ${sum.toLocaleString('en-IN')}</div></div><div class="ec-bars">${keys.map((k,i)=>`<div class="ec-col" data-v9="ecmonth" data-k="${k}" style="cursor:pointer;"><div class="ec-val">${tot[k]?fm(tot[k]):''}</div><div class="ec-bar${i===5?' cur':''}" style="height:${Math.max(3,Math.round(tot[k]/mx*80))}px"></div><div class="ec-lbl">${MN[Number(k.slice(5))-1]}</div></div>`).join('')}</div></div>`;
   }catch(e){ return ''; }
 }
 function renderDashboard(){
@@ -4320,7 +4334,7 @@ function unmatchedTechNames(){
   return [...m.values()].sort((a,b)=>b.n-a.n);
 }
 function importWorkHtml(staffId){
-  const money=isMoneyRole(), W=importWorkOf(staffId), un=money?unmatchedTechNames():[], techRec=((STATE.staff||[]).find(x=>x.id===staffId)||{}).role==='technician';
+  const money=isMoneyRole(), W0=importWorkOf(staffId), rng=money?trRange(trPer()):null, inR=d=>{ d=String(d||'').slice(0,10); return d>=rng[0]&&d<=rng[1]; }, W=rng?{bills:W0.bills.filter(b=>inR(b.date)),amcs:W0.amcs.filter(x=>inR(x.h.start))}:W0, un=money?unmatchedTechNames():[], techRec=((STATE.staff||[]).find(x=>x.id===staffId)||{}).role==='technician';
   const unBtn=un.length?`<button class="mini-btn" style="background:#fff4d6;border-color:#e0b100;" data-v9="tmopen">🔗 Naam jodo (${un.length} naam match nahi hue)</button>`:'';
   if(!W.bills.length&&!W.amcs.length) return (unBtn&&!techRec)?`<div class="card"><div class="section-title" style="margin:0 0 6px;">Purana kaam (import se)</div><div class="item-sub">Is staff ke naam se koi import kaam nahi mila.</div><div class="card-actions" style="margin-top:8px;">${unBtn}</div></div>`:'';
   const mk=todayStr().slice(0,7), mon=W.bills.filter(b=>String(b.date||'').startsWith(mk)), A=impAgg(W.bills), M=impAgg(mon);
@@ -4331,7 +4345,7 @@ function importWorkHtml(staffId){
   const rows=L.map(b=>`<div style="padding:7px 0;border-top:1px solid var(--border);"><div class="row-between"><div style="min-width:0;">${b.customerId?`<span data-viewcust="${esc(b.customerId)}" class="item-name" style="cursor:pointer;text-decoration:underline;color:var(--teal);font-size:13.5px;">${esc(b.name||'Customer')} ›</span>`:`<span class="item-name" style="font-size:13.5px;">${esc(b.name||'Customer')}</span>`}<div class="item-sub">${fmtDate(b.date)} · ${esc(IMP_LBL[impKind(b)])}${b.work?' · '+esc(b.work):''}</div></div>${money?`<div style="text-align:right;flex:none;"><div class="item-name" style="font-size:13.5px;">${rupee(b.amount)}</div>${Number(b.due)>0?`<div class="item-sub" style="color:#c0392b;">Baaki ${rupee(b.due)}</div>`:''}</div>`:''}</div></div>`).join('');
   const amcRows=W.amcs.slice(0,showAll?999:10).map(x=>`<div style="padding:7px 0;border-top:1px solid var(--border);"><div class="row-between"><div style="min-width:0;"><span data-viewcust="${esc(x.c.id)}" class="item-name" style="cursor:pointer;text-decoration:underline;color:var(--teal);font-size:13.5px;">${esc(x.c.name||'Customer')} ›</span><div class="item-sub">AMC ${x.h.start?fmtDate(x.h.start):''}${x.h.end?' → '+fmtDate(x.h.end):''}${x.h.units?' · '+x.h.units+' unit':''}</div></div>${money&&Number(x.h.amount)>0?`<div class="item-name" style="font-size:13.5px;flex:none;">${rupee(x.h.amount)}</div>`:''}</div></div>`).join('');
   const more=(W.bills.length>15||W.amcs.length>10)?`<button class="mini-btn" data-v9="impall" data-id="${esc(staffId)}" style="margin-top:6px;">${showAll?'▲ Kam dikhayein':'▼ Poori list ('+W.bills.length+' bill)'}</button>`:'';
-  return `<div class="card"><div class="section-title" style="margin:0 0 4px;">Purana kaam ki list (import se)</div><div class="item-sub" style="margin-bottom:6px;">${A.n} bill / kaam${W.amcs.length?' · '+W.amcs.length+' AMC contract':''} — Aaj/Hafta/Mahina/Saal ka amount aur cash upar "Kaam ka record" me hai. Breakup: ${brk(A)}</div>
+  return `<div class="card"><div class="section-title" style="margin:0 0 4px;">Purana kaam ki list (import se)${rng?' — '+(rng[0]===rng[1]?fmtDate(rng[0]):fmtDate(rng[0])+' se '+fmtDate(rng[1])):''}</div><div class="item-sub" style="margin-bottom:6px;">${A.n} bill / kaam${W.amcs.length?' · '+W.amcs.length+' AMC contract':''} — Aaj/Hafta/Mahina/Saal ka amount aur cash upar "Kaam ka record" me hai. Breakup: ${brk(A)}</div>
     ${rows?`<div class="item-sub" style="font-weight:700;margin-top:6px;">Kaam ki list</div>${rows}`:''}${amcRows?`<div class="item-sub" style="font-weight:700;margin-top:10px;">AMC contracts</div>${amcRows}`:''}${more}${(unBtn&&!techRec)?`<div class="card-actions" style="margin-top:8px;">${unBtn}</div>`:''}</div>`;
 }
 function techMapHtml(){
@@ -4601,6 +4615,7 @@ function renderStaffProfile(){
   if(!s) return `<div class="empty-state"><span class="ic">👤</span><p>Staff member nahi mila.</p></div>`;
   const staffJobs=STATE.jobs.filter(j=>j.assignedTo===s.id).sort((a,b)=>b.createdAt-a.createdAt);
   const completedJobs=staffJobs.filter(j=>j.status==='done');
+  const staffJobsP=(()=>{ if(!isMoneyRole()) return staffJobs; const [f,t]=trRange(trPer()); return staffJobs.filter(j=>{ const d=(j.status==='done'||j.status==='rejected')?trJobDate(j):(j.date||''); return d>=f&&d<=t; }); })();
   const totalEarned=completedJobs.reduce((sum,j)=>sum+(j.amount||0),0);
   const ratedJobs=completedJobs.filter(j=>j.rating>0);
   const avgRating=ratedJobs.length ? (ratedJobs.reduce((sum,j)=>sum+j.rating,0)/ratedJobs.length) : 0;
@@ -4639,9 +4654,10 @@ function renderStaffProfile(){
     ${(STATE.session.role==='admin'&&s.role!=='admin')?kycCardHtml(s.id):''}
     ${(STATE.session.role==='admin'&&s.role!=='admin')?auditHtml(s.id):''}
     ${(()=>{ const open=staffJobs.filter(j=>j.status!=='done'&&j.status!=='rejected'); if(!open.length) return ''; return `<div class="section-title">Pending / Ongoing kaam (${open.length})</div>`+open.map(j=>{ const cu=STATE.customers.find(c=>c.id===j.customerId); return `<div class="card"><div class="row-between"><div><div class="item-name">${esc(j.title)}${j.tag?' <span class="pill pill-sky">'+esc(j.tag)+'</span>':''}</div>${cu?`<div class="item-sub" data-viewcust="${cu.id}" style="cursor:pointer;text-decoration:underline;color:var(--teal);font-weight:600;">${esc(cu.name)} ›</div><div class="item-sub">📞 ${esc(cu.phone||'')}</div><div class="item-sub">📍 ${esc(cu.address||'')}</div>`:''}</div><span class="pill ${statusPill(j.status)}">${statusLabel(j.status)}</span></div><div class="item-sub" style="margin-top:6px;">📅 ${fmtDate(j.date)}${j.amount?' · '+rupee(j.amount):''}${j.status==='onhold'&&j.holdReason?' · ⏸ '+esc(j.holdReason):''}</div>${j.notes?`<div class="item-sub">📝 ${esc(j.notes)}</div>`:''}${(j.checklist||[]).length?`<div class="item-sub">☑ ${j.checklist.filter(x=>x.done).length}/${j.checklist.length} checklist</div>`:''}${mediaHtml(j.id)}</div>`; }).join(''); })()}
-    <div class="section-title">Sabhi Jobs (A se Z)</div>
-    ${staffJobs.length===0?`<div class="empty-state"><span class="ic">🧾</span><p>Koi job assign nahi hua hai.</p></div>`:
-      staffJobs.map(j=>{ const cust=STATE.customers.find(c=>c.id===j.customerId); ensureJobPhotos(j.id); const photos=STATE.photos[j.id]||[];
+    ${(()=>{ if(!isMoneyRole()) return ''; const [f,t]=trRange(trPer()); return `<div class="section-title">Jobs — ${f===t?fmtDate(f):fmtDate(f)+' se '+fmtDate(t)} (${staffJobsP.length})</div><div class="item-sub" style="margin:-6px 0 8px;">Upar "Kaam ka record" me Aaj / Hafta / Mahina / Saal chuniye — ye list usi ke hisab se badlegi.</div>`; })()}
+    ${!isMoneyRole()?'<div class="section-title">Sabhi Jobs (A se Z)</div>':''}
+    ${staffJobsP.length===0?`<div class="empty-state"><span class="ic">🧾</span><p>${isMoneyRole()?'Is period me koi job nahi.':'Koi job assign nahi hua hai.'}</p></div>`:
+      staffJobsP.map(j=>{ const cust=STATE.customers.find(c=>c.id===j.customerId); ensureJobPhotos(j.id); const photos=STATE.photos[j.id]||[];
         return `<div class="card"><div class="row-between"><div><div class="item-name">${j.title}</div><div class="item-sub">${cust?cust.name:''} · ${fmtDate(j.date)}${j.status==='done'?' · '+rupee(j.amount):''}${j.rating?' · '+'★'.repeat(j.rating):''}</div></div><span class="pill ${statusPill(j.status)}">${statusLabel(j.status)}</span></div>
         ${mediaHtml(j.id)}</div>`; }).join('')}
   `;
@@ -6657,6 +6673,7 @@ document.addEventListener('click',async ev=>{ const el=ev.target.closest&&ev.tar
     else { STATE.dayJobs=k; STATE.jobStatusFilter=''; STATE.jobPeriod=''; STATE.jobTech=''; STATE.jobArea=''; STATE.jobsShown=60; STATE.view='jobs'; }
     render(); window.scrollTo(0,0); }
   else if(a==='dayclear'){ STATE.dayJobs=''; render(); }
+  else if(a==='ecmonth'){ activeModal={type:'ecMonth',data:{k:el.dataset.k}}; render(); }
   else if(a==='gocomp'){ STATE.jobTab='comp'; STATE.view='jobs'; activeModal=null; render(); }
   else if(a==='cancelrep'){ activeModal={type:'cancelRep',data:{}}; render(); }
   else if(a==='crper'){ STATE.trPer=el.dataset.p; render(); }
@@ -6777,6 +6794,7 @@ function v9ModalHtml(){
   if(t==='qrScan') return qrScanModalHtml(d);
   if(t==='jobReason') return jobReasonHtml(d);
   if(t==='leadRem') return leadRemModalHtml(d);
+  if(t==='ecMonth') return ecMonthHtml(d);
   if(t==='jamaNew') return jamaModalHtml(d);
   if(t==='cancelRep') return cancelRepHtml();
   if(t==='techMap') return techMapHtml();
