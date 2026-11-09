@@ -317,7 +317,15 @@ html{scroll-padding-top:120px;}
   body.desk .topbar{padding:0 12px;}
 }
 body.desk .dash2>.dcol>.row-between{margin-top:18px;}
-@media (min-width:1700px){ body.desk .content,body.desk .content :is(div,section):has(>.card~.card){grid-template-columns:repeat(auto-fill,minmax(480px,1fr));} }
+@media (min-width:1500px){ body.desk .content,body.desk .content :is(div,section):has(>.card~.card){grid-template-columns:repeat(auto-fill,minmax(420px,1fr));} }
+@media (min-width:700px) and (hover:hover){
+  /* akela card (summary/header) poori chaudai le — adhoora khaali side nahi */
+  body.desk .content>.card:not(.card~.card):not(:has(~.card)){grid-column:1/-1;}
+  body.desk .content>.card.stkhead,body.desk .content>.card:has(>.searchbar){grid-column:1/-1;}
+  body.desk .content>.section-title,body.desk .content>.row-between{grid-column:1/-1;}
+  body.desk .content>.empty,body.desk .content>.empty-state{grid-column:1/-1;}
+  body.desk .content table{width:100%;}
+}
 /* iPhone: 16px se chhote input par Safari page zoom kar deta hai */
 @supports (-webkit-touch-callout:none){ @media (max-width:699px), (hover:none){ input,select,textarea{font-size:16px!important;} } }
 /* ===== v9.2c Laptop compact (thoda chhota) ===== */
