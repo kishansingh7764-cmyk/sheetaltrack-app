@@ -317,6 +317,16 @@ html{scroll-padding-top:120px;}
   body.desk .topbar{padding:0 12px;}
 }
 body.desk .dash2>.dcol>.row-between{margin-top:18px;}
+@media (min-width:1000px) and (hover:hover){
+  body.desk .team2{display:grid!important;grid-template-columns:minmax(0,1fr) minmax(0,1.25fr);gap:0 26px;align-items:start;grid-column:1/-1;}
+  body.desk .team2>.tcol{display:block!important;min-width:0;}
+  body.desk .team2>.tcol-ppl{order:-1;}
+  body.desk .team2>.tcol>.card,body.desk .team2>.tcol>.section-title{grid-column:auto;}
+  body.desk .team2>.tcol>.card{margin-bottom:14px;}
+  body.desk .team2>.tcol-ppl>.card{margin-bottom:10px;}
+  body.desk .team2 .empty-state{padding:14px 10px;}body.desk .team2 .empty-state .ic{font-size:26px;}
+  body.desk .tcol-rep .stat-grid{grid-template-columns:repeat(auto-fit,minmax(150px,1fr));}
+}
 @media (min-width:1500px){ body.desk .content,body.desk .content :is(div,section):has(>.card~.card){grid-template-columns:repeat(auto-fill,minmax(420px,1fr));} }
 @media (min-width:700px) and (hover:hover){
   /* akela card (summary/header) poori chaudai le — adhoora khaali side nahi */
@@ -4429,10 +4439,12 @@ function renderStaff(){ if(STATE.session.role!=='admin') return '<div class="emp
   const techs=STATE.staff.filter(s=>s.role==='technician'); const subs=STATE.staff.filter(s=>s.role==='subadmin'); const callers=STATE.staff.filter(s=>s.role==='telecaller');
   return `
     ${teamSwitchHtml('staff')}
+    <div class="team2"><div class="tcol tcol-rep">
     <div class="section-title" style="margin-top:0;">💸 Travel aur Advance</div>
     ${techs.length?travelAmountSummaryHtml():''}
     ${techRecordAllHtml()}
     ${advCardHtml()}
+    </div><div class="tcol tcol-ppl">
     <div class="item-sub" style="margin:0 0 8px;">Card par tap karein — poora kaam/history khulega. Naam par tap karein — profile.</div>
     <div class="section-title">Technicians (${techs.length})</div>
     ${techs.length===0?`<div class="empty-state"><span class="ic">🔧</span><p>Koi technician add nahi hai.</p></div>`:techs.map(t=>staffCardX(t,'delstaff')).join('')}
@@ -4440,6 +4452,7 @@ function renderStaff(){ if(STATE.session.role!=='admin') return '<div class="emp
     ${subs.length===0?`<div class="empty-state"><span class="ic">🧑‍💼</span><p>Koi sub-admin add nahi hai.</p></div>`:subs.map(t=>staffCardX(t,'delstaff')).join('')}
     <div class="section-title" style="margin-top:18px;">Telecallers (${callers.length})</div>
     ${callers.length===0?`<div class="empty-state"><span class="ic">📇</span><p>Koi telecaller add nahi hai.</p></div>`:callers.map(t=>staffCardX(t,'deltelecaller')).join('')}
+    </div></div>
     <button class="fab" id="addStaffBtn">+</button>
   `;
 }
