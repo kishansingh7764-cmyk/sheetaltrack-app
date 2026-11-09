@@ -3615,7 +3615,7 @@ function render(){
 function renderSetup(){
   return `
   <div class="login-wrap">
-    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v9.9.12</p><div style="margin-top:10px;">${langBtnHtml()}</div></div>
+    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v9.9.14</p><div style="margin-top:10px;">${langBtnHtml()}</div></div>
     <div class="setup-note">Yeh app ab Firebase (Google ka free real-time database) use karti hai — pehle se tez aur reliable. Firebase Console se apna config copy karke neeche paste karein.</div>
     <div class="field"><label>Firebase Config (poora object paste karein)</label><textarea id="setupConfig" rows="8" placeholder='{"apiKey": "...", "authDomain": "...", "projectId": "...", ...}'>${setupUrlInput}</textarea></div>
     <button class="primary-btn" id="connectBtn">Connect Karein</button>
@@ -3702,7 +3702,7 @@ function renderLogin(){
     ${body}
     ${loginError?`<div class="error-msg">${loginError}</div>`:''}
   </div>
-  <div class="lg-foot">🔒 Aapka data surakshit hai · ${esc(bn)} · SheetalTrack v9.9.12</div>
+  <div class="lg-foot">🔒 Aapka data surakshit hai · ${esc(bn)} · SheetalTrack v9.9.14</div>
   </div></div>`;
 }
 
@@ -5389,9 +5389,9 @@ function leaveCalHtml(){
   const cur=STATE.leaveMonth||todayStr().slice(0,7), [y,m]=cur.split('-').map(Number), first=new Date(y,m-1,1).getDay(), dim=new Date(y,m,0).getDate(), ap=(STATE.leaves||[]).filter(l=>l.status==='approved');
   let cells=''; for(let i=0;i<first;i++) cells+='<div></div>';
   for(let d=1;d<=dim;d++){ const ds=cur+'-'+String(d).padStart(2,'0'), who=ap.filter(l=>l.from<=ds&&ds<=l.to).map(l=>(l.name||'?').split(' ')[0]);
-    cells+=`<div style="min-height:46px;border-radius:8px;padding:3px;background:${who.length?'#fdecea':'#f4f8f9'};font-size:10px;text-align:left;"><div style="font-weight:700;font-size:11px;">${d}</div>${who.slice(0,2).map(n=>`<div style="color:#a12a20;white-space:nowrap;overflow:hidden;">${esc(n)}</div>`).join('')}${who.length>2?'<div>+'+(who.length-2)+'</div>':''}</div>`; }
+    cells+=`<div style="min-height:46px;border-radius:8px;padding:3px;background:${who.length?'rgba(224,82,70,.2)':'var(--bg)'};color:var(--ink);border:1px solid var(--border);font-size:10px;text-align:left;"><div style="font-weight:700;font-size:11px;">${d}</div>${who.slice(0,2).map(n=>`<div style="color:var(--red,#c0392b);white-space:nowrap;overflow:hidden;">${esc(n)}</div>`).join('')}${who.length>2?'<div>+'+(who.length-2)+'</div>':''}</div>`; }
   const mn=new Date(y,m-1,1).toLocaleString('en-IN',{month:'long',year:'numeric'});
-  return `<div class="card"><div class="row-between"><button class="mini-btn" data-lmon="-1">‹</button><div class="item-name" style="font-size:13.5px;">🗓 Chhutti Calendar — ${mn}</div><button class="mini-btn" data-lmon="1">›</button></div><div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px;margin-top:10px;text-align:center;font-size:10px;color:#5d7178;">${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(x=>`<div>${x}</div>`).join('')}</div><div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px;margin-top:3px;">${cells}</div></div>`;
+  return `<div class="card"><div class="row-between"><button class="mini-btn" data-lmon="-1">‹</button><div class="item-name" style="font-size:13.5px;">🗓 Chhutti Calendar — ${mn}</div><button class="mini-btn" data-lmon="1">›</button></div><div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px;margin-top:10px;text-align:center;font-size:10px;color:var(--ink-soft);">${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(x=>`<div>${x}</div>`).join('')}</div><div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px;margin-top:3px;">${cells}</div></div>`;
 }
 function leaveAdminHtml(only){
   const canA=l=>STATE.session.role==='admin'||(STATE.session.role==='subadmin'&&l.role==='technician'), P=(STATE.leaves||[]).filter(l=>l.status==='pending');
@@ -8413,6 +8413,43 @@ if(document.body) trStart(); else document.addEventListener('DOMContentLoaded',t
 })();
 
 boot();
+
+/* ===== Laptop se calling: tel: link pe number + Phone Link/Skype call, copy, WhatsApp ===== */
+(function(){
+  function isDesk(){ try{ return matchMedia('(hover:hover) and (pointer:fine)').matches && !/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent); }catch(e){ return false; } }
+  function close(){ const o=document.getElementById('callPop'); if(o) o.remove(); }
+  function copyTxt(t){ const fb=()=>{ const a=document.createElement('textarea'); a.value=t; a.style.cssText='position:fixed;opacity:0'; document.body.appendChild(a); a.select(); try{document.execCommand('copy');}catch(e){} a.remove(); }; try{ if(navigator.clipboard&&navigator.clipboard.writeText) return navigator.clipboard.writeText(t).catch(()=>{ fb(); }); }catch(e){} fb(); return Promise.resolve(); }
+  function show(num, name){
+    close();
+    const clean=String(num).replace(/[^\d+]/g,''); const wa=clean.replace(/^\+/,'').replace(/^0+/,''); const waNum=wa.length===10?'91'+wa:wa;
+    const o=document.createElement('div'); o.id='callPop';
+    o.style.cssText='position:fixed;inset:0;background:rgba(5,20,25,.55);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px;';
+    o.innerHTML='<div style="background:var(--surface,#fff);color:var(--ink,#123);border:1px solid var(--border,#ddd);border-radius:18px;padding:22px 24px;width:100%;max-width:380px;box-shadow:0 24px 70px rgba(0,0,0,.35);">'
+      +'<div style="font-size:13px;color:var(--ink-soft,#678);">📞 Call karein</div>'
+      +(name?'<div style="font-weight:700;font-size:17px;margin-top:2px;">'+String(name).replace(/</g,'&lt;')+'</div>':'')
+      +'<div style="font-size:26px;font-weight:800;letter-spacing:.5px;margin:6px 0 14px;">'+clean.replace(/</g,'')+'</div>'
+      +'<div style="display:grid;gap:8px;">'
+      +'<a id="cpCall" class="mini-btn primary" href="tel:'+clean+'" style="text-decoration:none;display:block;padding:12px!important;font-size:14px!important;">📞 Call lagao (Phone Link / Skype)</a>'
+      +'<button id="cpCopy" class="mini-btn" style="padding:12px!important;font-size:14px!important;">📋 Number copy karo</button>'
+      +'<a class="mini-btn" target="_blank" rel="noopener" href="https://wa.me/'+waNum+'" style="text-decoration:none;display:block;padding:12px!important;font-size:14px!important;">💬 WhatsApp kholo</a>'
+      +'<button id="cpClose" class="mini-btn" style="padding:10px!important;">Band karo</button></div>'
+      +'<div style="font-size:11.5px;color:var(--ink-faint,#89a);margin-top:12px;line-height:1.45;">Laptop se seedhi call ke liye Windows <b>Phone Link</b> me apna Android phone jodein (ya Skype/Teams). Dobara click par ye box phir aayega.</div></div>';
+    document.body.appendChild(o);
+    o.addEventListener('click',e=>{ if(e.target===o) close(); });
+    document.getElementById('cpClose').onclick=close;
+    document.getElementById('cpCall').addEventListener('click',()=>setTimeout(close,400));
+    document.getElementById('cpCopy').onclick=function(){ const b=this; copyTxt(clean).then(()=>{ b.textContent='✅ Copy ho gaya'; setTimeout(close,700); }); };
+    document.addEventListener('keydown',function esc(e){ if(e.key==='Escape'){ close(); document.removeEventListener('keydown',esc); } });
+  }
+  document.addEventListener('click',function(e){
+    const a=e.target.closest&&e.target.closest('a[href^="tel:"]'); if(!a||a.closest('#callPop')||!isDesk()) return;
+    e.preventDefault();
+    const num=decodeURIComponent(a.getAttribute('href').slice(4));
+    let nm=''; const card=a.closest('.card'); if(card){ const n=card.querySelector('.item-name,.cname,h3'); if(n) nm=((n.childNodes[0]&&n.childNodes[0].textContent)||n.textContent).replace(/[📢📞💬]/g,'').trim().slice(0,40); }
+    show(num,nm);
+  },true);
+  window.callPopShow=show;
+})();
 </script>
 
 
