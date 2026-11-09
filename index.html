@@ -158,6 +158,8 @@ html{scroll-padding-top:120px;}
 .pill-sky{background:var(--sky-pale);color:#1E5A6C;}
 .pill-grey{background:#EAF1F1;color:var(--ink-soft);}
 .card-actions{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;}
+.card-actions>.mini-btn{white-space:nowrap;}
+body.desk .card-actions>.mini-btn,body.desk .card-actions>a.mini-btn{flex:0 0 auto!important;min-width:0!important;padding:9px 14px!important;font-size:13px!important;}
 .mini-btn{flex:1;padding:9px 8px;border-radius:9px;border:1.5px solid var(--border);background:var(--bg);font-size:12px;font-weight:600;color:var(--ink);text-align:center;min-width:80px;transition:all .15s;}
 .mini-btn.danger{color:var(--red);border-color:#F2CFCC;}
 .mini-btn.primary{background:var(--teal);color:#fff;border-color:var(--teal);}
