@@ -37,6 +37,38 @@
   --font-display:'Space Grotesk',sans-serif; --font-body:'Inter',-apple-system,sans-serif;
 }
 
+
+/* ===== Login: professional split layout ===== */
+.lg-page{min-height:100vh;display:flex;flex-direction:column;}
+.lg-brand{background:linear-gradient(160deg,#0A2E38 0%,#0C4352 55%,#0F5C6E 125%);color:#fff;padding:36px 24px 70px;text-align:center;position:relative;overflow:hidden;}
+.lg-brand::before{content:'';position:absolute;right:-60px;top:-60px;width:220px;height:220px;border-radius:50%;background:radial-gradient(circle,rgba(47,196,219,.32),transparent 70%);}
+.lg-brand::after{content:'❄';position:absolute;left:-18px;bottom:-34px;font-size:150px;color:rgba(255,255,255,.05);line-height:1;}
+.lg-logo{width:66px;height:66px;border-radius:20px;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.22);display:flex;align-items:center;justify-content:center;font-size:32px;margin:0 auto 12px;position:relative;z-index:1;overflow:hidden;}
+.lg-logo img{width:100%;height:100%;object-fit:contain;background:#fff;}
+.lg-brand h1{font-family:var(--font-display);font-size:23px;font-weight:700;letter-spacing:.2px;position:relative;z-index:1;}
+.lg-brand .lg-tag{opacity:.82;font-size:13.5px;margin-top:4px;position:relative;z-index:1;}
+.lg-feats{display:none;}
+.lg-panel{flex:1;background:var(--bg);border-radius:26px 26px 0 0;margin-top:-34px;position:relative;z-index:2;padding:6px 0 18px;display:flex;flex-direction:column;}
+.lg-panel .login-wrap{min-height:auto;justify-content:flex-start;padding:18px 24px 6px;width:100%;}
+.lg-panel .login-hero{display:none;}
+.lg-title{font-family:var(--font-display);font-size:20px;font-weight:700;color:var(--ink);}
+.lg-sub{color:var(--ink-soft);font-size:13px;margin:3px 0 14px;}
+.lg-top{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;}
+.lg-foot{text-align:center;color:var(--ink-faint);font-size:11.5px;padding:10px 20px 0;margin-top:auto;}
+@media (min-width:900px) and (hover:hover){
+  .lg-page{flex-direction:row;}
+  .lg-brand{flex:1.15;display:flex;flex-direction:column;justify-content:center;text-align:left;padding:64px 80px;}
+  .lg-brand .lg-logo{margin:0 0 18px;width:78px;height:78px;border-radius:24px;font-size:38px;}
+  .lg-brand h1{font-size:36px;line-height:1.15;}
+  .lg-brand .lg-tag{font-size:16px;margin-top:10px;max-width:440px;}
+  .lg-feats{display:block;margin-top:34px;position:relative;z-index:1;}
+  .lg-feats div{display:flex;gap:12px;align-items:center;font-size:15px;padding:9px 0;opacity:.92;}
+  .lg-feats span{width:34px;height:34px;border-radius:10px;background:rgba(255,255,255,.12);display:inline-flex;align-items:center;justify-content:center;font-size:17px;flex:none;}
+  .lg-panel{flex:1;margin-top:0;border-radius:0;justify-content:center;align-items:center;padding:30px;}
+  .lg-panel .login-wrap{background:var(--surface);border-radius:22px;box-shadow:0 24px 70px rgba(10,46,56,.16);padding:38px 38px 30px;max-width:450px;margin:0 auto;border:1px solid var(--border);}
+  .lg-foot{margin-top:18px;}
+}
+html[data-theme="dark"] .lg-panel .login-wrap{ box-shadow:0 24px 70px rgba(0,0,0,.4); }
 /* ===== Dark mode ===== */
 html[data-theme="dark"]{ color-scheme:dark;
   --bg:#0E1A1D; --surface:#16262A; --ink:#E7F1F3; --ink-soft:#A5BCC1; --ink-faint:#72898E;
@@ -632,6 +664,27 @@ async function saveAcList(id){
   c.acs=out; await saveKey(SKEY.CUSTOMERS,STATE.customers); showToast('AC list save ho gayi ('+out.length+' AC)'); return true;
 }
 function track(p){ PENDING++; syncBadge(); p.then(()=>{PENDING--;syncBadge();},(e)=>{PENDING--;syncBadge();console.error('write failed',e);showToast('⚠️ Server par save nahi hua — internet/permission check karein');}); return p; }
+/* Business info: sirf badle hue fields likhe jaate hain (purana phone / laptop naya data mita na sake) */
+let BIZ_BASE=null, bizSaving=0;
+const bizClone=o=>JSON.parse(JSON.stringify(o||{}));
+async function bizMergeSave(value){
+  bizSaving++;
+  try{
+    const ref=firestoreDB.collection('sheetaltrack_data').doc('st_business'); let srv=null;
+    try{ const d=await ref.get(); srv=d.exists&&d.data().value?JSON.parse(d.data().value):{}; }catch(e){ srv=null; }
+    const base=BIZ_BASE||{}; let out;
+    if(srv===null||!BIZ_BASE){ out=bizClone(value); if(srv&&!BIZ_BASE){ out=Object.assign(bizClone(srv),bizClone(value)); } }
+    else{ out=bizClone(srv); Object.keys(value||{}).forEach(k=>{ if(JSON.stringify(value[k])!==JSON.stringify(base[k])) out[k]=bizClone({v:value[k]}).v; }); Object.keys(base).forEach(k=>{ if(!(k in (value||{}))) delete out[k]; }); }
+    await ref.set({value:JSON.stringify(out)});
+    BIZ_BASE=bizClone(out);
+    if(value&&typeof value==='object'){ Object.keys(out).forEach(k=>{ value[k]=out[k]; }); }
+  } finally { bizSaving--; }
+}
+function bizListen(){
+  try{ if(!firestoreDB||bizListen.on) return; bizListen.on=true;
+    firestoreDB.collection('sheetaltrack_data').doc('st_business').onSnapshot(d=>{ try{ if(bizSaving>0||!d.exists||!d.data().value) return; const v=JSON.parse(d.data().value); BIZ_BASE=bizClone(v); const cur=STATE.businessInfo=STATE.businessInfo||{}; Object.keys(cur).forEach(k=>{ if(!(k in v)) delete cur[k]; }); Object.keys(v).forEach(k=>{ cur[k]=v[k]; }); bgRender(); }catch(e){} },()=>{});
+  }catch(e){}
+}
 async function saveKey(key, value){
   if(!firestoreDB) return false;
   try{
@@ -643,6 +696,7 @@ async function saveKey(key, value){
       if(chg.length&&AUDIT_KEYS[key]) { try{ chgFlush(key,chg); }catch(e){ console.error('audit',e); } }
     } else if(MAPK[key]){
       Object.keys(value||{}).forEach(k=>{ const js=JSON.stringify(value[k]); if(S.get(k)!==js){ S.set(k,js); const o=JSON.parse(js); track(db.collection(MAPK[key]).doc(k).set(key==='st_attendance'?{dates:o}:o,{merge:true})); } });
+    } else if(key===SKEY.BUSINESS){ await bizMergeSave(value);
     } else { track(db.collection('sheetaltrack_data').doc(key).set({value: JSON.stringify(value)})); }
     return true;
   }catch(e){ console.error('save failed',key,e); showToast('⚠️ Save nahi hua'); return false; }
@@ -792,6 +846,7 @@ async function init(){
     if(!LISTENING){ await attachListeners(); LISTENING=true; STATE.leads=STATE.leads||[]; }
     await migrateLegacy();
     STATE.businessInfo=await loadKey(SKEY.BUSINESS,{name:'Super Air Cool', phone:'', address:'', terms:''});
+    BIZ_BASE=bizClone(STATE.businessInfo); bizListen();
     await refreshDevices();
     try{ await refLoad(); }catch(e){}
     const pc=await loadKey(SKEY.PHOTO_COUNTS,{});
@@ -969,7 +1024,8 @@ async function resetStaffPin(id, newPin){
 /* ============ Business info ============ */
 async function saveBusinessInfo(data){
   STATE.businessInfo=Object.assign({},STATE.businessInfo||{},{name:data.name||'Super Air Cool', phone:data.phone||'', address:data.address||'', email:data.email||'', terms:data.terms||'', amcTerms:data.amcTerms||'', upi:data.upi||''});
-  await saveKey(SKEY.BUSINESS, STATE.businessInfo); showToast('Business details save ho gayi');
+  const ok=await saveKey(SKEY.BUSINESS, STATE.businessInfo); if(ok===false){ showToast('⚠️ Business details save nahi hui — internet check karke dobara dabayein'); return false; }
+  showToast('✅ Business details save ho gayi'); return true;
 }
 
 /* ============ Backup export / import ============ */
@@ -1168,13 +1224,19 @@ async function sendEmailViaBackend(to, subject, message, attachment){
     return !!data.ok;
   }catch(e){ console.error('email send failed',e); return false; }
 }
+/* ===== AMC service schedule: contract ko barabar hisso me baantkar har service ki due date ===== */
+function amcGapDays(c){ const a=c.activationDate,e=c.expiryDate,n=Number(c.totalServices)||0; if(!a||!e||!n||e<=a) return 0; return (new Date(e+'T12:00:00')-new Date(a+'T12:00:00'))/864e5/n; }
+function amcSchedule(c){ const g=amcGapDays(c); if(!g) return null; const n=Number(c.totalServices), a=new Date(c.activationDate+'T12:00:00'), out=[]; for(let k=1;k<=n;k++){ out.push({k,due:ymd(new Date(a.getTime()+Math.round(g*k)*864e5))}); } return out; }
+function amcNextDue(c){ const s=amcSchedule(c); if(!s) return ''; const done=Number(c.servicesDone)||0; return done<s.length?s[done].due:''; }
+function amcGapLabel(c){ const g=amcGapDays(c); if(!g) return ''; const m=g/30.4375; return m>=1.5?'har ~'+(Math.round(m*2)/2)+' mahine me 1 service':'har ~'+Math.round(g)+' din me 1 service'; }
+function amcSchedPreviewHtml(c){ const s=amcSchedule(c); if(!s) return '<div class="item-sub">Activation / Expiry date aur Total Services bharein — service ka schedule yahan dikhega.</div>'; return `<div class="item-sub" style="margin-bottom:4px;">📅 ${esc(amcGapLabel(c))}</div>`+s.map(x=>`<div class="item-sub" style="margin:0;">Service ${x.k}: <b>${fmtDate(x.due)}</b></div>`).join(''); }
 function getAllDueCustomers(){
   const lastDone=new Map(); (STATE.jobs||[]).forEach(j=>{ if(j.status!=='done'||!j.customerId) return; const d=j.completedAt?ymd(new Date(j.completedAt)):j.date; if(d&&(!lastDone.get(j.customerId)||d>lastDone.get(j.customerId))) lastDone.set(j.customerId,d); });
   const amcDue=[];
   STATE.customers.forEach(c=>{ if(c.type!=='amc') return; if(c.cancelInfo&&c.amcStatus==='lapsed') return;
     const ren=(c.expiryDate&&daysUntil(c.expiryDate)<=90)?c.expiryDate:'';
     let svc=''; const tot=Number(c.totalServices)||0;
-    if(amcStatusOf(c)==='active'&&tot>0&&(Number(c.servicesDone)||0)<tot){ const last=[c.lastService,lastDone.get(c.id),c.activationDate].filter(Boolean).sort().pop(); if(last){ const d=addMonths(last,Number(c.intervalMonths)||3); if(daysUntil(d)<=15) svc=d; } }
+    if(amcStatusOf(c)==='active'&&tot>0&&(Number(c.servicesDone)||0)<tot){ const ns=amcNextDue(c); if(ns){ if(daysUntil(ns)<=15) svc=ns; } else { const last=[c.lastService,lastDone.get(c.id),c.activationDate].filter(Boolean).sort().pop(); if(last){ const d=addMonths(last,Number(c.intervalMonths)||3); if(daysUntil(d)<=15) svc=d; } } }
     if(!ren&&!svc) return;
     if(ren&&svc){ const dd=ren<svc?ren:svc; amcDue.push({...c,dueDate:dd,dueLabel:'AMC Service + Renewal',dueMsg:'AMC service / renewal ('+(c.amcName||'AC Service')+')'}); }
     else if(svc) amcDue.push({...c,dueDate:svc,dueLabel:'AMC Service ('+((Number(c.servicesDone)||0)+1)+'/'+tot+')',dueMsg:'AMC service '+((Number(c.servicesDone)||0)+1)+'/'+tot});
@@ -1549,7 +1611,7 @@ async function importCustomersXlsx(file){
 
 /* ============ Staff ============ */
 async function addStaff(data){
-  const s={id:uid(), name:data.name, phone:data.phone, email:data.email||'', role:data.role, pin:data.pin, joinedAt:Date.now()};
+  const s={id:uid(), name:data.name, phone:data.phone, email:data.email||'', role:data.role, pin:data.pin, joinedAt:(data.joinDate&&/^\d{4}-\d{2}-\d{2}$/.test(data.joinDate))?new Date(data.joinDate+'T12:00:00').getTime():Date.now()};
   STATE.staff.push(s); await saveKey(SKEY.STAFF, STATE.staff); showToast(roleLabel(data.role)+' add ho gaya');
 }
 async function updateStaff(id, data){
@@ -3600,9 +3662,18 @@ function renderLogin(){
       <div class="item-sub" style="text-align:center;margin-top:12px;">PIN bhool gaye? Apne Admin/Office se Settings mein reset karwayein.</div>
     `;
   }
+  const bi=STATE.businessInfo||{}, bn=(bi.name||'').trim()||'SheetalTrack';
   return `
+  <div class="lg-page">
+  <div class="lg-brand">
+    <div class="lg-logo">${bi.logo?`<img src="${bi.logo}" alt="">`:'❄️'}</div>
+    <h1>${esc(bn)}</h1>
+    <div class="lg-tag">AC Service &amp; AMC Business Manager</div>
+    <div class="lg-feats"><div><span>🧾</span>Jobs, complaints aur billing ek jagah</div><div><span>🛡️</span>AMC aur service due ka automatic schedule</div><div><span>👷</span>Team, attendance aur kamai ka poora record</div><div><span>📦</span>Stock aur customer history</div></div>
+  </div>
+  <div class="lg-panel">
   <div class="login-wrap">
-    <div class="login-hero"><div class="brand-mark">❄️</div><h1>SheetalTrack</h1><p>AC Service Business Manager · v9.9.12</p><div style="margin-top:10px;">${langBtnHtml()}</div></div>
+    <div class="lg-top"><div><div class="lg-title">Welcome back 👋</div><div class="lg-sub">Apna role chunein aur login karein</div></div><div>${langBtnHtml()}</div></div>
     <div class="role-grid">
       <button class="role-opt ${loginRole==='admin'?'active':''}" data-role="admin"><span class="ic">🗝️</span>Admin</button>
       <button class="role-opt ${loginRole==='subadmin'?'active':''}" data-role="subadmin"><span class="ic">🧑‍💼</span>Office</button>
@@ -3610,7 +3681,9 @@ function renderLogin(){
     </div>
     ${body}
     ${loginError?`<div class="error-msg">${loginError}</div>`:''}
-  </div>`;
+  </div>
+  <div class="lg-foot">🔒 Aapka data surakshit hai · ${esc(bn)} · SheetalTrack v9.9.12</div>
+  </div></div>`;
 }
 
 /* ===== Theme (dark mode) ===== */
@@ -3661,6 +3734,10 @@ document.addEventListener('click',async ev=>{
   if(b.dataset.bio==='on'){ if(await bioEnable(sid)){ showToast('✅ Fingerprint / Face unlock chalu ho gaya'); render(); } }
   else { bioOff(sid); showToast('Fingerprint / Face unlock band kiya'); render(); }
 });
+function tenureText(ts){ const a=new Date(ts), b=new Date(); let m=(b.getFullYear()-a.getFullYear())*12+b.getMonth()-a.getMonth(); if(b.getDate()<a.getDate()) m--; if(m<0) return 'aaj se'; const y=Math.floor(m/12), mm=m%12; return y?y+' saal'+(mm?' '+mm+' mahine':''):(mm?mm+' mahine':(Math.max(0,Math.floor((b-a)/864e5))+' din')); }
+document.addEventListener('change',async ev=>{ const e=ev.target; if(!e||e.id!=='staffJoinIn') return; const s=STATE.staff.find(x=>x.id===e.dataset.id); if(!s||STATE.session.role!=='admin') return;
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(e.value)){ showToast('Sahi date chunein'); render(); return; } if(e.value>todayStr()){ showToast('Joining date aage ki nahi ho sakti'); render(); return; }
+  s.joinedAt=new Date(e.value+'T12:00:00').getTime(); const ok=await saveKey(SKEY.STAFF,STATE.staff); showToast(ok===false?'⚠️ Save nahi hua':'✅ Joining date save ho gayi'); render(); });
 function bindLoginEvents(){
   document.querySelectorAll('.role-opt').forEach(b=>b.onclick=()=>{ loginRole=b.dataset.role; loginPin=''; loginError=''; loginSelectedStaff=null; forgotFlow=null; render(); });
   const pinInput=document.getElementById('pinInput'); if(pinInput) pinInput.oninput=(e)=>{ loginPin=e.target.value; };
@@ -3916,8 +3993,8 @@ function renderDashboard(){
 function amcTimelineHtml(c){
   const tot=c.totalServices||0; if(!tot) return '';
   const log=(c.serviceLog||[]).sort((a,b)=>(a.visitNo||0)-(b.visitNo||0));
-  const rows=[]; for(let n=1;n<=tot;n++){ const e=log.find(x=>x.visitNo===n); rows.push(e?`<div class="row-between" style="padding:4px 0;"><div class="item-sub">✅ Service ${n}</div><div class="item-sub">${fmtDate(new Date(e.date).toISOString().slice(0,10))}${e.by?' · '+esc(e.by):''}${e.note?' · 📝 '+esc(e.note):''}${e.manual?' · (manual)':''}${e.manual&&STATE.session.role!=='technician'?` <button class="mini-btn danger" style="padding:1px 7px;font-size:11px;" data-act="amcsvcdel" data-id="${c.id}" data-visit="${n}">✕</button>`:''}</div></div>`:`<div class="row-between" style="padding:4px 0;opacity:.6;"><div class="item-sub">○ Service ${n}</div><div class="item-sub">Baaki hai</div></div>`); }
-  return `<details style="margin-bottom:8px;"><summary class="item-sub" style="cursor:pointer;font-weight:600;">📅 4 service kab-kab (poori list)</summary>${rows.join('')}</details>`;
+  const sch=amcSchedule(c)||[]; const rows=[]; for(let n=1;n<=tot;n++){ const e=log.find(x=>x.visitNo===n); const sd=(sch[n-1]||{}).due; rows.push(e?`<div class="row-between" style="padding:4px 0;"><div class="item-sub">✅ Service ${n}</div><div class="item-sub">${fmtDate(new Date(e.date).toISOString().slice(0,10))}${e.by?' · '+esc(e.by):''}${e.note?' · 📝 '+esc(e.note):''}${e.manual?' · (manual)':''}${e.manual&&STATE.session.role!=='technician'?` <button class="mini-btn danger" style="padding:1px 7px;font-size:11px;" data-act="amcsvcdel" data-id="${c.id}" data-visit="${n}">✕</button>`:''}</div></div>`:`<div class="row-between" style="padding:4px 0;${sd&&sd<todayStr()?'':'opacity:.7;'}"><div class="item-sub">○ Service ${n}</div><div class="item-sub">${sd?'Due: '+fmtDate(sd)+(sd<todayStr()?' <b style="color:#c0392b;">· late</b>':''):'Baaki hai'}</div></div>`); }
+  return `<details style="margin-bottom:8px;"><summary class="item-sub" style="cursor:pointer;font-weight:600;">📅 ${tot} service kab-kab (poori list)${(()=>{ const nd=amcNextDue(c); return nd?' — agli: '+fmtDate(nd):''; })()}</summary>${rows.join('')}</details>`;
 }
 function sourceLabel(t){ return {online:'🌐 Online',telecaller:'📞 Telecaller',offline:'🚶 Offline / Walk-in',reference:'🤝 Reference',other:'Anya'}[t]||'🚶 Offline / Walk-in'; }
 function sourceCardHtml(c){
@@ -4733,6 +4810,8 @@ function renderStaffProfile(){
       <div class="item-name" style="font-size:18px;">${s.name} <span class="pill ${s.role==='technician'?'pill-sky':'pill-amber'}">${s.role==='technician'?'Technician':s.role==='telecaller'?'Telecaller':'Office'}</span></div>
       ${STATE.session.role==='admin'&&s.role!=='admin'?`<div class="field" style="margin:8px 0 0;max-width:260px;"><label style="font-size:12px;">Role badlein</label><select id="staffRoleSel" data-id="${s.id}"><option value="technician" ${s.role==='technician'?'selected':''}>Technician</option><option value="subadmin" ${s.role==='subadmin'?'selected':''}>Office / Sub-admin</option><option value="telecaller" ${s.role==='telecaller'?'selected':''}>Telecaller</option></select></div>`:''}
       <div class="item-sub" style="margin-top:6px;">${s.phone||'no phone'}${s.email?' · '+s.email:''}</div>
+      <div class="item-sub">🗓 Joining: <b>${s.joinedAt?fmtDate(ymd(new Date(s.joinedAt))):'—'}</b>${s.joinedAt?' · '+tenureText(s.joinedAt):''}</div>
+      ${STATE.session.role==='admin'&&s.role!=='admin'?`<div class="field" style="margin:6px 0 0;max-width:260px;"><label style="font-size:12px;">Joining date badlein</label><input type="date" id="staffJoinIn" data-id="${s.id}" value="${s.joinedAt?ymd(new Date(s.joinedAt)):''}" max="${todayStr()}"></div>`:''}
       ${ID_PFX[s.role]&&STATE.session.role==='admin'?`<div style="margin-top:6px;"><button class="mini-btn" data-v9="idcard" data-id="${s.id}">🪪 ID Card${s.idNo?' · '+esc(s.idNo)+(s.idBlocked?' ⛔':''):''}</button></div>`:''}
       <div class="item-sub">${s.role==='technician'?(live?'📍 Live abhi':loc?'📍 Last seen: '+new Date(loc.ts).toLocaleString('en-IN'):'📍 Location share nahi ki'):''}</div>
         </div>
@@ -5547,9 +5626,12 @@ function modalHtml(){
         <div class="field"><label>Expiry Date</label><input id="f_expiryDate" type="date" value="${c.expiryDate||addMonths(todayStr(),12)}"></div>
         <div class="field"><label>Total Services (contract mein kitni service hain)</label><input id="f_totalServices" type="number" min="0" value="${c.totalServices||4}"></div>
         <div class="field"><label>AMC Amount (₹)</label><input id="f_amcAmount" type="number" min="0" value="${c.amcAmount||0}"></div>
+        <div class="card" style="background:var(--sky-pale);margin:0 0 10px;"><div class="item-name" style="font-size:14px;margin-bottom:4px;">🗓 Service due schedule (apne aap bana)</div><div id="amcSchedPrev">${amcSchedPreviewHtml(c.activationDate?c:{activationDate:todayStr(),expiryDate:addMonths(todayStr(),12),totalServices:4})}</div><div class="item-sub" style="margin-top:4px;">Contract ko Total Services se barabar baantkar har service ki due date nikalti hai. Service hone par agli date apne aap aati hai.</div></div>
       </div>
+      <div id="otFieldsWrap" style="${(c.type||'amc')==='amc'?'display:none;':''}">
       <div class="field"><label>Last Service Date</label><input id="f_lastService" type="date" value="${c.lastService||todayStr()}"></div>
       <div class="field"><label>Service Interval (mahine)</label><input id="f_interval" type="number" min="1" value="${c.intervalMonths||3}"></div>
+      </div>
       <div class="field"><label>Notes (optional)</label><textarea id="f_notes" rows="2">${c.notes||''}</textarea></div>
       <button class="primary-btn" id="modalSave">Save</button>`;
   } else if(activeModal.type==='addStaff'){
@@ -5558,6 +5640,7 @@ function modalHtml(){
       <div class="field"><label>Naam</label><input id="f_name" placeholder="Naam"></div>
       <div class="field"><label>Phone</label><input id="f_phone" placeholder="10-digit number"></div>
       <div class="field"><label>Email (optional)</label><input id="f_staffEmail" placeholder="email@example.com"></div>
+      <div class="field"><label>Joining Date (kab se kaam par aaya)</label><input id="f_joinDate" type="date" value="${todayStr()}" max="${todayStr()}"></div>
       <div class="field"><label>PIN (login ke liye)</label><input id="f_pin" placeholder="4-6 digit PIN" inputmode="numeric" maxlength="6"></div>
       <button class="primary-btn" id="modalSave">Add Karein</button>`;
   } else if(activeModal.type==='addJob'){
@@ -6072,7 +6155,10 @@ function bindShellEvents(){
   };
 
   const custTypeSelect=document.getElementById('f_custType');
-  if(custTypeSelect){ custTypeSelect.onchange=(e)=>{ const wrap=document.getElementById('amcFieldsWrap'); if(wrap) wrap.style.display = e.target.value==='amc' ? '' : 'none'; }; }
+  if(custTypeSelect){ custTypeSelect.onchange=(e)=>{ const wrap=document.getElementById('amcFieldsWrap'); if(wrap) wrap.style.display = e.target.value==='amc' ? '' : 'none'; const ow=document.getElementById('otFieldsWrap'); if(ow) ow.style.display = e.target.value==='amc' ? 'none' : ''; }; }
+  { const fa=document.getElementById('f_activationDate'), fe=document.getElementById('f_expiryDate'), ft=document.getElementById('f_totalServices'), pv=document.getElementById('amcSchedPrev');
+    if(pv&&fa&&fe&&ft){ let prevAct=fa.value; const paint=()=>{ pv.innerHTML=amcSchedPreviewHtml({activationDate:fa.value,expiryDate:fe.value,totalServices:ft.value}); };
+      fa.addEventListener('change',()=>{ if(fa.value&&fe.value===addMonths(prevAct,12)) fe.value=addMonths(fa.value,12); prevAct=fa.value; paint(); }); fe.addEventListener('change',paint); ft.addEventListener('input',paint); ft.addEventListener('change',paint); paint(); } }
   const pinEl=document.getElementById('f_pincode'); if(pinEl) pinEl.addEventListener('blur',()=>lookupPincode(pinEl.value.trim()));
   const incEl=document.getElementById('f_incGiven'); if(incEl) incEl.onchange=(e)=>{ const w=document.getElementById('incWrap'); if(w) w.style.display=e.target.checked?'':'none'; };
 
@@ -6200,7 +6286,7 @@ function bindShellEvents(){
         const name=val('f_name'), pin=val('f_pin');
         if(!name){ showToast('Naam zaroori hai'); return; }
         if(!pin || pin.length<4){ showToast('PIN kam se kam 4 digit ka rakhein'); return; }
-        await addStaff({name, phone:val('f_phone'), email:val('f_staffEmail'), role:val('f_role'), pin});
+        await addStaff({name, phone:val('f_phone'), email:val('f_staffEmail'), role:val('f_role'), pin, joinDate:val('f_joinDate')});
         activeModal=null; render();
       } else if(activeModal.type==='addJob'){
         const title=val('f_title'); if(!title){ showToast('Job title zaroori hai'); return; }
