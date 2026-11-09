@@ -36,6 +36,32 @@
   --shadow:0 1px 2px rgba(13,42,48,.05),0 4px 14px rgba(13,42,48,.06);
   --font-display:'Space Grotesk',sans-serif; --font-body:'Inter',-apple-system,sans-serif;
 }
+
+/* ===== Dark mode ===== */
+html[data-theme="dark"]{ color-scheme:dark;
+  --bg:#0E1A1D; --surface:#16262A; --ink:#E7F1F3; --ink-soft:#A5BCC1; --ink-faint:#72898E;
+  --teal:#2A97AE; --teal-deep:#8FD8E6; --frost:#2FC4DB; --frost-pale:#14363E;
+  --sky:#4FA6BC; --sky-pale:#16323A; --amber:#E9A04A; --amber-pale:#3A2C14; --green:#35B781; --green-pale:#12332B;
+  --red:#E4635D; --red-pale:#3B1F1E; --border:#2B4146; --card:#16262A;
+  --shadow:0 1px 2px rgba(0,0,0,.35),0 4px 14px rgba(0,0,0,.35); }
+html[data-theme="dark"] .topbar{ background:linear-gradient(135deg,#0A2E38,#0F5C6E 130%); }
+html[data-theme="dark"] .toast{ background:#2A97AE; }
+html[data-theme="dark"] .primary-btn:active{ background:#1C7F94; }
+html[data-theme="dark"] .primary-btn,html[data-theme="dark"] .mini-btn.primary{ background:#1C7F94; color:#fff; }
+html[data-theme="dark"] [style*="background:#fff;"],html[data-theme="dark"] [style*="background:#ffffff"]{ background:var(--surface)!important; }
+html[data-theme="dark"] [style*="background:#fdecea"]{ background:#3B1F1E!important; }
+html[data-theme="dark"] [style*="background:#fff4e0"],html[data-theme="dark"] [style*="background:#fff4d6"]{ background:#3A2C14!important; }
+html[data-theme="dark"] [style*="background:#eef5f7"],html[data-theme="dark"] [style*="background:#e9f1f2"],html[data-theme="dark"] [style*="background:#e6eef0"],html[data-theme="dark"] [style*="background:#e3edf0"],html[data-theme="dark"] [style*="background:#EAF1F1"],html[data-theme="dark"] [style*="background:#e5e7e8"]{ background:#1C2F34!important; }
+html[data-theme="dark"] [style*="#8a5a0f"],html[data-theme="dark"] [style*="#8a6a00"],html[data-theme="dark"] [style*="#7a5a00"]{ color:#F0C27A!important; }
+html[data-theme="dark"] [style*="color:#0D2A30"],html[data-theme="dark"] [style*="color:#0a2e38"],html[data-theme="dark"] [style*="color:#4b5b63"],html[data-theme="dark"] [style*="color:#333"]{ color:var(--ink)!important; }
+html[data-theme="dark"] .ec-val,html[data-theme="dark"] .ec-lbl{ color:var(--ink-soft); }
+html[data-theme="dark"] img{ opacity:.92; }
+html[data-theme="dark"] body,html[data-theme="dark"] body.desk{ background:#0B1518; }
+html[data-theme="dark"] body.desk{ background:radial-gradient(1200px 500px at 70% -10%,#10282E 0%,transparent 60%),#0B1518; }
+html[data-theme="dark"] body.desk .card,html[data-theme="dark"] body.desk .stat-card{ border-color:var(--border); box-shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.3); }
+html[data-theme="dark"] .sticky-back,html[data-theme="dark"] .stk,html[data-theme="dark"] .stk.searchbar{ background:var(--bg); }
+html[data-theme="dark"] .section-title{ color:var(--ink); }
+html[data-theme="dark"] .modal,html[data-theme="dark"] .modal-box{ background:var(--surface); color:var(--ink); }
 *{box-sizing:border-box;margin:0;padding:0;}
 body{font-family:var(--font-body);background:var(--bg);color:var(--ink);min-height:100vh;-webkit-font-smoothing:antialiased;}
 button,input,select,textarea{font-family:inherit;font-size:15px;}
@@ -893,10 +919,11 @@ async function doAdminRecovery(answer, newPin){
   await saveKey(SKEY.STAFF, STATE.staff);
   forgotFlow=null; loginError=''; showToast('PIN reset ho gaya — ab login karein'); render();
 }
-async function doStaffLogin(staffId, pin){
+async function doStaffLogin(staffId, pin, viaBio){
   const s=STATE.staff.find(x=>x.id===staffId);
   if(!s){ loginError='Select karein'; render(); return; }
-  if(s.pin===pin){
+  if(viaBio===true&&(s.deleted||s.role==='admin'||!bioMap()[s.id])){ loginError='Biometric se login nahi ho sakta — PIN se karein'; render(); return; }
+  if(viaBio===true||s.pin===pin){
     if(s.role==='subadmin'||s.role==='telecaller') await refreshDevices();
     STATE.sessClaim=true; STATE.session={staffId:s.id, role:s.role, name:s.name, at:Date.now()}; auditLogin(s.id,s.name,s.role); linkAuthUid(s.id,s.role,s.name);
     loginError=''; let seenP=false; try{ seenP=!!localStorage.getItem('st_perm_seen_'+s.id); }catch(e){}
@@ -3568,6 +3595,7 @@ function renderLogin(){
       <div class="field"><label>Apna naam chunein</label><select id="staffSelect"><option value="">-- Select --</option>${nonAdmins.filter(s=>s.role===loginRole||(loginRole==='subadmin'&&s.role==='telecaller')).map(s=>`<option value="${s.id}" ${loginSelectedStaff===s.id?'selected':''}>${esc(s.name)}${s.role==='telecaller'?' (Telecaller)':''}</option>`).join('')}</select></div>
       <div class="field"><label>PIN</label><input id="pinInput" type="password" inputmode="numeric" maxlength="6" placeholder="••••" value="${loginPin}"></div>
       <button class="primary-btn" id="loginSubmit">Login</button>
+      ${bioLoginListHtml()}
       ${nonAdmins.filter(s=>s.role===loginRole||(loginRole==='subadmin'&&s.role==='telecaller')).length===0?`<div class="error-msg">Koi ${loginRole==='technician'?'technician':'sub-admin'} add nahi hai abhi. Admin se add karwayein.</div>`:''}
       <div class="item-sub" style="text-align:center;margin-top:12px;">PIN bhool gaye? Apne Admin/Office se Settings mein reset karwayein.</div>
     `;
@@ -3584,6 +3612,55 @@ function renderLogin(){
     ${loginError?`<div class="error-msg">${loginError}</div>`:''}
   </div>`;
 }
+
+/* ===== Theme (dark mode) ===== */
+function themeGet(){ try{ return localStorage.getItem('st_theme')==='dark'?'dark':'light'; }catch(e){ return 'light'; } }
+function themeApply(){ try{ document.documentElement.setAttribute('data-theme',themeGet()); const m=document.querySelector('meta[name="theme-color"]'); if(m) m.setAttribute('content',themeGet()==='dark'?'#0E1A1D':'#0F5C6E'); }catch(e){} }
+function themeToggle(){ try{ localStorage.setItem('st_theme',themeGet()==='dark'?'light':'dark'); }catch(e){} themeApply(); render(); }
+themeApply();
+document.addEventListener('click',ev=>{ const el=ev.target&&ev.target.closest&&ev.target.closest('[data-theme-toggle]'); if(el){ themeToggle(); } });
+const themeBtnHtml=()=>`<button class="mini-btn" data-theme-toggle="1" title="Dark / Light mode" style="margin-right:5px;padding:8px 8px;flex:none;">${themeGet()==='dark'?'☀️':'🌙'}</button>`;
+const themeCardHtml=()=>`<div class="card"><div class="row-between"><div><div class="item-name">${themeGet()==='dark'?'🌙 Dark mode chalu':'☀️ Light mode'}</div><div class="item-sub">Raat me ya kam roshni me aankhon ke liye aaram</div></div><button class="mini-btn primary" data-theme-toggle="1" style="flex:none;">${themeGet()==='dark'?'Light karein':'Dark karein'}</button></div></div>`;
+
+/* ===== Biometric unlock (fingerprint / face) — is phone par, PIN ke baad ===== */
+const BIO_KEY='st_bio_v1';
+function bioMap(){ try{ const o=JSON.parse(localStorage.getItem(BIO_KEY)||'{}'); return (o&&typeof o==='object')?o:{}; }catch(e){ return {}; } }
+function bioSave(m){ try{ localStorage.setItem(BIO_KEY,JSON.stringify(m)); }catch(e){} }
+const bioB64=b=>{ let s=''; new Uint8Array(b).forEach(x=>s+=String.fromCharCode(x)); return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); };
+const bioBuf=t=>{ t=t.replace(/-/g,'+').replace(/_/g,'/'); while(t.length%4) t+='='; const s=atob(t), u=new Uint8Array(s.length); for(let i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u.buffer; };
+function bioSupported(){ return !!(window.isSecureContext&&window.PublicKeyCredential&&navigator.credentials&&navigator.credentials.create); }
+async function bioAvailable(){ try{ if(!bioSupported()) return false; return !!(await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable()); }catch(e){ return false; } }
+async function bioEnable(staffId){
+  const s=(STATE.staff||[]).find(x=>x.id===staffId); if(!s||s.role==='admin') return false;
+  if(!(await bioAvailable())){ showToast('Is phone/browser me fingerprint ya face unlock available nahi hai'); return false; }
+  try{
+    const cred=await navigator.credentials.create({publicKey:{rp:{name:'SheetalTrack'},user:{id:new TextEncoder().encode(String(staffId)),name:s.name||'staff',displayName:s.name||'staff'},challenge:crypto.getRandomValues(new Uint8Array(32)),pubKeyCredParams:[{type:'public-key',alg:-7},{type:'public-key',alg:-257}],authenticatorSelection:{authenticatorAttachment:'platform',userVerification:'required',residentKey:'discouraged'},timeout:60000,attestation:'none'}});
+    if(!cred) return false; const m=bioMap(); m[staffId]=bioB64(cred.rawId); bioSave(m); return true;
+  }catch(e){ if(!(e&&e.name==='NotAllowedError')) showToast('Biometric chalu nahi hua'); return false; }
+}
+async function bioVerify(staffId){
+  const id=bioMap()[staffId]; if(!id) return false;
+  try{ const a=await navigator.credentials.get({publicKey:{challenge:crypto.getRandomValues(new Uint8Array(32)),allowCredentials:[{type:'public-key',id:bioBuf(id),transports:['internal']}],userVerification:'required',timeout:60000}}); return !!a; }catch(e){ return false; }
+}
+function bioOff(staffId){ const m=bioMap(); delete m[staffId]; bioSave(m); }
+function bioLoginListHtml(){
+  if(!bioSupported()) return '';
+  const m=bioMap(), L=(STATE.staff||[]).filter(s=>m[s.id]&&!s.deleted&&s.role!=='admin'); if(!L.length) return '';
+  return `<div style="margin-top:14px;border-top:1px solid var(--border);padding-top:12px;"><div class="item-sub" style="text-align:center;margin-bottom:6px;">ya fingerprint / face se kholein</div>${L.map(s=>`<button class="ghost-btn" data-bio-login="${esc(s.id)}" style="margin-top:6px;">👆 ${esc(s.name)} — fingerprint / face se Login</button>`).join('')}</div>`;
+}
+function bioCardHtml(){
+  const sid=STATE.session&&STATE.session.staffId; if(!sid||STATE.session.role==='admin'||!bioSupported()) return '';
+  const on=!!bioMap()[sid];
+  return `<div class="card"><div class="row-between" style="gap:10px;"><div><div class="item-name">👆 Fingerprint / Face unlock</div><div class="item-sub">${on?'Chalu hai — Login screen par apna naam dabakar fingerprint / face se khul jayega. PIN bhi chalta rahega.':'Chalu karein to is phone par PIN ke bina fingerprint / face se login ho jayega.'}</div></div><button class="mini-btn ${on?'':'primary'}" data-bio="${on?'off':'on'}" style="flex:none;">${on?'Band karein':'Chalu karein'}</button></div></div>`;
+}
+document.addEventListener('click',async ev=>{
+  const bl=ev.target&&ev.target.closest&&ev.target.closest('[data-bio-login]');
+  if(bl){ const id=bl.dataset.bioLogin; if(await bioVerify(id)){ await doStaffLogin(id,'',true); } else { loginError='Fingerprint / face match nahi hua — PIN se login karein'; render(); } return; }
+  const b=ev.target&&ev.target.closest&&ev.target.closest('[data-bio]'); if(!b||!STATE.session) return;
+  const sid=STATE.session.staffId;
+  if(b.dataset.bio==='on'){ if(await bioEnable(sid)){ showToast('✅ Fingerprint / Face unlock chalu ho gaya'); render(); } }
+  else { bioOff(sid); showToast('Fingerprint / Face unlock band kiya'); render(); }
+});
 function bindLoginEvents(){
   document.querySelectorAll('.role-opt').forEach(b=>b.onclick=()=>{ loginRole=b.dataset.role; loginPin=''; loginError=''; loginSelectedStaff=null; forgotFlow=null; render(); });
   const pinInput=document.getElementById('pinInput'); if(pinInput) pinInput.oninput=(e)=>{ loginPin=e.target.value; };
@@ -3645,7 +3722,7 @@ function renderShell(){
   else if(STATE.view==='settings') body=STATE.session.role==='technician'?renderTechProfile():STATE.session.role==='telecaller'?renderTelecallerProfile():renderSettings();
   if(STATE.view==='techhome'||STATE.view==='location'||STATE.view==='mhome'||STATE.view==='dashboard'||(STATE.view==='leads'&&STATE.session.role==='telecaller')) body=referCardHtml()+body;
   return `
-  <div class="topbar"><div class="brand"><div class="brand-mark" style="width:30px;height:30px;font-size:15px;">❄️</div><div class="brand-text"><div class="name">SheetalTrack</div><div class="who">${esc(STATE.session.name)} · ${roleLabel(STATE.session.role)} · <span id="syncBadge">${PENDING>0?'⏳ Sync ho raha hai':'✅ Saved'}</span></div></div></div>${((STATE.session.role==='admin'||STATE.session.role==='subadmin')&&!officeMobile())?`<button class="mini-btn" id="globalSearchBtn" style="margin-right:8px;padding:8px 11px;flex:none;">🔍</button>`:''}${bellHtml()}${langBtnHtml()}<button class="mini-btn" data-v9="refer" title="Refer karo, kamao" style="margin-right:5px;padding:8px 8px;flex:none;">🎁</button><button class="mini-btn" data-v9="help" title="Help" style="margin-right:5px;padding:8px 8px;flex:none;">❓</button><button class="logout-btn" id="logoutBtn">Logout</button></div>
+  <div class="topbar"><div class="brand"><div class="brand-mark" style="width:30px;height:30px;font-size:15px;">❄️</div><div class="brand-text"><div class="name">SheetalTrack</div><div class="who">${esc(STATE.session.name)} · ${roleLabel(STATE.session.role)} · <span id="syncBadge">${PENDING>0?'⏳ Sync ho raha hai':'✅ Saved'}</span></div></div></div>${((STATE.session.role==='admin'||STATE.session.role==='subadmin')&&!officeMobile())?`<button class="mini-btn" id="globalSearchBtn" style="margin-right:8px;padding:8px 11px;flex:none;">🔍</button>`:''}${bellHtml()}${langBtnHtml()}${themeBtnHtml()}<button class="mini-btn" data-v9="refer" title="Refer karo, kamao" style="margin-right:5px;padding:8px 8px;flex:none;">🎁</button><button class="mini-btn" data-v9="help" title="Help" style="margin-right:5px;padding:8px 8px;flex:none;">❓</button><button class="logout-btn" id="logoutBtn">Logout</button></div>
   <div class="content">${body}</div>
   ${STATE.toast?`<div class="toast">${STATE.toast}</div>`:''}
   ${modalHtml()}
@@ -4474,10 +4551,32 @@ function techRecordTableHtml(pick){
 function techPickHtml(sel,techs){
   return `<div class="field" style="margin:8px 0 0;"><select id="trTechSel">${techs.map(t=>`<option value="${esc(t.id)}" ${t.id===sel?'selected':''}>👷 ${esc(t.name)}</option>`).join('')}<option value="__all" ${sel==='__all'?'selected':''}>👥 Sab technician (total)</option></select></div>`;
 }
+function officeRange(){ const [f,t]=trRange(trPer()); return [new Date(f+'T00:00:00').getTime(), new Date(t+'T00:00:00').getTime()+864e5, f, t]; }
+function officeRecordHtml(staffId){
+  if(STATE.session.role!=='admin') return '';
+  const s=(STATE.staff||[]).find(x=>x.id===staffId); if(!s) return '';
+  const [a,b,f,t]=officeRange(), cs=callStats(a,b), r=cs.rows.find(x=>x.id===staffId)||{calls:0,later:0,amc:0,list:[]};
+  const open=(STATE.leads||[]).filter(l=>l.assignedTo===staffId&&!l.called&&!l.convertedJobId&&!l.dismissed).length;
+  const st=(n,l,c)=>`<div class="stat-card"><div class="stat-num"${c?' style="color:'+c+'"':''}>${n}</div><div class="stat-label">${l}</div></div>`;
+  return `<div class="card" style="margin-top:14px;"><div class="item-name" style="margin-bottom:8px;">📊 ${esc(s.name)} ka kaam ka record</div>${trFilterBar('trper')}
+    <div class="item-sub" style="margin:4px 0 8px;">${f===t?fmtDate(f):fmtDate(f)+' se '+fmtDate(t)}</div>
+    <div class="stat-grid">${st(r.calls,'📞 Call ki')}${st(r.later,'🕒 Baad me bola',r.later?'#b45309':'')}${st(r.amc,'✅ Job / AMC bani','var(--green)')}${st(open,'📇 Abhi call baaki','#c0392b')}</div>
+    ${r.list.length?`<div class="item-sub" style="font-weight:700;margin:12px 0 4px;">Calls ki list${r.list.length>40?' (pehli 40)':''}</div>${r.list.slice(0,40).map(x=>`<div class="row-between" style="padding:5px 0;border-top:1px solid var(--border);gap:8px;"><div class="item-sub" style="margin:0;">${esc(x.cust||'—')}${x.mob?' · '+esc(x.mob):''}</div><div class="item-sub" style="margin:0;white-space:nowrap;">${fmtDate(ymd(new Date(x.t)))} ${new Date(x.t).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'})}${x.out==='later'?' · 🕒':''}</div></div>`).join('')}`:'<div class="item-sub">Is period me koi call nahi likhi gayi.</div>'}</div>`;
+}
+function officeRecordAllHtml(){
+  if(STATE.session.role!=='admin') return '';
+  const L=(STATE.staff||[]).filter(s=>s.role==='telecaller'||s.role==='subadmin').slice().sort((a,b)=>String(a.name).localeCompare(String(b.name))); if(!L.length) return '';
+  const [a,b,f,t]=officeRange(), cs=callStats(a,b);
+  const rows=L.map(s=>{ const r=cs.rows.find(x=>x.id===s.id)||{calls:0,later:0,amc:0}; return {s,r,open:(STATE.leads||[]).filter(l=>l.assignedTo===s.id&&!l.called&&!l.convertedJobId&&!l.dismissed).length}; });
+  return `<div class="card" style="margin-top:14px;"><div class="item-name" style="margin-bottom:8px;">📞 Telecaller / Office ka record</div>${trFilterBar('trper')}<div class="item-sub" style="margin:4px 0 8px;">${f===t?fmtDate(f):fmtDate(f)+' se '+fmtDate(t)}</div>
+    <div style="overflow-x:auto;"><table style="width:100%;font-size:13px;border-collapse:collapse;"><tr style="color:var(--ink-soft);"><td>Naam</td><td style="text-align:right;">Call</td><td style="text-align:right;">Baad me</td><td style="text-align:right;">Job/AMC</td><td style="text-align:right;">Call baaki</td></tr>
+    ${rows.map(x=>`<tr style="border-top:1px solid var(--border);"><td style="padding:6px 0;"><span data-viewstaff="${esc(x.s.id)}" style="color:var(--teal);text-decoration:underline;cursor:pointer;">${esc(x.s.name)}</span> <span class="item-sub">${x.s.role==='telecaller'?'Telecaller':'Office'}</span></td><td style="text-align:right;">${x.r.calls}</td><td style="text-align:right;">${x.r.later}</td><td style="text-align:right;color:var(--green);">${x.r.amc}</td><td style="text-align:right;color:#c0392b;">${x.open}</td></tr>`).join('')}</table></div></div>`;
+}
 function techRecordAllHtml(){
-  jamaEnsure(); const techs=(STATE.staff||[]).filter(s=>s.role==='technician').slice().sort((a,b)=>String(a.name).localeCompare(String(b.name))); if(!techs.length||!isMoneyRole()) return '';
+  jamaEnsure(); const techs=(STATE.staff||[]).filter(s=>s.role==='technician').slice().sort((a,b)=>String(a.name).localeCompare(String(b.name))); if(!isMoneyRole()) return '';
+  if(!techs.length) return officeRecordAllHtml();
   const sel=(STATE.trTech==='__all'||techs.some(t=>t.id===STATE.trTech))?STATE.trTech:techs[0].id, pick=techPickHtml(sel,techs);
-  return sel==='__all'?techRecordTableHtml(pick):techRecordHtml(sel,pick);
+  return (sel==='__all'?techRecordTableHtml(pick):techRecordHtml(sel,pick))+officeRecordAllHtml();
 }
 
 /* ===== Complaint register + Mana/Nahi gaya karan + Din ka hisaab ===== */
@@ -4647,7 +4746,7 @@ function renderStaffProfile(){
       ${STATE.session.role==='admin'?`<div class="stat-card" data-act="staffjobs" data-id="${s.id}" data-kind="earned" style="cursor:pointer;"><div class="stat-num" style="color:var(--green);">${rupee(totalEarned)}</div><div class="stat-label">Total Earned ›</div></div>`:''}
     </div>
     <div class="card" data-act="attdetail" data-id="${s.id}" style="cursor:pointer;"><div class="row-between"><div class="item-sub">📅 Is mahine attendance (din-wise dekhein ›)</div><div class="item-name">${thisMonthCount} din</div></div></div>
-    ${s.role==='technician'?techRecordHtml(s.id):''}
+    ${s.role==='technician'?techRecordHtml(s.id):officeRecordHtml(s.id)}
     ${s.role==='technician'?techIssueHtml(s.id):''}
     ${s.role==='technician'?techMonthHtml(s.id):''}
     ${s.role!=='admin'?importWorkHtml(s.id):''}
@@ -5382,6 +5481,7 @@ function renderSettings(){
   return `
     <div class="section-title">${role==='technician'?'Mera Profile':'Settings'}</div>${settingsTabs(role)}
     ${role==='admin'?`<div class="${(STATE.setTab||'account')!=='account'?'hidden':''}">${profilePhotoCardHtml(STATE.session.staffId)}<div class="card"><div class="item-name" style="margin-bottom:10px;">${esc(STATE.session.name)}</div><div class="field"><label>Naya PIN set karein</label><input id="f_newOwnPin" type="password" inputmode="numeric" maxlength="6" placeholder="Naya PIN"></div><button class="primary-btn" id="changePinBtn">PIN Update Karein</button></div></div>`:''}
+    ${(role==='admin'?(STATE.setTab||'account')==='account':true)?themeCardHtml()+bioCardHtml():''}
     ${settingsBody(role,extra)}
   `;
 }
@@ -6497,6 +6597,7 @@ function renderMProfile(){
   const sid=STATE.session.staffId, s=STATE.staff.find(x=>x.id===sid)||{name:STATE.session.name};
   return `${profilePhotoCardHtml(sid)}
     <div class="card" style="text-align:center;padding:16px;"><div class="item-name" style="font-size:18px;">${esc(s.name||'')}</div><div class="item-sub">${roleLabel(STATE.session.role)}${s.phone?' · 📞 '+esc(s.phone):''}</div>${s.email?`<div class="item-sub">✉️ ${esc(s.email)}</div>`:''}</div>
+    ${themeCardHtml()}${bioCardHtml()}
     <div class="card"><div class="item-name">🔑 PIN badlein</div><div class="field" style="margin-top:8px;"><input id="v9_newpin" type="password" inputmode="numeric" maxlength="6" placeholder="Naya 4-6 digit PIN"></div><button class="mini-btn primary" data-v9="chpin">PIN Save</button></div>`;
 }
 
