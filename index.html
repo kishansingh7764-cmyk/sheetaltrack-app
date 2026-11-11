@@ -3,7 +3,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, interactive-widget=resizes-content">
 <title>SheetalTrack</title>
-<meta name="st-build" content="9.9.20">
+<meta name="st-build" content="9.9.21">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#0A343F">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -382,7 +382,7 @@ button,.primary-btn{transition:transform .12s ease,filter .15s ease}button:activ
 <div id="app"></div>
 
 <script>
-const APP_BUILD='9.9.20';
+const APP_BUILD='9.9.21';
 /* ============ Backend config (Google Apps Script Web App URL) ============ */
 /* ============ Firebase (main data) + Apps Script (email only) config ============ */
 const DEFAULT_FIREBASE_CONFIG='{\"apiKey\":\"AIzaSyCY89nm41X9tADB5KSK8m6o5nl3nqVXr-g\",\"authDomain\":\"sheetaltrack.firebaseapp.com\",\"projectId\":\"sheetaltrack\",\"storageBucket\":\"sheetaltrack.firebasestorage.app\",\"messagingSenderId\":\"919097584832\",\"appId\":\"1:919097584832:web:54b380b1042a9e4ced5125\"}';
@@ -3199,7 +3199,7 @@ async function convertLeadToOnetime(id,opt){ opt=opt||{};
   }
   cust.leadTelecaller=l.assignedName||cust.leadTelecaller||''; cust.leadCalledBy=l.calledBy||''; cust.leadId=l.id;
   STATE.customers=STATE.customers.filter(x=>x.id!==cust.id).concat(cust); await saveKey(SKEY.CUSTOMERS, STATE.customers);
-  const j={id:uid(), customerId:cust.id, title:'Service', tag:'', amcVisit:false, assignedTo:opt.tech||'', status:'pending', date:opt.date||today, time:opt.time||'', notes:'Telecaller lead se bani (One-time) — '+(l.calledBy||l.assignedName||'')+(opt.note?' · '+opt.note:''), amount:0, checklist:[], assignN:(opt.tech?1:0), updAt:Date.now(), createdAt:Date.now(), history:[{s:'pending',t:Date.now(),by:(STATE.session&&STATE.session.name)||'',why:'Telecaller lead se One-time service'}]};
+  const j={id:uid(), customerId:cust.id, title:'Service', tag:'', amcVisit:false, assignedTo:opt.tech||'', status:'pending', date:opt.date||today, time:opt.time||'', notes:'Telecaller lead se bani (One-time) — '+(l.calledBy||l.assignedName||'')+(opt.note?' · '+opt.note:''), amount:Number(opt.amount)||0, checklist:[], assignN:(opt.tech?1:0), updAt:Date.now(), createdAt:Date.now(), history:[{s:'pending',t:Date.now(),by:(STATE.session&&STATE.session.name)||'',why:'Telecaller lead se One-time service'}]};
   STATE.jobs.push(j); await saveKey(SKEY.JOBS, STATE.jobs);
   l.convertedJobId=j.id; l.convertedType='onetime'; l.convertedBy=(STATE.session&&STATE.session.name)||''; l.convertedAt=Date.now();
   await saveKey(SKEY.LEADS, STATE.leads);
@@ -3269,9 +3269,9 @@ async function convertLeadToJob(id,opt){ opt=opt||{};
   const addr=[l.address1,l.address2,l.address3].filter(Boolean).join(', ');
   const today=todayStr();
   if(!cust){
-    cust={id:uid(), name:l.customer||'Naya Customer', type:'amc', phone:l.mobile||'', phone2:l.resTel||'', email:'', address:addr, landmark:'', city:'', state:'', pincode:'', brand:'', model:l.product||'', acType:'', serialNo:'', installDate:l.purchaseDate||'', underWarranty:false, amcName:'AMC', activationDate:today, expiryDate:addMonths(today,12), totalServices:4, servicesDone:0, source:'Telecaller — '+(l.calledBy||l.assignedName||''), sourceType:'telecaller', amcAmount:0, autoIncentive:true, incentiveGiven:true, incentiveTo:(l.calledBy||l.assignedName||'Telecaller'), incentiveAmount:0, incentivePaid:false, lastService:'', intervalMonths:3, notes:'Area: '+(l.area||'')+(l.purchaseDate?' · AC khareedi: '+fmtDate(l.purchaseDate):''), createdAt:Date.now()};
+    cust={id:uid(), name:l.customer||'Naya Customer', type:'amc', phone:l.mobile||'', phone2:l.resTel||'', email:'', address:addr, landmark:'', city:'', state:'', pincode:'', brand:'', model:l.product||'', acType:'', serialNo:'', installDate:l.purchaseDate||'', underWarranty:false, amcName:'AMC', activationDate:today, expiryDate:addMonths(today,12), totalServices:4, servicesDone:0, source:'Telecaller — '+(l.calledBy||l.assignedName||''), sourceType:'telecaller', amcAmount:Number(opt.amount)||0, autoIncentive:true, incentiveGiven:true, incentiveTo:(l.calledBy||l.assignedName||'Telecaller'), incentiveAmount:0, incentivePaid:false, lastService:'', intervalMonths:3, notes:'Area: '+(l.area||'')+(l.purchaseDate?' · AC khareedi: '+fmtDate(l.purchaseDate):''), createdAt:Date.now()};
   } else {
-    cust.type='amc'; if(!cust.activationDate) cust.activationDate=today; if(!cust.expiryDate) cust.expiryDate=addMonths(today,12); if(!cust.totalServices) cust.totalServices=4; if(!cust.model&&l.product) cust.model=l.product; if(!cust.installDate&&l.purchaseDate) cust.installDate=l.purchaseDate;
+    cust.type='amc'; if(!cust.activationDate) cust.activationDate=today; if(!cust.expiryDate) cust.expiryDate=addMonths(today,12); if(!cust.totalServices) cust.totalServices=4; if(Number(opt.amount)>0) cust.amcAmount=Number(opt.amount); if(!cust.model&&l.product) cust.model=l.product; if(!cust.installDate&&l.purchaseDate) cust.installDate=l.purchaseDate;
   }
   cust.leadTelecaller=l.assignedName||cust.leadTelecaller||''; cust.leadCalledBy=l.calledBy||''; cust.leadId=l.id; if(!cust.installDate&&l.purchaseDate) cust.installDate=l.purchaseDate;
   STATE.customers=STATE.customers.filter(x=>x.id!==cust.id).concat(cust); await saveKey(SKEY.CUSTOMERS, STATE.customers);
@@ -5733,7 +5733,7 @@ function modalHtml(){
     inner=leadDetailInner(activeModal.data);
   } else if(activeModal.type==='leadAssign'){
     const d=activeModal.data, l=d.custId?custAsLead(d.custId):((STATE.leads||[]).find(x=>x.id===d.id)||{});
-    inner=`<div class="modal-head"><h3>${d.kind==='amc'?'✅ AMC Bana Do':'🔧 One-time Service'}</h3><button class="close-x" id="modalClose">×</button></div><div class="card"><div class="item-name">${esc(l.customer||'')}</div><div class="item-sub">📞 ${esc(l.mobile||'')}</div></div>${d.kind==='amc'?`<div class="field"><label>Ye AMC kab ki hai?</label><select id="f_laWhen"><option value="new">Nayi AMC — technician ko job dena hai</option><option value="past">Purani date ki — AMC ho chuki hai (sirf record, job nahi banegi)</option></select></div>`:''}<div id="laNew"><div class="field"><label>Technician abhi chunein (job me dobara nahi poochhenge)</label><select id="f_ltech"><option value="">-- Baad me / Unassigned --</option>${techOptionsHtml(todayStr(),'')}</select></div><div class="field"><label>Job ki Date</label>${dmyPickHtml('la',todayStr())}</div><div class="field"><label>⏰ Job ka Time (optional)</label><input id="f_ltime" type="time"></div></div>${d.kind==='amc'?`${pastAmcHtml('laPast',false)}`:''}<button class="primary-btn" id="modalSave">Job Banao</button>`;
+    inner=`<div class="modal-head"><h3>${d.kind==='amc'?'✅ AMC Bana Do':'🔧 One-time Service'}</h3><button class="close-x" id="modalClose">×</button></div><div class="card"><div class="item-name">${esc(l.customer||'')}</div><div class="item-sub">📞 ${esc(l.mobile||'')}</div></div>${d.kind==='amc'?`<div class="field"><label>Ye AMC kab ki hai?</label><select id="f_laWhen"><option value="new">Nayi AMC — technician ko job dena hai</option><option value="past">Purani date ki — AMC ho chuki hai (sirf record, job nahi banegi)</option></select></div>`:''}<div id="laNew"><div class="field"><label>Technician abhi chunein (job me dobara nahi poochhenge)</label><select id="f_ltech"><option value="">-- Baad me / Unassigned --</option>${techOptionsHtml(todayStr(),'')}</select></div><div class="field"><label>Job ki Date</label>${dmyPickHtml('la',todayStr())}</div><div class="field"><label>${d.kind==='amc'?'AMC Amount (₹)':'Amount / Estimate (₹)'} (optional)</label><input id="f_lamt" type="number" min="0" inputmode="numeric" placeholder="jaise 3500"></div><div class="field"><label>⏰ Job ka Time (optional)</label><input id="f_ltime" type="time"></div></div>${d.kind==='amc'?`${pastAmcHtml('laPast',false)}`:''}<button class="primary-btn" id="modalSave">Job Banao</button>`;
     setTimeout(wireLeadAssign,0);
   } else if(activeModal.type==='nameMerge'){
     const gs=nameMergeGroups().slice(0,150), tl=c=>({amc:'AMC',onetime:'One-time',enquiry:'Enquiry',quotation:'Quotation'}[c.type||'amc']||'');
@@ -6379,14 +6379,14 @@ function bindShellEvents(){
         await addJob({title, tag:tg, amount:val('f_jobAmount'), checklist:val('f_checklist'), customerId:jobCustSelectedId, assignedTo:val('f_tech'), date:val('f_date'), time:val('f_jtime'), notes:val('f_jnotes'), amcVisit:kindEl?!isRepair:false}); }
         activeModal=null; jobCustQuery=''; jobCustSelectedId=''; render();
       } else if(activeModal.type==='leadAssign'){
-        const d=activeModal.data, tech=val('f_ltech'), date=dmyVal('la'), jtime=val('f_ltime');
+        const d=activeModal.data, tech=val('f_ltech'), date=dmyVal('la'), jtime=val('f_ltime'), lamt=Number(val('f_lamt'))||0;
         if(d.custId){ if(val('f_laWhen')==='past'){ const pf=readPastAmcForm(); if(pf.err){ showToast(pf.err); resetBtn(); return; } activeModal=null; render(); await customerNewAmc(d.custId,{past:pf}); return; }
-          if(!date){ showToast('Sahi date chunein'); return; } if(tech&&isOnLeaveOn(tech,date)){ showToast('⚠️ Ye technician us din chhutti par hai — dusra chunein'); return; } activeModal=null; render(); await customerNewAmc(d.custId,{tech,date,time:jtime}); return; }
+          if(!date){ showToast('Sahi date chunein'); return; } if(tech&&isOnLeaveOn(tech,date)){ showToast('⚠️ Ye technician us din chhutti par hai — dusra chunein'); return; } activeModal=null; render(); await customerNewAmc(d.custId,{tech,date,time:jtime,amc:{amount:lamt}}); return; }
         if(d.kind==='amc'&&val('f_laWhen')==='past'){ const pf=readPastAmcForm(); if(pf.err){ showToast(pf.err); resetBtn(); return; } activeModal=null; render(); await convertLeadToPastAmc(d.id,pf); return; }
         if(!date){ showToast('Sahi date chunein'); return; }
         if(tech&&isOnLeaveOn(tech,date)){ showToast('⚠️ Ye technician us din chhutti par hai — dusra chunein'); return; }
         activeModal=null; render();
-        { const o={tech,date,time:jtime}; if(d.kind==='amc') await convertLeadToJob(d.id,o); else await convertLeadToOnetime(d.id,o); }
+        { const o={tech,date,time:jtime,amount:lamt}; if(d.kind==='amc') await convertLeadToJob(d.id,o); else await convertLeadToOnetime(d.id,o); }
       } else if(activeModal.type==='resetPin'){
         const pin=val('f_resetpin'); if(!pin || pin.length<4){ showToast('PIN kam se kam 4 digit ka rakhein'); return; }
         await resetStaffPin(activeModal.data.id, pin); activeModal=null; render();
