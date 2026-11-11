@@ -3,7 +3,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, interactive-widget=resizes-content">
 <title>SheetalTrack</title>
-<meta name="st-build" content="9.9.16">
+<meta name="st-build" content="9.9.17">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#0A343F">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -382,7 +382,7 @@ button,.primary-btn{transition:transform .12s ease,filter .15s ease}button:activ
 <div id="app"></div>
 
 <script>
-const APP_BUILD='9.9.16';
+const APP_BUILD='9.9.17';
 /* ============ Backend config (Google Apps Script Web App URL) ============ */
 /* ============ Firebase (main data) + Apps Script (email only) config ============ */
 const DEFAULT_FIREBASE_CONFIG='{\"apiKey\":\"AIzaSyCY89nm41X9tADB5KSK8m6o5nl3nqVXr-g\",\"authDomain\":\"sheetaltrack.firebaseapp.com\",\"projectId\":\"sheetaltrack\",\"storageBucket\":\"sheetaltrack.firebasestorage.app\",\"messagingSenderId\":\"919097584832\",\"appId\":\"1:919097584832:web:54b380b1042a9e4ced5125\"}';
@@ -2993,6 +2993,15 @@ function jobsByDayHtml(list, tab, cardFn){
   }
   return h;
 }
+async function setJobTime(id,hm){
+  const j=STATE.jobs.find(x=>x.id===id); if(!j) return false;
+  if(STATE.session.role==='technician'){ showToast('Time office hi badal sakta hai'); return false; }
+  hm=String(hm||'').trim(); if(hm&&!/^\d{1,2}:\d{2}$/.test(hm)){ showToast('Sahi time chunein'); return false; }
+  const old=j.time||''; if(old===hm){ showToast('Ye time pehle se yahi hai'); return false; }
+  j.time=hm; j.updAt=Date.now();
+  j.history=(j.history||[]).concat({s:'time',t:Date.now(),by:(STATE.session&&STATE.session.name)||'',why:'Time: '+(fmtTime12(old)||'—')+' → '+(fmtTime12(hm)||'hata diya')});
+  await saveKey(SKEY.JOBS, STATE.jobs); showToast(hm?'⏰ Job ka time '+fmtTime12(hm)+' kar diya':'⏰ Job ka time hata diya'); return true;
+}
 async function rescheduleJob(id, newDate, why){
   const j=STATE.jobs.find(x=>x.id===id); if(!j) return false;
   if(STATE.session.role==='technician'){ showToast('Date office hi badal sakta hai'); return false; }
@@ -4254,6 +4263,7 @@ function renderCustomerProfile(){
         const statusLabel=s=>s==='done'?'Completed':s==='ongoing'?'Ongoing':s==='onhold'?'On Hold':s==='rejected'?'Rejected':'Pending';
         const statusPill=s=>s==='done'?'pill-green':s==='ongoing'?'pill-sky':s==='onhold'?'pill-grey':s==='rejected'?'pill-red':'pill-amber';
         return `<div class="card"><div class="row-between"><div><div class="item-name">${j.title}</div><div class="item-sub">${fmtDate(j.date)}${jobTimeSfx(j)}${j.completedAt?' · '+new Date(j.completedAt).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true}):''} · ${tech?`<span data-viewstaff="${tech.id}" style="cursor:pointer;text-decoration:underline;color:var(--teal);">${esc(tech.name)}</span>`:'Unassigned'}${j.status==='done'?' · '+rupee(j.amount):''}</div></div><span class="pill ${statusPill(j.status)}">${statusLabel(j.status)}</span></div>
+        ${STATE.session.role!=='technician'?`<div style="margin-top:6px;"><button class="mini-btn" data-act="jobtime" data-id="${j.id}">⏰ ${j.time?'Time Badlein':'Time Likhein'}</button></div>`:''}
         ${j.notes?`<div class="item-sub" style="margin-top:6px;">📝 ${esc(j.notes)}</div>`:''}${(j.status==='done'&&acNamesOf(j))?`<div class="item-sub" style="margin-top:4px;">❄️ AC: <b>${esc(acNamesOf(j))}</b></div>`:''}${(j.status==='done'&&j.invoice&&j.invoice.items&&j.invoice.items.length)?billHistLine(j):''}${j.status==='done'?`<div class="card-actions"><button class="mini-btn primary" data-act="invoice" data-id="${j.id}">🧾 Bill</button>${(j.invoice&&j.invoice.items)?`<button class="mini-btn" data-act="billsend" data-id="${j.id}">📲 Bill bhejo</button>`:''}</div>`:''}${(j.status!=='done'&&j.status!=='rejected'&&STATE.session.role!=='technician')?`<div class="card-actions"><button class="mini-btn" data-act="jobresched" data-id="${j.id}">📅 Date Badlein</button></div>`:''}</div>`; }).join('')}
   `;
 }
@@ -4394,6 +4404,7 @@ function jobCardCompact(j){
         <button class="mini-btn" data-v9="matuse" data-id="${j.id}">🧰 Material</button>
         ${isOpen?`<button class="mini-btn danger" data-act="jobstatus" data-status="rejected" data-id="${j.id}">Cancel</button>`:''}
         ${isOpen?`<button class="mini-btn" data-act="jobresched" data-id="${j.id}">📅 Date Badlein</button>`:''}
+        ${STATE.session.role!=='technician'?`<button class="mini-btn" data-act="jobtime" data-id="${j.id}">⏰ ${j.time?'Time Badlein':'Time Likhein'}</button>`:''}
         ${j.status==='ongoing'?`<button class="mini-btn primary" data-act="completejob" data-id="${j.id}">Mark Done</button>`:''}
         ${j.status==='done'?`<button class="mini-btn primary" data-act="invoice" data-id="${j.id}">🧾 Bill</button><button class="mini-btn" data-act="billpdf" data-id="${j.id}">📄 PDF</button>`:''}
         ${STATE.session.role==='admin'?`<button class="mini-btn danger" data-act="deljob" data-id="${j.id}">Delete</button>`:''}
@@ -5430,7 +5441,7 @@ function jobFlagsHtml(j){
 }
 function fmtT(t){ if(!t) return '—'; const d=new Date(t); return isNaN(d)?'—':_fT.format(d); }
 function jobTimelineHtml(j){
-  const ev=[], H=j.history||[], lab={resched:'📅 Date badli',ongoing:'▶ Start / Resume',onhold:'⏸ Hold',done:'✅ Job complete',rejected:'✖ Reject',cancelreq:'❗ Cancel request',pending:'↺ Pending',call:'📞 Customer ko call kiya',noshow:'⚠️ Technician nahi gaya / kaam nahi hua'};
+  const ev=[], H=j.history||[], lab={resched:'📅 Date badli',time:'⏰ Time badla',ongoing:'▶ Start / Resume',onhold:'⏸ Hold',done:'✅ Job complete',rejected:'✖ Reject',cancelreq:'❗ Cancel request',pending:'↺ Pending',call:'📞 Customer ko call kiya',noshow:'⚠️ Technician nahi gaya / kaam nahi hua'};
   if(j.createdAt) ev.push({t:j.createdAt,l:'📝 Job banayi gayi'});
   H.forEach(x=>ev.push({t:x.t,l:lab[x.s]||x.s,by:x.by,why:x.why}));
   if(j.startedAt&&!H.some(x=>x.s==='ongoing')) ev.push({t:j.startedAt,l:lab.ongoing});
@@ -5796,6 +5807,13 @@ function modalHtml(){
       <div class="field"><label>Renewal ka amount (₹)</label><input id="f_rnAmt" type="number" min="0" value="${c.amcAmount||''}"></div>
       <div class="field"><label>Payment kaise mila</label><select id="f_rnMode"><option value="cash">Cash</option><option value="online">Online</option><option value="cheque">Cheque</option></select></div>
       <button class="primary-btn" id="modalSave">Renewal Save Karein</button>`;
+  } else if(activeModal.type==='jobTime'){
+    const j=STATE.jobs.find(x=>x.id===activeModal.data.id)||{}, c=STATE.customers.find(x=>x.id===j.customerId)||{};
+    inner=`<div class="modal-head"><h3>⏰ Job ka Time</h3><button class="close-x" id="modalClose">x</button></div>
+      <div class="card" style="background:var(--sky-pale);"><div class="item-name">${esc(j.title||'Job')}</div><div class="item-sub">${esc(c.name||'')} · 📅 ${j.date?fmtDate(j.date):'—'}${jobTimeSfx(j)}</div></div>
+      <div class="field"><label>Time</label><input id="f_jtimeEdit" type="time" value="${esc(j.time||'')}"></div>
+      <div class="item-sub" style="margin-bottom:10px;">Time khali chhod kar save karo to time hat jayega.</div>
+      <button class="primary-btn" id="modalSave">Time Save Karein</button>`;
   } else if(activeModal.type==='reschedJob'){
     const j=STATE.jobs.find(x=>x.id===activeModal.data.id)||{}, c=STATE.customers.find(x=>x.id===j.customerId)||{}, tn=(STATE.staff.find(x=>x.id===j.assignedTo)||{}).name||'Assign nahi hui';
     inner=`<div class="modal-head"><h3>📅 Job ki Date Badlein</h3><button class="close-x" id="modalClose">x</button></div>
@@ -6024,6 +6042,7 @@ function bindShellEvents(){
     else if(act==='leadmode'){ STATE.subLeadMode=el.dataset.mode; STATE.leadsShown=40; render(); }
     else if(act==='amcimport'){ if(STATE.session.role!=='admin') return; activeModal={type:'amcImport',data:{step:'pick'}}; render(); }
     else if(act==='wipetest'){ if(STATE.session.role!=='admin') return; activeModal={type:'wipeTest',data:{keepImported:true,keepAll:false,allJobs:false,leads:false,ops:false,text:''}}; render(); }
+    else if(act==='jobtime'){ const j=STATE.jobs.find(x=>x.id===id); if(j&&STATE.session.role!=='technician'){ activeModal={type:'jobTime',data:{id}}; render(); } }
     else if(act==='jobresched'){ const j=STATE.jobs.find(x=>x.id===id); if(j&&STATE.session.role!=='technician'&&j.status!=='done'&&j.status!=='rejected'){ activeModal={type:'reschedJob',data:{id}}; render(); } }
     else if(act==='newjobfor'){ if(STATE.session.role==='technician') return; jobCustQuery=''; jobCustSelectedId=id; activeModal={type:'addJob'}; render(); }
     else if(act==='recsave'||act==='rectest'){ if(STATE.session.role!=='admin') return; const g=i=>((document.getElementById(i)||{}).value||'').trim(), em=g('f_recEmail'), svc=g('f_ejSvc'), tpl=g('f_ejTpl'), key=g('f_ejKey');
@@ -6412,6 +6431,8 @@ function bindShellEvents(){
           else{ const nm=val('f_blName')||b.name; b.phone=ph; if(nm) b.name=nm; b.needsPhone=false; let c=dupCustomerByPhone(ph,'');
             if(!c){ await addCustomer({name:nm||'Customer',type:'onetime',phone:ph,address:[b.address,b.area].filter(Boolean).join(', '),brand:b.brand,model:b.model,source:'Bill Sheet (purani)'}); c=STATE.customers[STATE.customers.length-1]; }
             b.customerId=c.id; await saveKey(SKEY.BILLS,STATE.bills); linkBillsToCustomer(c); showToast('Bill customer se jud gaya'); activeModal=null; render(); } }
+      } else if(activeModal.type==='jobTime'){
+        const ok=await setJobTime(activeModal.data.id, val('f_jtimeEdit')); if(ok){ activeModal=null; render(); } else resetBtn();
       } else if(activeModal.type==='reschedJob'){
         const ok=await rescheduleJob(activeModal.data.id, val('f_newDate'), val('f_reschWhy')); if(ok){ activeModal=null; render(); }
       } else if(activeModal.type==='amcSign'){
