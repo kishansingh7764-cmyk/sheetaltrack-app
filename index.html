@@ -3,7 +3,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, interactive-widget=resizes-content">
 <title>SheetalTrack</title>
-<meta name="st-build" content="9.9.19">
+<meta name="st-build" content="9.9.20">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#0A343F">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -382,7 +382,7 @@ button,.primary-btn{transition:transform .12s ease,filter .15s ease}button:activ
 <div id="app"></div>
 
 <script>
-const APP_BUILD='9.9.19';
+const APP_BUILD='9.9.20';
 /* ============ Backend config (Google Apps Script Web App URL) ============ */
 /* ============ Firebase (main data) + Apps Script (email only) config ============ */
 const DEFAULT_FIREBASE_CONFIG='{\"apiKey\":\"AIzaSyCY89nm41X9tADB5KSK8m6o5nl3nqVXr-g\",\"authDomain\":\"sheetaltrack.firebaseapp.com\",\"projectId\":\"sheetaltrack\",\"storageBucket\":\"sheetaltrack.firebasestorage.app\",\"messagingSenderId\":\"919097584832\",\"appId\":\"1:919097584832:web:54b380b1042a9e4ced5125\"}';
@@ -3134,7 +3134,7 @@ function amcHistoryHtml(c){
   const chip=x=>x.status==='renewed'?`<span class="pill pill-green">🟢 Renewed${x.renewedOn?' · '+fmtDate(x.renewedOn):''}</span>`:x.status==='lapsed'?`<span class="pill pill-red">🔴 Renewal nahi hui / Cancel</span>`:x.status==='expired'?`<span class="pill pill-amber">⏳ Expired — renewal baaki</span>`:`<span class="pill pill-sky">✅ Chal rahi</span>`;
   const rows=h.slice().reverse().map((x,ri)=>{ const idx=h.length-ri; return `<div style="padding:8px 0;border-top:1px solid var(--border);"><div class="row-between"><div class="item-sub" style="margin:0;font-weight:700;">Contract ${idx}: ${x.start?fmtDate(x.start):'—'} → ${x.end?fmtDate(x.end):'—'}</div>${chip(x)}</div>
     <div class="item-sub">${x.amount?'₹'+x.amount:''}${x.units?' · '+x.units+' AC':''}${x.years>1?' · '+x.years+' saal':''}${x.tech?' · 👷 '+esc(x.tech):''}${x.teli&&!/^old/i.test(x.teli)?' · 📞 '+esc(x.teli):''}</div>
-    <div class="item-sub">🔧 Services (${x.services.length}): ${x.svcDetails&&x.svcDetails.length?x.svcDetails.map((s,i)=>(i+1)+') '+fmtDate(s.date)+(s.time?' · ⏰ '+fmtTime12(s.time):'')+(s.tech?' — 👷 '+esc(s.tech):'')+(s.note?' — '+esc(s.note):'')).join('<br>'):(x.services.length?x.services.map((dt,i)=>(i+1)+') '+fmtDate(dt)).join(' · '):'—')}</div>${x.pastEntry?`<div class="item-sub">🗂 Purani AMC record (lead se) — koi job nahi bani</div>`:''}
+    <div class="item-sub">🔧 Services (${x.services.length}): ${x.svcDetails&&x.svcDetails.length?x.svcDetails.map((s,i)=>(i+1)+') '+fmtDate(s.date)+(s.tech?' — 👷 '+esc(s.tech):'')+(s.note?' — '+esc(s.note):'')).join('<br>'):(x.services.length?x.services.map((dt,i)=>(i+1)+') '+fmtDate(dt)).join(' · '):'—')}</div>${x.pastEntry?`<div class="item-sub">🗂 Purani AMC record (lead se) — koi job nahi bani</div>`:''}
     ${x.renewalNote?`<div class="item-sub">🔁 Renewal note: ${esc(x.renewalNote)}</div>`:''}${x.desc?`<div class="item-sub">📝 ${esc(x.desc)}</div>`:''}</div>`; }).join('');
   return `<div class="card"><div class="item-name" style="margin-bottom:2px;">📜 AMC History</div><div class="item-sub">${h.length} contract · ${ren} baar renewal hui${h[0].start?' · pehli AMC: '+fmtDate(h[0].start):''}</div>${rows}</div>`;
 }
@@ -5733,7 +5733,7 @@ function modalHtml(){
     inner=leadDetailInner(activeModal.data);
   } else if(activeModal.type==='leadAssign'){
     const d=activeModal.data, l=d.custId?custAsLead(d.custId):((STATE.leads||[]).find(x=>x.id===d.id)||{});
-    inner=`<div class="modal-head"><h3>${d.kind==='amc'?'✅ AMC Bana Do':'🔧 One-time Service'}</h3><button class="close-x" id="modalClose">×</button></div><div class="card"><div class="item-name">${esc(l.customer||'')}</div><div class="item-sub">📞 ${esc(l.mobile||'')}</div></div>${d.kind==='amc'?`<div class="field"><label>Ye AMC kab ki hai?</label><select id="f_laWhen"><option value="new">Nayi AMC — technician ko job dena hai</option><option value="past">Purani date ki — AMC ho chuki hai (sirf record, job nahi banegi)</option></select></div>`:''}<div id="laNew"><div class="field"><label>Technician abhi chunein (job me dobara nahi poochhenge)</label><select id="f_ltech"><option value="">-- Baad me / Unassigned --</option>${techOptionsHtml(todayStr(),'')}</select></div><div class="field"><label>Job ki Date</label>${dmyPickHtml('la',todayStr())}</div><div class="field"><label>⏰ Job ka Time (optional)</label><input id="f_ltime" type="time"></div><div class="field"><label>Notes (optional)</label><textarea id="f_lnote" rows="2" placeholder="technician ke liye koi khas baat"></textarea></div></div>${d.kind==='amc'?`${pastAmcHtml('laPast',false)}`:''}<button class="primary-btn" id="modalSave">Job Banao</button>`;
+    inner=`<div class="modal-head"><h3>${d.kind==='amc'?'✅ AMC Bana Do':'🔧 One-time Service'}</h3><button class="close-x" id="modalClose">×</button></div><div class="card"><div class="item-name">${esc(l.customer||'')}</div><div class="item-sub">📞 ${esc(l.mobile||'')}</div></div>${d.kind==='amc'?`<div class="field"><label>Ye AMC kab ki hai?</label><select id="f_laWhen"><option value="new">Nayi AMC — technician ko job dena hai</option><option value="past">Purani date ki — AMC ho chuki hai (sirf record, job nahi banegi)</option></select></div>`:''}<div id="laNew"><div class="field"><label>Technician abhi chunein (job me dobara nahi poochhenge)</label><select id="f_ltech"><option value="">-- Baad me / Unassigned --</option>${techOptionsHtml(todayStr(),'')}</select></div><div class="field"><label>Job ki Date</label>${dmyPickHtml('la',todayStr())}</div><div class="field"><label>⏰ Job ka Time (optional)</label><input id="f_ltime" type="time"></div></div>${d.kind==='amc'?`${pastAmcHtml('laPast',false)}`:''}<button class="primary-btn" id="modalSave">Job Banao</button>`;
     setTimeout(wireLeadAssign,0);
   } else if(activeModal.type==='nameMerge'){
     const gs=nameMergeGroups().slice(0,150), tl=c=>({amc:'AMC',onetime:'One-time',enquiry:'Enquiry',quotation:'Quotation'}[c.type||'amc']||'');
@@ -6379,14 +6379,14 @@ function bindShellEvents(){
         await addJob({title, tag:tg, amount:val('f_jobAmount'), checklist:val('f_checklist'), customerId:jobCustSelectedId, assignedTo:val('f_tech'), date:val('f_date'), time:val('f_jtime'), notes:val('f_jnotes'), amcVisit:kindEl?!isRepair:false}); }
         activeModal=null; jobCustQuery=''; jobCustSelectedId=''; render();
       } else if(activeModal.type==='leadAssign'){
-        const d=activeModal.data, tech=val('f_ltech'), date=dmyVal('la'), jtime=val('f_ltime'), jnote=val('f_lnote').trim();
+        const d=activeModal.data, tech=val('f_ltech'), date=dmyVal('la'), jtime=val('f_ltime');
         if(d.custId){ if(val('f_laWhen')==='past'){ const pf=readPastAmcForm(); if(pf.err){ showToast(pf.err); resetBtn(); return; } activeModal=null; render(); await customerNewAmc(d.custId,{past:pf}); return; }
-          if(!date){ showToast('Sahi date chunein'); return; } if(tech&&isOnLeaveOn(tech,date)){ showToast('⚠️ Ye technician us din chhutti par hai — dusra chunein'); return; } activeModal=null; render(); await customerNewAmc(d.custId,{tech,date,time:jtime,note:jnote}); return; }
+          if(!date){ showToast('Sahi date chunein'); return; } if(tech&&isOnLeaveOn(tech,date)){ showToast('⚠️ Ye technician us din chhutti par hai — dusra chunein'); return; } activeModal=null; render(); await customerNewAmc(d.custId,{tech,date,time:jtime}); return; }
         if(d.kind==='amc'&&val('f_laWhen')==='past'){ const pf=readPastAmcForm(); if(pf.err){ showToast(pf.err); resetBtn(); return; } activeModal=null; render(); await convertLeadToPastAmc(d.id,pf); return; }
         if(!date){ showToast('Sahi date chunein'); return; }
         if(tech&&isOnLeaveOn(tech,date)){ showToast('⚠️ Ye technician us din chhutti par hai — dusra chunein'); return; }
         activeModal=null; render();
-        { const o={tech,date,time:jtime,note:jnote}; if(d.kind==='amc') await convertLeadToJob(d.id,o); else await convertLeadToOnetime(d.id,o); }
+        { const o={tech,date,time:jtime}; if(d.kind==='amc') await convertLeadToJob(d.id,o); else await convertLeadToOnetime(d.id,o); }
       } else if(activeModal.type==='resetPin'){
         const pin=val('f_resetpin'); if(!pin || pin.length<4){ showToast('PIN kam se kam 4 digit ka rakhein'); return; }
         await resetStaffPin(activeModal.data.id, pin); activeModal=null; render();
@@ -6494,7 +6494,7 @@ function wirePastRows(){
   const done=document.getElementById('f_paDone'), tot=document.getElementById('f_paTotal'), rows=document.getElementById('paRows'), left=document.getElementById('paLeft');
   const upd=()=>{
     const n=Number(done.value)||0, t=Number(tot.value)||0;
-    for(let i=0;i<n;i++){ if(!document.getElementById('paRow'+i)){ const dv=document.createElement('div'); dv.id='paRow'+i; dv.className='card'; dv.style.cssText='padding:10px;margin-bottom:8px;'; dv.innerHTML=`<div class="item-sub" style="font-weight:700;margin-bottom:6px;">Service ${i+1}</div><div class="field" style="margin-bottom:6px;"><label>Date</label>${dmyPickHtml('ps'+i,'')}</div><div class="field" style="margin-bottom:6px;"><label>⏰ Time (optional)</label><input id="f_psTm${i}" type="time"></div><div class="field" style="margin-bottom:6px;"><label>Technician</label><select id="f_psT${i}">${techNameOptHtml()}</select><input id="f_psO${i}" placeholder="Technician ka naam" style="display:none;margin-top:6px;"></div><div class="field" style="margin-bottom:0;"><label>Note (optional)</label><input id="f_psN${i}" placeholder="kya kaam hua"></div>`; rows.appendChild(dv); const sel=dv.querySelector('#f_psT'+i); sel.onchange=()=>{ dv.querySelector('#f_psO'+i).style.display=sel.value==='__other'?'':'none'; }; } }
+    for(let i=0;i<n;i++){ if(!document.getElementById('paRow'+i)){ const dv=document.createElement('div'); dv.id='paRow'+i; dv.className='card'; dv.style.cssText='padding:10px;margin-bottom:8px;'; dv.innerHTML=`<div class="item-sub" style="font-weight:700;margin-bottom:6px;">Service ${i+1}</div><div class="field" style="margin-bottom:6px;"><label>Date</label>${dmyPickHtml('ps'+i,'')}</div><div class="field" style="margin-bottom:6px;"><label>Technician</label><select id="f_psT${i}">${techNameOptHtml()}</select><input id="f_psO${i}" placeholder="Technician ka naam" style="display:none;margin-top:6px;"></div><div class="field" style="margin-bottom:0;"><label>Note (optional)</label><input id="f_psN${i}" placeholder="kya kaam hua"></div>`; rows.appendChild(dv); const sel=dv.querySelector('#f_psT'+i); sel.onchange=()=>{ dv.querySelector('#f_psO'+i).style.display=sel.value==='__other'?'':'none'; }; } }
     for(let i=n;i<60;i++){ const e=document.getElementById('paRow'+i); if(!e) break; e.remove(); }
     left.innerHTML=t?(n>t?'⚠️ Ho chuki services kul se zyada hain':'📋 Kul <b>'+t+'</b> · ho chuki <b>'+n+'</b> · baaki <b>'+(t-n)+'</b>'):'';
   };
@@ -6516,7 +6516,7 @@ function readPastAmcForm(){
     const ts=val('f_psT'+i); let tech='', techId='';
     if(ts==='__other'){ tech=val('f_psO'+i).trim(); if(!tech) return {err:'Service '+(i+1)+' ke technician ka naam likhein'}; }
     else if(ts){ techId=ts; tech=nStaff(ts)||''; }
-    svcs.push({date:dt,time:val('f_psTm'+i),tech,techId,note:val('f_psN'+i).trim()});
+    svcs.push({date:dt,tech,techId,note:val('f_psN'+i).trim()});
   }
   svcs.sort((a,b)=>a.date.localeCompare(b.date));
   return {start,years,total,done,svcs,amount:Number(val('f_paAmt'))||0,mode:val('f_paMode'),note:val('f_paNote').trim()};
@@ -6527,8 +6527,8 @@ async function convertLeadToPastAmc(id,f){
   let cust=dupCustomerByPhone(l.mobile,l.resTel);
   const addr=[l.address1,l.address2,l.address3].filter(Boolean).join(', ');
   const end=addMonths(f.start,12*f.years), lastSvc=f.svcs.length?f.svcs[f.svcs.length-1].date:'';
-  const hist={start:f.start,end,years:f.years,units:0,amount:f.amount,services:f.svcs.map(s=>s.date),svcDetails:f.svcs.map(s=>({date:s.date,time:s.time||'',tech:s.tech,note:s.note})),tech:'',teli:String(l.calledBy||l.assignedName||''),desc:f.note,renewalNote:'',status:end<todayStr()?'expired':'active',mode:normMode(f.mode),srcRow:0,inApp:true,pastEntry:true,by:(STATE.session&&STATE.session.name)||'',at:Date.now()};
-  const log=f.svcs.map((s,i)=>({date:new Date(s.date+'T12:00:00').getTime(),visitNo:i+1,manual:false,pastEntry:true,time:s.time||'',tech:s.tech,note:s.note,by:s.tech||'(purani entry)'}));
+  const hist={start:f.start,end,years:f.years,units:0,amount:f.amount,services:f.svcs.map(s=>s.date),svcDetails:f.svcs.map(s=>({date:s.date,tech:s.tech,note:s.note})),tech:'',teli:String(l.calledBy||l.assignedName||''),desc:f.note,renewalNote:'',status:end<todayStr()?'expired':'active',mode:normMode(f.mode),srcRow:0,inApp:true,pastEntry:true,by:(STATE.session&&STATE.session.name)||'',at:Date.now()};
+  const log=f.svcs.map((s,i)=>({date:new Date(s.date+'T12:00:00').getTime(),visitNo:i+1,manual:false,pastEntry:true,tech:s.tech,note:s.note,by:s.tech||'(purani entry)'}));
   if(!cust){
     cust={id:uid(), name:l.customer||'Naya Customer', type:'amc', phone:l.mobile||'', phone2:l.resTel||'', email:'', address:addr, landmark:'', city:'', state:'', pincode:'', brand:'', model:l.product||'', acType:'', serialNo:'', installDate:l.purchaseDate||'', underWarranty:false, amcName:'AMC', activationDate:f.start, expiryDate:end, totalServices:f.total, servicesDone:f.done, source:'Telecaller — '+(l.calledBy||l.assignedName||''), sourceType:'telecaller', amcAmount:f.amount, autoIncentive:true, incentiveGiven:true, incentiveTo:(l.calledBy||l.assignedName||'Telecaller'), incentiveAmount:0, incentivePaid:false, lastService:lastSvc||f.start, intervalMonths:3, notes:('Area: '+(l.area||'')+(f.note?' · '+f.note:'')), serviceLog:log, amcHistory:[hist], createdAt:Date.now()};
   } else {
@@ -6570,8 +6570,8 @@ async function customerNewAmc(cid,opt){
   seedLegacyHist(c);
   if(opt.past){
     const f=opt.past, end=addMonths(f.start,12*f.years), lastSvc=f.svcs.length?f.svcs[f.svcs.length-1].date:'';
-    const hist={start:f.start,end,years:f.years,units:0,amount:f.amount,services:f.svcs.map(x=>x.date),svcDetails:f.svcs.map(x=>({date:x.date,time:x.time||'',tech:x.tech,note:x.note})),tech:'',teli:'',desc:f.note,renewalNote:'',status:end<todayStr()?'expired':'active',mode:normMode(f.mode),srcRow:0,inApp:true,pastEntry:true,by,at:now};
-    const log=f.svcs.map((x,i)=>({date:new Date(x.date+'T12:00:00').getTime(),visitNo:i+1,manual:false,pastEntry:true,time:x.time||'',tech:x.tech,note:x.note,by:x.tech||'(purani entry)'}));
+    const hist={start:f.start,end,years:f.years,units:0,amount:f.amount,services:f.svcs.map(x=>x.date),svcDetails:f.svcs.map(x=>({date:x.date,tech:x.tech,note:x.note})),tech:'',teli:'',desc:f.note,renewalNote:'',status:end<todayStr()?'expired':'active',mode:normMode(f.mode),srcRow:0,inApp:true,pastEntry:true,by,at:now};
+    const log=f.svcs.map((x,i)=>({date:new Date(x.date+'T12:00:00').getTime(),visitNo:i+1,manual:false,pastEntry:true,tech:x.tech,note:x.note,by:x.tech||'(purani entry)'}));
     const newer=!c.activationDate||c.type!=='amc'||f.start>=c.activationDate;
     if(newer) closePrevContract(c,f.start);
     c.type='amc'; c.amcHistory=(c.amcHistory||[]).concat(hist);
