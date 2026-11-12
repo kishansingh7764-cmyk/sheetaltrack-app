@@ -3,7 +3,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, interactive-widget=resizes-content">
 <title>SheetalTrack</title>
-<meta name="st-build" content="9.9.21">
+<meta name="st-build" content="9.9.22">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#0A343F">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -382,7 +382,7 @@ button,.primary-btn{transition:transform .12s ease,filter .15s ease}button:activ
 <div id="app"></div>
 
 <script>
-const APP_BUILD='9.9.21';
+const APP_BUILD='9.9.22';
 /* ============ Backend config (Google Apps Script Web App URL) ============ */
 /* ============ Firebase (main data) + Apps Script (email only) config ============ */
 const DEFAULT_FIREBASE_CONFIG='{\"apiKey\":\"AIzaSyCY89nm41X9tADB5KSK8m6o5nl3nqVXr-g\",\"authDomain\":\"sheetaltrack.firebaseapp.com\",\"projectId\":\"sheetaltrack\",\"storageBucket\":\"sheetaltrack.firebasestorage.app\",\"messagingSenderId\":\"919097584832\",\"appId\":\"1:919097584832:web:54b380b1042a9e4ced5125\"}';
@@ -3261,25 +3261,33 @@ async function dismissLead(id){
   l.dismissReason=why.trim(); l.dismissed=true; l.dismissedBy=(STATE.session&&STATE.session.name)||''; l.dismissedAt=Date.now();
   await saveKey(SKEY.LEADS, STATE.leads); showToast('Lead band ho gayi (Band tab mein hai)'); render();
 }
+function amcActivate(c,pl,by){
+  seedLegacyHist(c); closePrevContract(c,pl.start);
+  c.amcHistory=(c.amcHistory||[]).concat({start:pl.start,end:pl.end,years:1,units:c.units||0,amount:pl.amount||0,mode:normMode(pl.mode),services:[],tech:'',teli:'',desc:pl.desc||'Naya AMC',renewalNote:'',status:'active',srcRow:0,inApp:true,by:by||'',at:Date.now()});
+  c.type='amc'; c.activationDate=pl.start; c.activationTime=pl.time||''; c.expiryDate=pl.end; c.totalServices=pl.total>0?pl.total:4; c.servicesDone=0; c.amcAmount=pl.amount||0; if(pl.amount>0&&pl.mode) c.amcMode=normMode(pl.mode); c.amcStatus='active'; c.serviceLog=[]; c.amcName=pl.name||c.amcName||'AMC';
+  if(pl.lead){ c.source=pl.lead.source; c.sourceType='telecaller'; c.autoIncentive=true; c.incentiveGiven=true; c.incentiveTo=pl.lead.to; c.incentiveAmount=0; c.incentivePaid=false; }
+  computeAutoIncentive(c);
+}
 async function convertLeadToJob(id,opt){ opt=opt||{};
   const l=(STATE.leads||[]).find(x=>x.id===id); if(!l||l.convertedJobId) return;
   const mob=(l.mobile||'').replace(/\D/g,'').slice(-10);
   let cust=mob&&STATE.customers.find(c=>(c.phone||'').replace(/\D/g,'').slice(-10)===mob);
   if(cust&&cust.type==='amc'&&!confirm('⚠️ '+cust.name+' pehle se AMC customer hai ('+amcStatusLabel(cust)+').\n\nPhir bhi is lead se nayi AMC job banani hai?')) return;
   const addr=[l.address1,l.address2,l.address3].filter(Boolean).join(', ');
-  const today=todayStr();
+  const today=todayStr(); let newCust=false;
   if(!cust){
-    cust={id:uid(), name:l.customer||'Naya Customer', type:'amc', phone:l.mobile||'', phone2:l.resTel||'', email:'', address:addr, landmark:'', city:'', state:'', pincode:'', brand:'', model:l.product||'', acType:'', serialNo:'', installDate:l.purchaseDate||'', underWarranty:false, amcName:'AMC', activationDate:today, expiryDate:addMonths(today,12), totalServices:4, servicesDone:0, source:'Telecaller — '+(l.calledBy||l.assignedName||''), sourceType:'telecaller', amcAmount:Number(opt.amount)||0, autoIncentive:true, incentiveGiven:true, incentiveTo:(l.calledBy||l.assignedName||'Telecaller'), incentiveAmount:0, incentivePaid:false, lastService:'', intervalMonths:3, notes:'Area: '+(l.area||'')+(l.purchaseDate?' · AC khareedi: '+fmtDate(l.purchaseDate):''), createdAt:Date.now()};
+    newCust=true;
+    cust={id:uid(), name:l.customer||'Naya Customer', type:'onetime', phone:l.mobile||'', phone2:l.resTel||'', email:'', address:addr, landmark:'', city:'', state:'', pincode:'', brand:'', model:l.product||'', acType:'', serialNo:'', installDate:l.purchaseDate||'', underWarranty:false, source:'Telecaller — '+(l.calledBy||l.assignedName||''), sourceType:'telecaller', lastService:'', intervalMonths:3, notes:'Area: '+(l.area||'')+(l.purchaseDate?' · AC khareedi: '+fmtDate(l.purchaseDate):''), createdAt:Date.now()};
   } else {
-    cust.type='amc'; if(!cust.activationDate) cust.activationDate=today; if(!cust.expiryDate) cust.expiryDate=addMonths(today,12); if(!cust.totalServices) cust.totalServices=4; if(Number(opt.amount)>0) cust.amcAmount=Number(opt.amount); if(!cust.model&&l.product) cust.model=l.product; if(!cust.installDate&&l.purchaseDate) cust.installDate=l.purchaseDate;
+    if(!cust.model&&l.product) cust.model=l.product; if(!cust.installDate&&l.purchaseDate) cust.installDate=l.purchaseDate;
   }
   cust.leadTelecaller=l.assignedName||cust.leadTelecaller||''; cust.leadCalledBy=l.calledBy||''; cust.leadId=l.id; if(!cust.installDate&&l.purchaseDate) cust.installDate=l.purchaseDate;
   STATE.customers=STATE.customers.filter(x=>x.id!==cust.id).concat(cust); await saveKey(SKEY.CUSTOMERS, STATE.customers);
-  const j={id:uid(), customerId:cust.id, title:'AMC Renewal Visit', tag:'AMC', amcVisit:false, assignedTo:opt.tech||'', status:'pending', date:opt.date||today, time:opt.time||'', notes:'Telecaller lead se bani — '+(l.calledBy||'')+(opt.note?' · '+opt.note:''), amount:0, checklist:[], assignN:(opt.tech?1:0), updAt:Date.now(), createdAt:Date.now(), history:[{s:'pending',t:Date.now(),by:(STATE.session&&STATE.session.name)||'',why:'Telecaller lead se AMC'}]};
+  const j={id:uid(), customerId:cust.id, amcNew:true, amcPlan:{name:'AMC',start:opt.date||today,end:addMonths(opt.date||today,12),total:4,amount:Number(opt.amount)||0,time:opt.time||'',desc:'Telecaller lead se AMC',lead:newCust?{source:'Telecaller — '+(l.calledBy||l.assignedName||''),to:(l.calledBy||l.assignedName||'Telecaller')}:null}, title:'AMC Renewal Visit', tag:'AMC', amcVisit:false, assignedTo:opt.tech||'', status:'pending', date:opt.date||today, time:opt.time||'', notes:'Telecaller lead se bani — '+(l.calledBy||'')+(opt.note?' · '+opt.note:''), amount:0, checklist:[], assignN:(opt.tech?1:0), updAt:Date.now(), createdAt:Date.now(), history:[{s:'pending',t:Date.now(),by:(STATE.session&&STATE.session.name)||'',why:'Telecaller lead se AMC'}]};
   STATE.jobs.push(j); await saveKey(SKEY.JOBS, STATE.jobs);
   l.convertedJobId=j.id; l.convertedBy=(STATE.session&&STATE.session.name)||''; l.convertedAt=Date.now();
   await saveKey(SKEY.LEADS, STATE.leads);
-  showToast(opt.tech?'✅ AMC Customer aur Job ban gayi — '+nStaff(opt.tech)+' ko assign ho gayi':'✅ AMC Customer aur Job ban gayi (technician baad me assign karein)'); notifSend(OFFICE_KEYS.concat(l.assignedTo?['staff:'+l.assignedTo]:[]),'lead_conv','📇 Lead se AMC bana',(l.customer||'')+' · '+((STATE.session&&STATE.session.name)||''),l.id);
+  showToast(opt.tech?'✅ Job ban gayi — '+nStaff(opt.tech)+' ko assign. Technician done karega tab AMC chalu hoga':'✅ Job ban gayi (technician baad me assign karein). Done hone par AMC chalu hoga'); notifSend(OFFICE_KEYS.concat(l.assignedTo?['staff:'+l.assignedTo]:[]),'lead_conv','📇 Lead se AMC bana',(l.customer||'')+' · '+((STATE.session&&STATE.session.name)||''),l.id);
   STATE.customerDetailId=cust.id; STATE.backView=(STATE.view!=='customerProfile'?STATE.view:STATE.backView); STATE.view='customerProfile'; render();
 }
 function fmtTime12(hm){ const m=/^(\d{1,2}):(\d{2})$/.exec(hm||''); if(!m) return ''; let h=+m[1]; const ap=h>=12?'PM':'AM'; h=h%12||12; return h+':'+m[2]+' '+ap; }
@@ -5930,11 +5938,14 @@ function modalHtml(){
       <button type="button" class="mini-btn" id="clearSigBtn" style="margin-top:8px;margin-bottom:14px;">Clear Signature</button>
       <button class="primary-btn" id="modalSave">Signature Save Karein</button>`;
   } else if(activeModal.type==='completeJob'){
+    const cjJ=STATE.jobs.find(x=>x.id===activeModal.data.id)||{}, cjNew=!!(cjJ.amcNew&&cjJ.amcPlan);
+    if(cjNew) setTimeout(wireCjOutcome,0);
     inner=`<div class="modal-head"><h3>Job Complete Karein</h3><button class="close-x" id="modalClose">×</button></div>
-      ${billPanelHtml(activeModal.data)}
-      ${acPickHtml(activeModal.data.id)}
-      <div class="field"><label>Amount Charge Kiya (₹)</label><input id="f_amount" type="number" min="0" value="${activeModal.data.existingAmount||''}" placeholder="e.g. 500"><div class="item-sub" id="f_amountNote" style="display:none;margin-top:4px;">✅ Ye amount bill ke Total se apne aap bhara hai</div></div>
-      <div class="field"><label>Payment kaise mila?</label><select id="f_payMode"><option value="cash">Cash</option><option value="online">Online</option><option value="cheque">Cheque</option><option value="due">Abhi nahi mila (baad me)</option></select></div>
+      ${cjNew?`<div class="field"><label>Customer ne kya karwaya?</label><select id="f_outcome"><option value="amc">✅ AMC liya — AMC chalu karo</option><option value="single">🔧 Sirf Single Service</option><option value="visit">🚗 Sirf Visit — kuch nahi karwaya</option></select><div class="item-sub" id="cjOutNote" style="margin-top:4px;"></div></div>`:''}
+      <div id="cjBill">${billPanelHtml(activeModal.data)}
+      ${acPickHtml(activeModal.data.id)}</div>
+      <div class="field" id="cjAmt"><label id="cjAmtL">Amount Charge Kiya (₹)</label><input id="f_amount" type="number" min="0" value="${activeModal.data.existingAmount||''}" placeholder="e.g. 500"><div class="item-sub" id="f_amountNote" style="display:none;margin-top:4px;">✅ Ye amount bill ke Total se apne aap bhara hai</div></div>
+      <div class="field" id="cjPay"><label>Payment kaise mila?</label><select id="f_payMode"><option value="cash">Cash</option><option value="online">Online</option><option value="cheque">Cheque</option><option value="due">Abhi nahi mila (baad me)</option></select></div>
       <div class="field"><label>🚗 Travel Amount (₹) (optional)</label><input id="f_travelAmt" type="number" min="0" value="${activeModal.data.existingTravel||''}" placeholder="e.g. 100"></div>
       <div class="field"><label>Customer Rating (optional)</label>
         <div id="starRow" style="display:flex;gap:6px;font-size:28px;">
@@ -6392,11 +6403,18 @@ function bindShellEvents(){
         await resetStaffPin(activeModal.data.id, pin); activeModal=null; render();
       } else if(activeModal.type==='completeJob'){
         const amount=val('f_amount'); const rating=val('f_rating'); const travelAmt=val('f_travelAmt'); const sigUrl=getSignatureDataUrl('sigCanvas'); const techSigUrl=getSignatureDataUrl('techSigCanvas');
-        const mkBill=!!(document.getElementById('f_makeBill')&&document.getElementById('f_makeBill').checked), jid=activeModal.data.id;
+        const jid=activeModal.data.id, jX=STATE.jobs.find(x=>x.id===jid)||{}, outcome=(jX.amcNew&&jX.amcPlan)?(val('f_outcome')||'amc'):'';
+        const mkBill=outcome&&outcome!=='single'?false:!!(document.getElementById('f_makeBill')&&document.getElementById('f_makeBill').checked);
         let bill=null; if(mkBill){ bill=billCollect(); if(bill.bad){ showToast(bill.bad); resetBtn(); return; } }
         const acBoxes=[...document.querySelectorAll('.acchk')], acSel=acBoxes.filter(x=>x.checked).map(x=>x.value);
-        if(acBoxes.length&&!acSel.length&&!confirm('Kaunse AC ki service hui ye tick nahi kiya.\n\nBina tick kiye job close karein?')){ resetBtn(); return; }
-        await completeJobWithAmount(jid, bill?bill.T.grand:amount, rating, sigUrl, techSigUrl, travelAmt, val('f_payMode'));
+        if(outcome!=='visit'&&acBoxes.length&&!acSel.length&&!confirm('Kaunse AC ki service hui ye tick nahi kiya.\n\nBina tick kiye job close karein?')){ resetBtn(); return; }
+        let cAmt=bill?bill.T.grand:amount, cMode=val('f_payMode');
+        if(outcome){ const cu=STATE.customers.find(x=>x.id===jX.customerId), by=(STATE.session&&STATE.session.name)||'';
+          if(outcome==='amc'&&cu){ const pl=jX.amcPlan; pl.amount=Number(amount)||0; pl.mode=cMode==='due'?'':cMode; amcActivate(cu,pl,by); await saveKey(SKEY.CUSTOMERS,STATE.customers); jX.amcActivated=true; cAmt=0; }
+          else if(outcome==='single'){ jX.tag=''; jX.title='Single Service'; }
+          else { jX.tag=''; jX.title='Visit — kuch nahi karwaya'; jX.visitOnly=true; cAmt=0; cMode=''; }
+          jX.amcNew=false; delete jX.amcPlan; }
+        await completeJobWithAmount(jid, cAmt, rating, sigUrl, techSigUrl, travelAmt, cMode);
         if(acSel.length){ const jj=STATE.jobs.find(x=>x.id===jid); if(jj){ jj.acsDone=acSel; await saveKey(SKEY.JOBS,STATE.jobs); } }
         activeModal=null; render();
         if(bill){ try{ await finishBill(jid,bill.inv); activeModal={type:'billSend',data:{id:jid}}; render(); }catch(e){ console.error(e); showToast('Bill nahi ban paya — office se banwa lein'); } }
@@ -6581,13 +6599,9 @@ async function customerNewAmc(cid,opt){
     showToast('✅ Purani AMC record ho gayi — '+f.done+'/'+f.total+' service, koi job nahi bani');
   } else {
     const date=opt.date||todayStr(), ad=opt.amc||{}, end=ad.expiry||addMonths(date,12), amt=Number(ad.amount)||0;
-    closePrevContract(c,date);
-    c.amcHistory=(c.amcHistory||[]).concat({start:date,end,years:1,units:c.units||0,amount:amt,mode:normMode(ad.mode),services:[],tech:'',teli:'',desc:'Naya AMC'+(ad.amcName?' — '+ad.amcName:'')+' (customer profile se)',renewalNote:'',status:'active',srcRow:0,inApp:true,by,at:now});
-    c.type='amc'; c.activationDate=date; c.activationTime=opt.time||''; c.expiryDate=end; c.totalServices=ad.total>0?ad.total:4; c.servicesDone=0; c.amcAmount=amt; if(amt>0) c.amcMode=normMode(ad.mode); c.amcStatus='active'; c.serviceLog=[]; if(ad.amcName) c.amcName=ad.amcName; else if(!c.amcName) c.amcName='AMC';
-    await saveKey(SKEY.CUSTOMERS,STATE.customers);
-    const j={id:uid(),customerId:c.id,title:'New AMC Visit',tag:'AMC',amcVisit:false,assignedTo:opt.tech||'',status:'pending',date,time:opt.time||'',notes:'Customer profile se naya AMC'+(opt.note?' · '+opt.note:''),amount:0,checklist:[],assignN:(opt.tech?1:0),updAt:now,createdAt:now,history:[{s:'pending',t:now,by,why:'Naya AMC (customer profile se)'}]};
+    const j={id:uid(),customerId:c.id,amcNew:true,amcPlan:{name:ad.amcName||'',start:date,end,total:ad.total>0?ad.total:4,amount:amt,mode:ad.mode||'',time:opt.time||'',desc:'Naya AMC'+(ad.amcName?' — '+ad.amcName:'')+' (customer profile se)'},title:'New AMC Visit',tag:'AMC',amcVisit:false,assignedTo:opt.tech||'',status:'pending',date,time:opt.time||'',notes:'Customer profile se naya AMC'+(opt.note?' · '+opt.note:''),amount:0,checklist:[],assignN:(opt.tech?1:0),updAt:now,createdAt:now,history:[{s:'pending',t:now,by,why:'Naya AMC (customer profile se)'}]};
     STATE.jobs.push(j); await saveKey(SKEY.JOBS,STATE.jobs);
-    showToast(opt.tech?'✅ Naya AMC + Job ban gayi — '+nStaff(opt.tech)+' ko assign ho gayi':'✅ Naya AMC + Job ban gayi (technician baad me assign karein)');
+    showToast(opt.tech?'✅ Job ban gayi — '+nStaff(opt.tech)+' ko assign. Technician done karega tab AMC chalu hoga':'✅ Job ban gayi (technician baad me assign karein). Done hone par AMC chalu hoga');
   }
   STATE.customerDetailId=c.id; STATE.backView=(STATE.view!=='customerProfile'?STATE.view:STATE.backView); STATE.view='customerProfile'; render();
 }
@@ -6626,6 +6640,17 @@ function paintAmcNote(){
   if(!c||c.type!=='amc'){ box.innerHTML=''; return; }
   const done=c.servicesDone||0, tot=c.totalServices||0, next=Math.min(done+1,tot||done+1), full=tot&&done>=tot;
   box.innerHTML=`<div class="item-sub" style="background:${amcStatusOf(c)==='active'?'#e9f6ef':'#fdf1e0'};border-radius:10px;padding:8px 10px;margin:-6px 0 12px;">📋 ${esc(c.name)} pehle se AMC customer hai (${esc(amcStatusLabel(c))}) — abhi ${done}${tot?'/'+tot:''} service ho chuki hain.${full?' Saari service ho chuki hain, ye <b>extra</b> visit mानी jayegi.':' Ye <b>Service '+next+(tot?'/'+tot:'')+'</b> mानी jayegi.'}</div><div class="field" style="margin:-4px 0 12px;"><label>Ye kaam kis type ka hai?</label><select id="f_amcKind"><option value="service">AMC ki service visit (count mein jode)</option><option value="repair">Repairing / Extra kaam (alag job, AMC count mein nahi)</option></select></div>`;
+}
+function wireCjOutcome(){
+  const s=document.getElementById('f_outcome'); if(!s) return; const j=STATE.jobs.find(x=>x.id===activeModal.data.id)||{}, pl=j.amcPlan||{};
+  const g=id=>document.getElementById(id), amt=g('f_amount');
+  const paint=()=>{ const v=s.value;
+    g('cjBill').style.display=v==='single'?'':'none'; g('cjAmt').style.display=v==='visit'?'none':''; g('cjPay').style.display=v==='visit'?'none':'';
+    g('cjAmtL').textContent=v==='amc'?'AMC Amount (₹)':'Amount Charge Kiya (₹)';
+    if(v==='amc'&&amt&&!amt.value&&pl.amount) amt.value=pl.amount;
+    g('cjOutNote').textContent=v==='amc'?'Save karte hi customer AMC ban jayega ('+(pl.total||4)+' service, 1 saal).':v==='single'?'Customer AMC nahi banega — ye ek single service job ki tarah record hogi.':'Koi kaam nahi hua — sirf visit record hoga. Travel Amount neeche daal sakte hain.';
+    const btn=g('modalSave'); if(btn) btn.textContent=v==='amc'?'AMC Chalu + Job Done':v==='single'?'Single Service Done':'Visit Done'; };
+  s.onchange=paint; paint();
 }
 function wireJobType(){
   const s=document.getElementById('f_jType'); if(!s) return;
