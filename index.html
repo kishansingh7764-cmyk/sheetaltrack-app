@@ -3,7 +3,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, interactive-widget=resizes-content">
 <title>SheetalTrack</title>
-<meta name="st-build" content="9.9.22">
+<meta name="st-build" content="9.9.23">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#0A343F">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -308,6 +308,10 @@ body.desk .card-actions>.mini-btn,body.desk .card-actions>a.mini-btn{flex:0 0 au
   body.desk .content>.tabbar{max-width:none;}
 }
 @media (max-width:1279px){ body.desk .dash2{grid-template-columns:minmax(0,1fr);} }
+@media (min-width:1700px) and (hover:hover){ body.desk .content{max-width:none;} body.desk .dash2{grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);} }
+@media (min-width:1900px) and (hover:hover){ body.desk{zoom:1.15;} }
+@media (min-width:2300px) and (hover:hover){ body.desk{zoom:1.3;} }
+@media (min-width:2900px) and (hover:hover){ body.desk{zoom:1.5;} }
 @media (min-width:1001px) and (max-width:1180px) and (hover:hover){ body.desk .content{padding:22px 18px 70px;} body.desk{--sbw:200px;} }
 @media (min-width:700px) and (max-width:1000px) and (hover:hover){
   body.desk{--sbw:76px;}
@@ -382,7 +386,7 @@ button,.primary-btn{transition:transform .12s ease,filter .15s ease}button:activ
 <div id="app"></div>
 
 <script>
-const APP_BUILD='9.9.22';
+const APP_BUILD='9.9.23';
 /* ============ Backend config (Google Apps Script Web App URL) ============ */
 /* ============ Firebase (main data) + Apps Script (email only) config ============ */
 const DEFAULT_FIREBASE_CONFIG='{\"apiKey\":\"AIzaSyCY89nm41X9tADB5KSK8m6o5nl3nqVXr-g\",\"authDomain\":\"sheetaltrack.firebaseapp.com\",\"projectId\":\"sheetaltrack\",\"storageBucket\":\"sheetaltrack.firebasestorage.app\",\"messagingSenderId\":\"919097584832\",\"appId\":\"1:919097584832:web:54b380b1042a9e4ced5125\"}';
@@ -4033,17 +4037,18 @@ function renderDashboard(){
     ${unassigned.length>0?`<div class="row-between" data-navto="jobs" style="cursor:pointer;margin-bottom:12px;"><div class="section-title" style="margin:0;">Unassigned Jobs (${unassigned.length})</div><span style="color:var(--ink-faint);font-size:18px;">›</span></div>${unassigned.slice(0,4).map(j=>{ const cust=STATE.customers.find(c=>c.id===j.customerId); return `<div class="card"><div class="row-between"><div><div class="item-name">${j.title}</div><div class="item-sub">${cust?cust.name:''}</div></div><span class="pill pill-amber">Assign karein</span></div></div>`; }).join('')}` :''}
     <div class="row-between" data-navto="map" style="cursor:pointer;margin-bottom:12px;"><div class="section-title" style="margin:0;">Team Status</div><span style="color:var(--ink-faint);font-size:18px;">›</span></div>
     ${techs.length===0?`<div class="empty-state"><span class="ic">🔧</span><p>Koi technician add nahi hai.</p></div>`:
-      techs.slice(0,5).map(t=>{ const loc=STATE.locations[t.id]; const live=loc && (Date.now()-loc.ts)<10*60*1000; const pj=STATE.jobs.filter(j=>j.assignedTo===t.id&&j.status!=='done'&&j.status!=='rejected').length; return `<div class="card" data-viewstaff="${t.id}" style="cursor:pointer;"><div class="row-between"><div><div class="item-name"><span class="status-dot ${live?'dot-live':loc?'dot-stale':'dot-off'}"></span>${esc(t.name)} ›</div><div class="item-sub">${pj} kaam baaki</div></div><span class="pill ${live?'pill-green':'pill-grey'}">${live?'Live':'Offline'}</span></div></div>`; }).join('')}
-    ${techs.length>5?`<div class="item-sub" data-navto="map" style="text-align:center;cursor:pointer;color:var(--teal);font-weight:600;padding:6px 0;">+${techs.length-5} aur — Map pe dekhein ›</div>`:''}
+      techs.slice(0,isDeskUI()?8:5).map(t=>{ const loc=STATE.locations[t.id]; const live=loc && (Date.now()-loc.ts)<10*60*1000; const pj=STATE.jobs.filter(j=>j.assignedTo===t.id&&j.status!=='done'&&j.status!=='rejected').length; return `<div class="card" data-viewstaff="${t.id}" style="cursor:pointer;"><div class="row-between"><div><div class="item-name"><span class="status-dot ${live?'dot-live':loc?'dot-stale':'dot-off'}"></span>${esc(t.name)} ›</div><div class="item-sub">${pj} kaam baaki</div></div><span class="pill ${live?'pill-green':'pill-grey'}">${live?'Live':'Offline'}</span></div></div>`; }).join('')}
+    ${techs.length>(isDeskUI()?8:5)?`<div class="item-sub" data-navto="map" style="text-align:center;cursor:pointer;color:var(--teal);font-weight:600;padding:6px 0;">+${techs.length-5} aur — Map pe dekhein ›</div>`:''}
     <div class="row-between" data-navto="reminders" style="cursor:pointer;margin-bottom:12px;"><div class="section-title" style="margin:0;">Service due soon</div><span style="color:var(--ink-faint);font-size:18px;">›</span></div>
     ${(dueSoon.length+oneTimeDue.length)===0?`<div class="empty-state"><span class="ic">✅</span><p>Koi service due nahi hai agle kuch dinon mein</p></div>`:
-      [...dueSoon,...oneTimeDue].slice(0,3).map(c=>{ const due=c.dueDate||(c.type==='amc'?c.expiryDate:addMonths(c.lastService,c.intervalMonths)); const d=daysUntil(due); return `<div class="card" data-viewcust="${c.id}" style="cursor:pointer;"><div class="row-between"><div><div class="item-name">${esc(c.name)} ›</div><div class="item-sub">${esc(c.phone||'')}${c.address?' · '+esc(c.address):''}</div><div class="item-sub">${c.dueLabel||'Service Due'}</div></div><span class="pill ${d<0?'pill-red':'pill-amber'}">${d<0?Math.abs(d)+'d overdue':'in '+d+'d'}</span></div></div>`; }).join('')}
-    ${(dueSoon.length+oneTimeDue.length)>3?`<div class="item-sub" data-navto="reminders" style="text-align:center;cursor:pointer;color:var(--teal);font-weight:600;padding:6px 0;">+${dueSoon.length+oneTimeDue.length-3} aur — sab dekhein ›</div>`:''}
+      [...dueSoon,...oneTimeDue].slice(0,isDeskUI()?7:3).map(c=>{ const due=c.dueDate||(c.type==='amc'?c.expiryDate:addMonths(c.lastService,c.intervalMonths)); const d=daysUntil(due); return `<div class="card" data-viewcust="${c.id}" style="cursor:pointer;"><div class="row-between"><div><div class="item-name">${esc(c.name)} ›</div><div class="item-sub">${esc(c.phone||'')}${c.address?' · '+esc(c.address):''}</div><div class="item-sub">${c.dueLabel||'Service Due'}</div></div><span class="pill ${d<0?'pill-red':'pill-amber'}">${d<0?Math.abs(d)+'d overdue':'in '+d+'d'}</span></div></div>`; }).join('')}
+    ${(dueSoon.length+oneTimeDue.length)>(isDeskUI()?7:3)?`<div class="item-sub" data-navto="reminders" style="text-align:center;cursor:pointer;color:var(--teal);font-weight:600;padding:6px 0;">+${dueSoon.length+oneTimeDue.length-3} aur — sab dekhein ›</div>`:''}
     </div></div>
   `;
 }
 
 /* ============ Customers (unified master list) ============ */
+function isDeskUI(){ return document.body.classList.contains('desk'); }
 function amcTimelineHtml(c){
   const tot=c.totalServices||0; if(!tot) return '';
   const log=(c.serviceLog||[]).sort((a,b)=>(a.visitNo||0)-(b.visitNo||0));
