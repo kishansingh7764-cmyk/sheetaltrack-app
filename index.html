@@ -3,7 +3,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, interactive-widget=resizes-content">
 <title>SheetalTrack</title>
-<meta name="st-build" content="9.9.24">
+<meta name="st-build" content="9.9.25">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#0A343F">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -386,7 +386,7 @@ button,.primary-btn{transition:transform .12s ease,filter .15s ease}button:activ
 <div id="app"></div>
 
 <script>
-const APP_BUILD='9.9.24';
+const APP_BUILD='9.9.25';
 /* ============ Backend config (Google Apps Script Web App URL) ============ */
 /* ============ Firebase (main data) + Apps Script (email only) config ============ */
 const DEFAULT_FIREBASE_CONFIG='{\"apiKey\":\"AIzaSyCY89nm41X9tADB5KSK8m6o5nl3nqVXr-g\",\"authDomain\":\"sheetaltrack.firebaseapp.com\",\"projectId\":\"sheetaltrack\",\"storageBucket\":\"sheetaltrack.firebasestorage.app\",\"messagingSenderId\":\"919097584832\",\"appId\":\"1:919097584832:web:54b380b1042a9e4ced5125\"}';
@@ -1458,14 +1458,15 @@ function areaPickKey(inp){ const v=String(inp.value||'').trim(); if(!v) return '
 function custAreaKeys(){ const a=[]; [STATE.custArea].concat(STATE.custAreaMore||[]).forEach(k=>{ if(k&&a.indexOf(k)<0) a.push(k); }); return a; }
 function multiAreaHtml(base,ft){
   if(STATE.session.role==='technician'||!base.length) return '';
-  const ks=custAreaKeys(), o=areaOpts(base), nameOf=k=>k==='__none'?'Area nahi likha':k.charAt(0)==='~'?k.slice(1):((o.find(x=>areaKey(x.n)===k)||{}).n||k);
-  const chips=ks.map(k=>`<span class="pill pill-blue" style="display:inline-flex;align-items:center;gap:6px;padding:5px 10px;font-size:12.5px;">📍 ${esc(nameOf(k))} (${base.filter(c=>areaMatch(c,k)).length}) <b data-amdel="${esc(k)}" style="cursor:pointer;padding:0 2px;">✕</b></span>`).join('');
-  let sum='';
-  if(ks.length>1){ const L=base.filter(c=>ks.some(k=>areaMatch(c,k))), tl={amc:0,onetime:0,enquiry:0,quotation:0}; L.forEach(c=>{ const y=c.type||'amc'; if(tl[y]!==undefined) tl[y]++; });
-    sum=`<div class="card" style="margin:6px 0 10px;background:var(--sky-pale);"><div class="item-name">${ks.length} area me kul ${L.length} customer</div><div class="item-sub">${ft==='all'?`AMC ${tl.amc} · One-time ${tl.onetime}${tl.quotation?' · Quotation '+tl.quotation:''}`:'Ye count upar chuni hui tab ka hai'}</div></div>`; }
-  const add=ks.length<6?areaSelectHtml('custAreaAdd','',base.filter(c=>!ks.some(k=>areaMatch(c,k)))).replace('📍 Area — likhein ya list se chunein (khaali = Sab area)','➕ Doosra area jodein (3–4 area chun sakte hain)'):'';
-  if(!ks.length&&!add) return '';
-  return `<div style="margin:0 0 6px;">${ks.length?`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;align-items:center;">${chips}${ks.length>1?`<button class="mini-btn" data-amclear="1" style="flex:none;">Sab hatao</button>`:''}</div>`:''}${ks.length?add:''}${sum}</div>`;
+  const cur=STATE.custArea||'', saved=(STATE.custAreaMore||[]), ks=custAreaKeys(), o=areaOpts(base);
+  const nameOf=k=>k==='__none'?'Area nahi likha':k.charAt(0)==='~'?'"'+k.slice(1)+'" wale':((o.find(x=>areaKey(x.n)===k)||{}).n||k);
+  const cntOf=k=>base.filter(c=>areaMatch(c,k)).length;
+  const chips=saved.map(k=>`<span class="pill pill-blue" style="display:inline-flex;align-items:center;gap:6px;padding:5px 10px;font-size:12.5px;">✅ ${esc(nameOf(k))} (${cntOf(k)}) <b data-amdel="${esc(k)}" style="cursor:pointer;padding:0 2px;">✕</b></span>`).join('');
+  const addBtn=cur&&saved.indexOf(cur)<0?`<button class="mini-btn primary" data-amsave="1" style="flex:none;">☑ ${esc(nameOf(cur))} — ${cntOf(cur)} customer select karein</button>`:'';
+  let sum=''; if(saved.length){ const L=base.filter(c=>ks.some(k=>areaMatch(c,k))), tl={amc:0,onetime:0,enquiry:0,quotation:0}; L.forEach(c=>{ const y=c.type||'amc'; if(tl[y]!==undefined) tl[y]++; });
+    sum=`<div class="card" style="margin:6px 0 10px;background:var(--sky-pale);"><div class="item-name">Kul ${L.length} customer</div><div class="item-sub">${ft==='all'?`AMC ${tl.amc} · One-time ${tl.onetime}${tl.quotation?' · Quotation '+tl.quotation:''}`:'Ye count upar chuni hui tab ka hai'}</div></div>`; }
+  if(!saved.length&&!addBtn) return '';
+  return `<div style="margin:0 0 6px;">${(chips||addBtn)?`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;align-items:center;">${chips}${addBtn}${saved.length?`<button class="mini-btn" data-amclear="1" style="flex:none;">Sab hatao</button>`:''}</div>`:''}${sum}</div>`;
 }
 const areaMatch=(c,cur)=>!cur||(cur==='__none'?!custAreaOf(c):cur.charAt(0)==='~'?(areaKey(custAreaOf(c))||areaCanon(c.address)).includes(cur.slice(1)):areaKey(custAreaOf(c))===cur);
 function amcNameIdx(){ if(STATE._nmIdx) return STATE._nmIdx; const m=new Map(); STATE._nmIdx=m; m.ph=new Map(); (STATE.customers||[]).forEach(o=>{ if(o.deleted||(o.type||'amc')!=='amc') return; [ph10(o.phone),ph10(o.phone2)].forEach(p=>{ if(p.length===10){ if(!m.ph.has(p)) m.ph.set(p,[]); m.ph.get(p).push(o); } }); const k=nameKey(o.name); if(k.length<3) return; if(!m.has(k)) m.set(k,[]); m.get(k).push(o); }); return m; }
@@ -6624,10 +6625,10 @@ async function customerNewAmc(cid,opt){
   STATE.customerDetailId=c.id; STATE.backView=(STATE.view!=='customerProfile'?STATE.view:STATE.backView); STATE.view='customerProfile'; render();
 }
 
-document.addEventListener('change',e=>{ const t=e.target; if(!t||t.id!=='custAreaAdd') return; const nk=areaPickKey(t); if(!nk) return; if(custAreaKeys().indexOf(nk)>-1){ t.value=''; return; } if(!STATE.custArea) STATE.custArea=nk; else { STATE.custAreaMore=(STATE.custAreaMore||[]).concat(nk); } STATE.custShown=60; render(); });
-document.addEventListener('click',e=>{ const d=e.target.closest&&e.target.closest('[data-amdel],[data-amclear]'); if(!d) return;
+document.addEventListener('click',e=>{ const d=e.target.closest&&e.target.closest('[data-amdel],[data-amclear],[data-amsave]'); if(!d) return;
   if(d.dataset.amclear){ STATE.custArea=''; STATE.custAreaMore=[]; }
-  else { const k=d.dataset.amdel; if(STATE.custArea===k){ const m=(STATE.custAreaMore||[]).slice(); STATE.custArea=m.shift()||''; STATE.custAreaMore=m; } else STATE.custAreaMore=(STATE.custAreaMore||[]).filter(x=>x!==k); }
+  else if(d.dataset.amsave){ const k=STATE.custArea; if(k&&(STATE.custAreaMore||[]).indexOf(k)<0) STATE.custAreaMore=(STATE.custAreaMore||[]).concat(k); STATE.custArea=''; }
+  else { const k=d.dataset.amdel; STATE.custAreaMore=(STATE.custAreaMore||[]).filter(x=>x!==k); }
   STATE.custShown=60; render(); });
 /* ===== v9.2c: Customer / AMC details Share (staff ya kisi bhi number par) ===== */
 function custShareText(c){
