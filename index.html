@@ -3,7 +3,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, interactive-widget=resizes-content">
 <title>SheetalTrack</title>
-<meta name="st-build" content="9.9.23">
+<meta name="st-build" content="9.9.24">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#0A343F">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -386,7 +386,7 @@ button,.primary-btn{transition:transform .12s ease,filter .15s ease}button:activ
 <div id="app"></div>
 
 <script>
-const APP_BUILD='9.9.23';
+const APP_BUILD='9.9.24';
 /* ============ Backend config (Google Apps Script Web App URL) ============ */
 /* ============ Firebase (main data) + Apps Script (email only) config ============ */
 const DEFAULT_FIREBASE_CONFIG='{\"apiKey\":\"AIzaSyCY89nm41X9tADB5KSK8m6o5nl3nqVXr-g\",\"authDomain\":\"sheetaltrack.firebaseapp.com\",\"projectId\":\"sheetaltrack\",\"storageBucket\":\"sheetaltrack.firebasestorage.app\",\"messagingSenderId\":\"919097584832\",\"appId\":\"1:919097584832:web:54b380b1042a9e4ced5125\"}';
@@ -1455,6 +1455,18 @@ function recentAdd(t){ t=String(t||'').trim(); if(t.length<2) return; try{ const
 function recentClear(){ try{ localStorage.removeItem(RS_KEY); }catch(e){} }
 function recentSearchHtml(){ const l=recentGet(); if(!l.length) return ''; return `<div id="recentSearch" style="${STATE.custSearch?'display:none;':''}margin:-4px 0 10px;"><div class="item-sub" style="margin:0 0 4px;">🕘 Pichli search <span data-rsclear="1" style="color:var(--teal);cursor:pointer;margin-left:8px;">saaf karein</span></div><div style="display:flex;flex-wrap:wrap;gap:6px;">${l.map(x=>`<button class="mini-btn" data-rs="${esc(x)}" style="flex:none;">🔍 ${esc(x)}</button>`).join('')}</div></div>`; }
 function areaPickKey(inp){ const v=String(inp.value||'').trim(); if(!v) return ''; let m={}; try{ m=JSON.parse(inp.dataset.amap||'{}'); }catch(e){} const k=m[v.toLowerCase()]; if(k!==undefined) return k; const c=areaCanon(v); return c?'~'+c:''; }
+function custAreaKeys(){ const a=[]; [STATE.custArea].concat(STATE.custAreaMore||[]).forEach(k=>{ if(k&&a.indexOf(k)<0) a.push(k); }); return a; }
+function multiAreaHtml(base,ft){
+  if(STATE.session.role==='technician'||!base.length) return '';
+  const ks=custAreaKeys(), o=areaOpts(base), nameOf=k=>k==='__none'?'Area nahi likha':k.charAt(0)==='~'?k.slice(1):((o.find(x=>areaKey(x.n)===k)||{}).n||k);
+  const chips=ks.map(k=>`<span class="pill pill-blue" style="display:inline-flex;align-items:center;gap:6px;padding:5px 10px;font-size:12.5px;">📍 ${esc(nameOf(k))} (${base.filter(c=>areaMatch(c,k)).length}) <b data-amdel="${esc(k)}" style="cursor:pointer;padding:0 2px;">✕</b></span>`).join('');
+  let sum='';
+  if(ks.length>1){ const L=base.filter(c=>ks.some(k=>areaMatch(c,k))), tl={amc:0,onetime:0,enquiry:0,quotation:0}; L.forEach(c=>{ const y=c.type||'amc'; if(tl[y]!==undefined) tl[y]++; });
+    sum=`<div class="card" style="margin:6px 0 10px;background:var(--sky-pale);"><div class="item-name">${ks.length} area me kul ${L.length} customer</div><div class="item-sub">${ft==='all'?`AMC ${tl.amc} · One-time ${tl.onetime}${tl.quotation?' · Quotation '+tl.quotation:''}`:'Ye count upar chuni hui tab ka hai'}</div></div>`; }
+  const add=ks.length<6?areaSelectHtml('custAreaAdd','',base.filter(c=>!ks.some(k=>areaMatch(c,k)))).replace('📍 Area — likhein ya list se chunein (khaali = Sab area)','➕ Doosra area jodein (3–4 area chun sakte hain)'):'';
+  if(!ks.length&&!add) return '';
+  return `<div style="margin:0 0 6px;">${ks.length?`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;align-items:center;">${chips}${ks.length>1?`<button class="mini-btn" data-amclear="1" style="flex:none;">Sab hatao</button>`:''}</div>`:''}${ks.length?add:''}${sum}</div>`;
+}
 const areaMatch=(c,cur)=>!cur||(cur==='__none'?!custAreaOf(c):cur.charAt(0)==='~'?(areaKey(custAreaOf(c))||areaCanon(c.address)).includes(cur.slice(1)):areaKey(custAreaOf(c))===cur);
 function amcNameIdx(){ if(STATE._nmIdx) return STATE._nmIdx; const m=new Map(); STATE._nmIdx=m; m.ph=new Map(); (STATE.customers||[]).forEach(o=>{ if(o.deleted||(o.type||'amc')!=='amc') return; [ph10(o.phone),ph10(o.phone2)].forEach(p=>{ if(p.length===10){ if(!m.ph.has(p)) m.ph.set(p,[]); m.ph.get(p).push(o); } }); const k=nameKey(o.name); if(k.length<3) return; if(!m.has(k)) m.set(k,[]); m.get(k).push(o); }); return m; }
 function twinInfo(c,idx){
@@ -4154,18 +4166,18 @@ function renderCustomers(){
   const filterType=STATE.custTypeFilter||'all'; const qa=areaCanon(q);
   let list=STATE.customers.filter(c=> !q || c.name.toLowerCase().includes(q) || (c.phone||'').includes(q) || (c.phone2||'').includes(q) || String(c.area||'').toLowerCase().includes(q) || String(c.address||'').toLowerCase().includes(q) || (qa.length>=3&&areaKey(custAreaOf(c)).includes(qa)));
   if(filterType!=='all') list=list.filter(c=>(c.type||'amc')===filterType);
-  const areaBase=list.slice(), selArea=STATE.custArea||'';
-  if(selArea) list=list.filter(c=>areaMatch(c,selArea));
+  const areaBase=list.slice(), selArea=STATE.custArea||'', _ak=custAreaKeys(), areaOn=_ak.length>0, custAreaOk=c=>_ak.some(k=>areaMatch(c,k));
+  if(areaOn) list=list.filter(custAreaOk);
   let otCnt=null;
   if(filterType==='onetime'){ const idx=amcNameIdx(), tw=new Map(list.map(c=>[c.id,twinsFast(c,idx).length>0])); otCnt={amc:list.filter(c=>tw.get(c.id)).length,alone:list.filter(c=>!tw.get(c.id)).length};
     if(STATE.custOt==='amc') list=list.filter(c=>tw.get(c.id)); else if(STATE.custOt==='alone') list=list.filter(c=>!tw.get(c.id)); }
   list=list.slice().sort((a,b)=>custRecent(b)-custRecent(a));
-  const amcCnt={all:0,active:0,inactive:0,cancel:0}; STATE.customers.forEach(c=>{ if(selArea&&!areaMatch(c,selArea)) return; if((c.type||'amc')==='amc'){ amcCnt.all++; const st=amcStatusOf(c); if(st==='active') amcCnt.active++; else if(st==='lapsed') amcCnt.cancel++; else amcCnt.inactive++; } });
+  const amcCnt={all:0,active:0,inactive:0,cancel:0}; STATE.customers.forEach(c=>{ if(areaOn&&!custAreaOk(c)) return; if((c.type||'amc')==='amc'){ amcCnt.all++; const st=amcStatusOf(c); if(st==='active') amcCnt.active++; else if(st==='lapsed') amcCnt.cancel++; else amcCnt.inactive++; } });
   if(filterType==='amc'&&STATE.custStatus) list=list.filter(c=>{ const st=amcStatusOf(c); return STATE.custStatus==='active'?st==='active':STATE.custStatus==='lapsed'?st==='lapsed':st==='inactive'; });
   STATE.__cList=list;
   const cMode=(filterType==='amc'||(filterType==='onetime'&&STATE.custOt!=='amc'))&&STATE.session.role!=='technician'&&list.length>0, cS=STATE.cSel||{}, cK=cMode?list.filter(c=>cS[c.id]).length:0;
   const typeCounts={all:STATE.customers.length, amc:0, onetime:0, enquiry:0, quotation:0};
-  STATE.customers.forEach(c=>{ if(selArea&&!areaMatch(c,selArea)) return; const t=c.type||'amc'; if(typeCounts[t]!==undefined) typeCounts[t]++; });
+  STATE.customers.forEach(c=>{ if(areaOn&&!custAreaOk(c)) return; const t=c.type||'amc'; if(typeCounts[t]!==undefined) typeCounts[t]++; });
   return `
     <div class="tabbar"><button class="tabbtn active" data-navto="customers">List</button><button class="tabbtn" data-navto="amccal">AMC Calendar</button></div>
     <div class="row-between" style="margin-bottom:12px;"><div class="section-title" style="margin:0;" id="custCount">Customers (${list.length})</div>${STATE.session.role==='admin'?`<button class="mini-btn primary" data-act="amcimport">📥 AMC Import</button>`:''}</div>
@@ -4178,7 +4190,8 @@ function renderCustomers(){
       <button class="tabbtn ${filterType==='quotation'?'active':''}" data-typefilter="quotation">Quotation (${typeCounts.quotation})</button>
     </div>
     ${areaSelectHtml('custAreaSel',selArea,areaBase)}
-    ${areaSummaryHtml(selArea)}
+    ${multiAreaHtml(areaBase,filterType)}
+    ${_ak.length>1?'':areaSummaryHtml(selArea)}
     ${areaFixHtml()}
     ${lsPanelHtml()}
     ${otCnt?`<div class="tabbar"><button class="tabbtn ${!STATE.custOt?'active':''}" data-custot="">Sab One-time</button><button class="tabbtn ${STATE.custOt==='amc'?'active':''}" data-custot="amc">🔗 AMC se mila (${otCnt.amc})</button><button class="tabbtn ${STATE.custOt==='alone'?'active':''}" data-custot="alone">Alag — AMC nahi (${otCnt.alone})</button></div>`:''}
@@ -6611,6 +6624,11 @@ async function customerNewAmc(cid,opt){
   STATE.customerDetailId=c.id; STATE.backView=(STATE.view!=='customerProfile'?STATE.view:STATE.backView); STATE.view='customerProfile'; render();
 }
 
+document.addEventListener('change',e=>{ const t=e.target; if(!t||t.id!=='custAreaAdd') return; const nk=areaPickKey(t); if(!nk) return; if(custAreaKeys().indexOf(nk)>-1){ t.value=''; return; } if(!STATE.custArea) STATE.custArea=nk; else { STATE.custAreaMore=(STATE.custAreaMore||[]).concat(nk); } STATE.custShown=60; render(); });
+document.addEventListener('click',e=>{ const d=e.target.closest&&e.target.closest('[data-amdel],[data-amclear]'); if(!d) return;
+  if(d.dataset.amclear){ STATE.custArea=''; STATE.custAreaMore=[]; }
+  else { const k=d.dataset.amdel; if(STATE.custArea===k){ const m=(STATE.custAreaMore||[]).slice(); STATE.custArea=m.shift()||''; STATE.custAreaMore=m; } else STATE.custAreaMore=(STATE.custAreaMore||[]).filter(x=>x!==k); }
+  STATE.custShown=60; render(); });
 /* ===== v9.2c: Customer / AMC details Share (staff ya kisi bhi number par) ===== */
 function custShareText(c){
   const b=bizCfg(), st=amcStatusOf(c), addr=[c.address,c.landmark,c.city,c.pincode].filter(Boolean).join(', ');
